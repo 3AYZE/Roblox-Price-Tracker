@@ -12,7 +12,7 @@ $finalExe = Join-Path $dist 'RobloxPriceTracker.exe'
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-Set-Content -Path $logPath -Value "Roblox Price Tracker v0.3.3 Windows build - $(Get-Date -Format o)"
+Set-Content -Path $logPath -Value "Roblox Price Tracker v0.4.0 Windows build - $(Get-Date -Format o)"
 
 function Write-Step([string]$Text) {
     $line = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Text"
