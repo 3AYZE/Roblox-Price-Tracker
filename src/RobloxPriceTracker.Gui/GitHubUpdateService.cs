@@ -219,30 +219,29 @@ public sealed class GitHubUpdateService : IDisposable
         var scriptPath = Path.Combine(updateDirectory, $"install-update-{Guid.NewGuid():N}.ps1");
         var source = EscapePowerShellSingleQuoted(Path.GetFullPath(stagedExecutable));
         var destination = EscapePowerShellSingleQuoted(Path.GetFullPath(currentExecutable));
-        var script = $"""
-$ErrorActionPreference = 'Stop'
-$source = '{source}'
-$destination = '{destination}'
-$processId = {Environment.ProcessId}
-try {{
-    while (Get-Process -Id $processId -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 500 }}
-    $copied = $false
-    for ($i = 0; $i -lt 30 -and -not $copied; $i++) {{
-        try {{
-            Copy-Item -LiteralPath $source -Destination $destination -Force
-            $copied = $true
-        }} catch {{
-            Start-Sleep -Seconds 1
-        }}
-    }}
-    if (-not $copied) {{ exit 21 }}
-    Start-Process -FilePath $destination -ArgumentList '--updated'
-    Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue
-}} finally {{
-    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-}}
-""";
-        File.WriteAllText(scriptPath, script, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        var scriptBuilder = new StringBuilder();
+        scriptBuilder.AppendLine("$ErrorActionPreference = 'Stop'");
+        scriptBuilder.AppendLine($"$source = '{source}'");
+        scriptBuilder.AppendLine($"$destination = '{destination}'");
+        scriptBuilder.AppendLine($"$processId = {Environment.ProcessId}");
+        scriptBuilder.AppendLine("try {");
+        scriptBuilder.AppendLine("    while (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }");
+        scriptBuilder.AppendLine("    $copied = $false");
+        scriptBuilder.AppendLine("    for ($i = 0; $i -lt 30 -and -not $copied; $i++) {");
+        scriptBuilder.AppendLine("        try {");
+        scriptBuilder.AppendLine("            Copy-Item -LiteralPath $source -Destination $destination -Force");
+        scriptBuilder.AppendLine("            $copied = $true");
+        scriptBuilder.AppendLine("        } catch {");
+        scriptBuilder.AppendLine("            Start-Sleep -Seconds 1");
+        scriptBuilder.AppendLine("        }");
+        scriptBuilder.AppendLine("    }");
+        scriptBuilder.AppendLine("    if (-not $copied) { exit 21 }");
+        scriptBuilder.AppendLine("    Start-Process -FilePath $destination -ArgumentList '--updated'");
+        scriptBuilder.AppendLine("    Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue");
+        scriptBuilder.AppendLine("} finally {");
+        scriptBuilder.AppendLine("    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue");
+        scriptBuilder.AppendLine("}");
+        File.WriteAllText(scriptPath, scriptBuilder.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var process = Process.Start(new ProcessStartInfo
         {
