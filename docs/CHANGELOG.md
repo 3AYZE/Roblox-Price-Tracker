@@ -1,5 +1,15 @@
 # Roblox Price Tracker changelog
 
+## v0.4.1
+- Fixed the Price History item/range selectors using a fully custom dark WPF ComboBox template so Windows light-theme chrome no longer produces white unreadable dropdowns.
+- Increased Price History title, metric, table, and header contrast for better readability against the market-terminal background.
+- Corrected the sidebar brand icon by using the dedicated logo asset with a larger native-proportion container instead of the clipped menu artwork.
+- Added an optional in-app GitHub Release updater with automatic six-hour checks and a manual **Check for Update** action in Settings.
+- Added staged update downloads under the local app-data directory, Windows PE validation, SHA-256 verification, writable-install-location validation, restart-to-install replacement, and safe preservation of watchlist/history/settings.
+- Added a versioned GitHub Release workflow that only publishes when the application version is new and attaches `RobloxPriceTracker.exe` plus `RobloxPriceTracker.exe.sha256` after the Windows build and regression suite succeed.
+- Added private-release support through optional `RPT_GITHUB_TOKEN` and configurable release source through `RPT_UPDATE_REPOSITORY`, without embedding GitHub credentials into the EXE.
+- Published v0.4.1 after a clean Windows build with 0 warnings / 0 errors and 19/19 regression tests passing.
+
 ## v0.4.0
 - Redesigned the application around a professional dark **market-terminal / stock-dashboard** visual system.
 - Added a compact quote tape for tracked items, near-target signals, target hits, and Roblox API health.
