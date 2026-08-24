@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Domain and tracker engine for the Roblox Price Tracker prototype.</Description>
+  </PropertyGroup>
+</Project>
