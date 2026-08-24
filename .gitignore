@@ -1,0 +1,24 @@
+# .NET build output
+**/bin/
+**/obj/
+artifacts/
+dist/
+
+# IDE / user files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs / local runtime data
+*.log
+logs/
+tracker-state.json
+app-settings.json
+
+# OS
+Thumbs.db
+.DS_Store
