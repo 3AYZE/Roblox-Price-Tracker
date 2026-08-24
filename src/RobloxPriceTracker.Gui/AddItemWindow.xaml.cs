@@ -21,10 +21,10 @@ public partial class AddItemWindow : Window
         {
             DialogTitleText.Text = "Edit target price";
             DialogSubtitleText.Text = "Refresh the current marketplace state, then update the alert threshold.";
-            SaveButton.Content = "Save Target";
+            SaveButton.Content = "SAVE TARGET";
             ItemInputTextBox.Text = initialItem;
             ItemInputTextBox.IsReadOnly = true;
-            VerifyButton.Content = "Refresh Item";
+            VerifyButton.Content = "REFRESH";
         }
 
         if (initialTarget is > 0)
@@ -206,25 +206,27 @@ public partial class AddItemWindow : Window
         {
             case MarketStatus.Available:
                 ResolvedStatusText.Text = "Verified";
-                ResolvedStatusBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(236, 253, 245));
-                ResolvedStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(4, 120, 87));
+                SetBadgeColor(13, 40, 27, 45, 216, 129);
                 break;
             case MarketStatus.NoResellers:
                 ResolvedStatusText.Text = "No sellers";
-                ResolvedStatusBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 247, 237));
-                ResolvedStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(181, 71, 8));
+                SetBadgeColor(51, 37, 21, 255, 184, 107);
                 break;
             case MarketStatus.OffSale:
                 ResolvedStatusText.Text = "Off sale";
-                ResolvedStatusBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(242, 244, 247));
-                ResolvedStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(71, 84, 103));
+                SetBadgeColor(35, 40, 51, 170, 178, 191);
                 break;
             default:
                 ResolvedStatusText.Text = "Verified";
-                ResolvedStatusBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(242, 244, 247));
-                ResolvedStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(102, 112, 133));
+                SetBadgeColor(31, 41, 54, 154, 165, 180);
                 break;
         }
+    }
+
+    private void SetBadgeColor(byte br, byte bg, byte bb, byte fr, byte fg, byte fb)
+    {
+        ResolvedStatusBadge.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(br, bg, bb));
+        ResolvedStatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(fr, fg, fb));
     }
 
     private void SetBusy(bool busy, string message)
