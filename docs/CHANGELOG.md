@@ -1,12 +1,22 @@
 # Roblox Price Tracker changelog
 
+## v0.4.0
+- Redesigned the application around a professional dark **market-terminal / stock-dashboard** visual system.
+- Added a compact quote tape for tracked items, near-target signals, target hits, and Roblox API health.
+- Reworked the watchlist into a denser quote board with **Last / Vs Target / Target / Session Low / Signal / Updated** information.
+- Added finance-style signal colors: green for target hits, amber for near-target items, and red/orange for market/data issues.
+- Reworked price-history rendering with a dark trading chart, subtle area fill, grid, compact price labels, and target reference line.
+- Restyled Add Item as an asset verification/target-entry workflow and Item Details as a market quote/history view.
+- Preserved search, filters, sorting, empty states, report metrics/export, diagnostics, startup/background controls, tray monitoring, and persistent alerts.
+- Updated executable metadata and diagnostics to v0.4.0.
+- Validated the redesign through the repository's Windows GitHub Actions build/test/single-EXE pipeline.
+
 ## v0.3.3
 - Added per-user **Start with Windows** registration through HKCU with automatic moved-EXE path repair.
 - Added `--startup` and optional `--background` launch modes with configurable 0-120 second startup delay.
 - Added background startup with no main-window requirement, close-to-tray control, tray startup toggle, and monitoring-state tray text.
 - Added second-instance activation so opening the EXE while it is already running brings the existing window forward.
 - Added creator attribution for [3AYZE](https://github.com/3AYZE) in the UI, README, and executable metadata.
-
 
 ## v0.3.0
 - Reworked the WPF application shell and navigation into a denser business dashboard.
