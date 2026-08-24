@@ -55,7 +55,6 @@
             <Setter Property="Foreground" Value="{StaticResource TextTertiary}" />
             <Setter Property="FontSize" Value="9.5" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="CharacterSpacing" Value="80" />
         </Style>
 
         <Style x:Key="PrimaryButtonStyle" TargetType="Button">
