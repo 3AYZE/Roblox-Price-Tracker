@@ -1,0 +1,237 @@
+<Window x:Class="RobloxPriceTracker.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:RobloxPriceTracker.Gui"
+        Title="Roblox Price Tracker"
+        Icon="Assets/mouse_app.ico"
+        Width="1320" Height="820"
+        MinWidth="1080" MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Loaded="Window_Loaded"
+        Closing="Window_Closing">
+    <Grid Background="{StaticResource AppBackground}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="224" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="{StaticResource SidebarBackground}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="92" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="98" />
+                </Grid.RowDefinitions>
+
+                <Grid Margin="20,0,16,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="42" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Width="36" Height="36" CornerRadius="8" Background="White" VerticalAlignment="Center">
+                        <Image Source="Assets/mouse_menu.png" Width="30" Height="30" Stretch="Uniform" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="11,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Price Tracker" Foreground="White" FontWeight="SemiBold" FontSize="15" />
+                        <TextBlock Text="Roblox Marketplace Monitor" Foreground="#98A2B3" FontSize="10.5" Margin="0,3,0,0" />
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Grid.Row="1" Margin="0,8,0,0">
+                    <TextBlock Text="OVERVIEW" Foreground="#667085" FontSize="9.5" FontWeight="SemiBold" Margin="24,0,0,8" />
+                    <RadioButton x:Name="DashboardNav" GroupName="Navigation" Content="Dashboard" Style="{StaticResource NavigationButtonStyle}" IsChecked="True" Checked="DashboardNav_Checked" />
+                    <RadioButton x:Name="WatchlistNav" GroupName="Navigation" Content="Watchlist" Style="{StaticResource NavigationButtonStyle}" Checked="WatchlistNav_Checked" />
+                    <RadioButton x:Name="AlertsNav" GroupName="Navigation" Content="Alerts" Style="{StaticResource NavigationButtonStyle}" Checked="AlertsNav_Checked" />
+                    <RadioButton x:Name="ReportsNav" GroupName="Navigation" Content="Reports" Style="{StaticResource NavigationButtonStyle}" Checked="ReportsNav_Checked" />
+                    <TextBlock Text="MANAGEMENT" Foreground="#667085" FontSize="9.5" FontWeight="SemiBold" Margin="24,25,0,8" />
+                    <RadioButton x:Name="SettingsNav" GroupName="Navigation" Content="Settings" Style="{StaticResource NavigationButtonStyle}" Checked="SettingsNav_Checked" />
+                </StackPanel>
+
+                <Border Grid.Row="2" BorderBrush="#1D2939" BorderThickness="0,1,0,0" Padding="20,0">
+                    <StackPanel VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="SidebarStatusDot" Width="8" Height="8" Fill="#12B76A" VerticalAlignment="Center" />
+                            <TextBlock x:Name="SidebarMonitorText" Text="Monitoring" Foreground="#D0D5DD" FontSize="11.5" Margin="8,0,0,0" />
+                        </StackPanel>
+                        <TextBlock Text="v0.3.3 · by 3AYZE" Foreground="#667085" FontSize="9.5" Margin="16,6,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="76" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="38" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1">
+                <Grid Margin="26,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="PageTitleText" Text="Dashboard" FontSize="21" FontWeight="SemiBold" />
+                        <TextBlock x:Name="PageSubtitleText" Text="Marketplace monitoring overview and recent activity." Foreground="{StaticResource TextSecondary}" FontSize="11" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="PauseResumeButton" Content="Pause" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,10,0" Click="PauseResumeButton_Click" />
+                        <Button x:Name="CheckNowButton" Content="Check Now" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,10,0" Click="CheckNowButton_Click" />
+                        <Button Content="+ Add Item" Style="{StaticResource PrimaryButtonStyle}" Click="AddItemButton_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1">
+                <ScrollViewer x:Name="DashboardPage" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="26,22,26,28">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="TRACKED ITEMS" Foreground="{StaticResource TextSecondary}" FontSize="9.5" FontWeight="SemiBold" /><TextBlock x:Name="TrackedCountText" Text="0" FontSize="28" FontWeight="SemiBold" Margin="0,8,0,0" /><TextBlock Text="Active watchlist entries" Foreground="{StaticResource TextTertiary}" FontSize="10" Margin="0,4,0,0" /></StackPanel></Border>
+                            <Border Grid.Column="2" Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="NEAR TARGET" Foreground="{StaticResource TextSecondary}" FontSize="9.5" FontWeight="SemiBold" /><TextBlock x:Name="NearTargetCountText" Text="0" FontSize="28" FontWeight="SemiBold" Margin="0,8,0,0" /><TextBlock Text="Within 10% of target" Foreground="{StaticResource TextTertiary}" FontSize="10" Margin="0,4,0,0" /></StackPanel></Border>
+                            <Border Grid.Column="4" Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="TARGET HITS" Foreground="{StaticResource TextSecondary}" FontSize="9.5" FontWeight="SemiBold" /><TextBlock x:Name="TargetHitCountText" Text="0" FontSize="28" FontWeight="SemiBold" Margin="0,8,0,0" /><TextBlock Text="Currently triggered" Foreground="{StaticResource TextTertiary}" FontSize="10" Margin="0,4,0,0" /></StackPanel></Border>
+                            <Border Grid.Column="6" Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="API STATUS" Foreground="{StaticResource TextSecondary}" FontSize="9.5" FontWeight="SemiBold" /><TextBlock x:Name="ApiStatusText" Text="Ready" FontSize="17" FontWeight="SemiBold" Margin="0,11,0,0" /><TextBlock x:Name="ApiDetailText" Text="No recent failures" Foreground="{StaticResource TextTertiary}" FontSize="10" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" /></StackPanel></Border>
+                        </Grid>
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource CardStyle}">
+                                <Grid>
+                                    <Grid.RowDefinitions><RowDefinition Height="36" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                    <TextBlock Text="Watchlist overview" FontSize="14" FontWeight="SemiBold" />
+                                    <DataGrid x:Name="DashboardGrid" Grid.Row="1" IsReadOnly="True" MouseDoubleClick="WatchlistGrid_MouseDoubleClick">
+                                        <DataGrid.Columns>
+                                            <DataGridTemplateColumn Header="ITEM" Width="2.2*"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding AssetIdText}" Foreground="{StaticResource TextTertiary}" FontSize="9.5" Margin="0,2,0,0" /></StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                                            <DataGridTextColumn Header="CURRENT" Binding="{Binding CurrentPrice}" Width="*" />
+                                            <DataGridTextColumn Header="TARGET" Binding="{Binding TargetPrice}" Width="*" />
+                                            <DataGridTemplateColumn Header="STATUS" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border Background="{Binding StatusBackground}" CornerRadius="9" Padding="8,3" HorizontalAlignment="Left"><TextBlock Text="{Binding Status}" Foreground="{Binding StatusForeground}" FontSize="9.5" FontWeight="SemiBold" /></Border></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource CardStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Monitoring health" FontSize="14" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="HealthHeadlineText" Text="Ready to monitor" FontSize="15" FontWeight="SemiBold" Margin="0,20,0,0" />
+                                    <TextBlock x:Name="HealthDetailText" Text="Add an item or run a marketplace check." Foreground="{StaticResource TextSecondary}" FontSize="10.5" TextWrapping="Wrap" Margin="0,6,0,0" />
+                                    <Border Background="#F9FAFB" BorderBrush="#EAECF0" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,18,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="Last successful check" Foreground="{StaticResource TextSecondary}" FontSize="9.5" />
+                                            <TextBlock x:Name="LastSuccessText" Text="Never" FontWeight="SemiBold" Margin="0,4,0,0" />
+                                            <TextBlock Text="Next scheduled check" Foreground="{StaticResource TextSecondary}" FontSize="9.5" Margin="0,13,0,0" />
+                                            <TextBlock x:Name="NextCheckText" Text="—" FontWeight="SemiBold" Margin="0,4,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Grid x:Name="WatchlistPage" Visibility="Collapsed" Margin="26,20,26,24">
+                    <Grid.RowDefinitions><RowDefinition Height="54" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="280" /><ColumnDefinition Width="12" /><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBox x:Name="WatchlistSearchBox" VerticalAlignment="Top" TextChanged="WatchlistSearchBox_TextChanged" />
+                        <ComboBox x:Name="WatchlistFilterCombo" Grid.Column="2" SelectedIndex="0" SelectionChanged="WatchlistFilterCombo_SelectionChanged">
+                            <ComboBoxItem Content="All items" Tag="All" />
+                            <ComboBoxItem Content="Near target" Tag="Near" />
+                            <ComboBoxItem Content="Target hit" Tag="Hit" />
+                            <ComboBoxItem Content="Issues / stale" Tag="Issue" />
+                        </ComboBox>
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Edit Target" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0" Click="EditTargetButton_Click" />
+                            <Button Content="View Details" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0" Click="ViewDetailsButton_Click" />
+                            <Button Content="Remove" Style="{StaticResource DangerButtonStyle}" Click="RemoveButton_Click" />
+                        </StackPanel>
+                    </Grid>
+                    <DataGrid x:Name="WatchlistGrid" Grid.Row="1" IsReadOnly="True" MouseDoubleClick="WatchlistGrid_MouseDoubleClick">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="ITEM" Width="2.3*"><DataGridTemplateColumn.CellTemplate><DataTemplate><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Width="38" Height="38" Background="#F2F4F7" CornerRadius="7"><Image Source="{Binding ThumbnailUrl}" Stretch="UniformToFill" /></Border><StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center"><TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding AssetIdText}" Foreground="{StaticResource TextTertiary}" FontSize="9.5" Margin="0,2,0,0" /></StackPanel></Grid></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="CURRENT" Width="1.1*"><DataGridTemplateColumn.CellTemplate><DataTemplate><StackPanel><TextBlock Text="{Binding CurrentPrice}" Foreground="{Binding PriceForeground}" FontWeight="SemiBold" /><TextBlock Text="{Binding TargetDistance}" Foreground="{StaticResource TextTertiary}" FontSize="9" Margin="0,2,0,0" /></StackPanel></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                            <DataGridTextColumn Header="TARGET" Binding="{Binding TargetPrice}" Width="*" />
+                            <DataGridTextColumn Header="TRACKED LOW" Binding="{Binding TrackedLow}" Width="*" />
+                            <DataGridTemplateColumn Header="STATUS" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate><Border Background="{Binding StatusBackground}" CornerRadius="9" Padding="8,3" HorizontalAlignment="Left"><TextBlock Text="{Binding Status}" Foreground="{Binding StatusForeground}" FontSize="9.5" FontWeight="SemiBold" /></Border></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                            <DataGridTextColumn Header="LAST CHECK" Binding="{Binding LastChecked}" Width="1.2*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+
+                <Grid x:Name="AlertsPage" Visibility="Collapsed" Margin="26,20,26,24">
+                    <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <TextBlock Text="Alert history is kept locally so a notification cannot disappear without an audit trail." Foreground="{StaticResource TextSecondary}" FontSize="11" />
+                    <DataGrid x:Name="AlertsGrid" Grid.Row="1" IsReadOnly="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="TIME" Binding="{Binding Time}" Width="1.3*" />
+                            <DataGridTextColumn Header="ITEM" Binding="{Binding ItemName}" Width="2*" />
+                            <DataGridTextColumn Header="EVENT" Binding="{Binding Event}" Width="1.3*" />
+                            <DataGridTextColumn Header="PRICE" Binding="{Binding Price}" Width="*" />
+                            <DataGridTextColumn Header="PREVIOUS" Binding="{Binding PreviousPrice}" Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+
+                <Grid x:Name="ReportsPage" Visibility="Collapsed" Margin="26,20,26,24">
+                    <Grid.RowDefinitions><RowDefinition Height="52" /><RowDefinition Height="300" /><RowDefinition Height="14" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Grid>
+                        <TextBlock Text="Price history" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <ComboBox x:Name="ReportRangeCombo" Width="150" SelectedIndex="1" SelectionChanged="ReportRangeCombo_SelectionChanged"><ComboBoxItem Content="Last 24 hours" Tag="24H"/><ComboBoxItem Content="Last 7 days" Tag="7D"/><ComboBoxItem Content="Last 30 days" Tag="30D"/><ComboBoxItem Content="All history" Tag="All"/></ComboBox>
+                            <Button Content="Export CSV" Style="{StaticResource SecondaryButtonStyle}" Margin="10,0,0,0" Click="ExportCsvButton_Click" />
+                        </StackPanel>
+                    </Grid>
+                    <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="14"><local:PriceChart x:Name="ReportsPriceChart" /></Border>
+                    <DataGrid x:Name="ReportsHistoryGrid" Grid.Row="3" IsReadOnly="True" RowHeight="44">
+                        <DataGrid.Columns><DataGridTextColumn Header="TIME" Binding="{Binding Time}" Width="1.5*"/><DataGridTextColumn Header="ITEM" Binding="{Binding ItemName}" Width="2*"/><DataGridTextColumn Header="PRICE" Binding="{Binding Price}" Width="*"/><DataGridTextColumn Header="STATUS" Binding="{Binding Status}" Width="*"/></DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+
+                <ScrollViewer x:Name="SettingsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="26,20,26,30" MaxWidth="880" HorizontalAlignment="Left">
+                        <TextBlock Text="Monitoring" FontSize="15" FontWeight="SemiBold" />
+                        <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0" Width="820">
+                            <StackPanel>
+                                <CheckBox x:Name="StartMonitoringCheckBox" Content="Start monitoring automatically when the app launches" />
+                                <CheckBox x:Name="PlayAlertSoundCheckBox" Content="Play a sound when an alert fires" Margin="0,13,0,0" />
+                                <CheckBox x:Name="ShowTrayNotificationsCheckBox" Content="Show Windows tray notifications for price alerts" Margin="0,13,0,0" />
+                                <Grid Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="120"/><ColumnDefinition Width="20"/><ColumnDefinition Width="240"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions><TextBlock Text="Normal poll interval (seconds)" VerticalAlignment="Center"/><TextBox x:Name="NormalPollTextBox" Grid.Column="1"/><TextBlock Grid.Column="3" Text="Near-target interval (seconds)" VerticalAlignment="Center"/><TextBox x:Name="NearTargetPollTextBox" Grid.Column="4"/></Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="Startup &amp; background" FontSize="15" FontWeight="SemiBold" Margin="0,22,0,0" />
+                        <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0" Width="820">
+                            <StackPanel>
+                                <CheckBox x:Name="StartWithWindowsCheckBox" Content="Start Roblox Price Tracker with Windows" />
+                                <CheckBox x:Name="StartMinimizedCheckBox" Content="Start quietly in the system tray when Windows starts" Margin="0,13,0,0" />
+                                <CheckBox x:Name="CloseToTrayCheckBox" Content="Keep running in the background when I close the main window" Margin="0,13,0,0" />
+                                <Grid Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Startup delay before first automatic check" VerticalAlignment="Center"/><TextBox x:Name="StartupDelayTextBox" Grid.Column="1"/><TextBlock Grid.Column="2" Text="seconds (0–120)" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center" Margin="10,0,0,0"/></Grid>
+                                <TextBlock x:Name="StartupStatusText" Text="Windows startup is disabled." Foreground="{StaticResource TextSecondary}" FontSize="10.5" Margin="0,15,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="Data &amp; diagnostics" FontSize="15" FontWeight="SemiBold" Margin="0,22,0,0" />
+                        <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0" Width="820">
+                            <StackPanel>
+                                <TextBlock x:Name="DataDirectoryText" Foreground="{StaticResource TextSecondary}" FontSize="10.5" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0"><Button Content="Open Data Folder" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0" Click="OpenDataFolderButton_Click"/><Button Content="Open Log" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,8,0" Click="OpenLogButton_Click"/><Button Content="Create Backup" Style="{StaticResource SecondaryButtonStyle}" Click="BackupButton_Click"/></StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="About" FontSize="15" FontWeight="SemiBold" Margin="0,22,0,0" />
+                        <Border Style="{StaticResource CardStyle}" Margin="0,10,0,0" Width="820">
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="58"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Width="48" Height="48" Background="#F2F4F7" CornerRadius="9"><Image Source="Assets/mouse_window.png" Stretch="Uniform"/></Border><StackPanel Grid.Column="1" Margin="12,0,0,0"><TextBlock Text="Roblox Price Tracker v0.3.3" FontWeight="SemiBold" FontSize="13"/><TextBlock Foreground="{StaticResource TextSecondary}" FontSize="10.5" Margin="0,5,0,0"><Run Text="Created by "/><Hyperlink NavigateUri="https://github.com/3AYZE" RequestNavigate="CreatorLink_RequestNavigate">3AYZE</Hyperlink></TextBlock><TextBlock Text="Read-only Limited resale monitoring. No Roblox login, cookie, or auto-buying." Foreground="{StaticResource TextTertiary}" FontSize="10" Margin="0,5,0,0"/></StackPanel></Grid>
+                        </Border>
+
+                        <Button Content="Save Settings" Style="{StaticResource PrimaryButtonStyle}" Width="135" HorizontalAlignment="Left" Margin="0,20,0,0" Click="SaveSettingsButton_Click" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,0">
+                <Grid Margin="26,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="#12B76A" />
+                        <TextBlock x:Name="StatusBarText" Text="Ready" Foreground="{StaticResource TextSecondary}" FontSize="10.5" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <TextBlock x:Name="BackoffText" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource TextTertiary}" FontSize="10" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
