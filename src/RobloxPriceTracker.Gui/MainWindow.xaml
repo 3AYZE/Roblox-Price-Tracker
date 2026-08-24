@@ -18,12 +18,12 @@
         <Border Grid.Column="0" Background="{StaticResource SidebarBackground}" BorderBrush="#1B2430" BorderThickness="0,0,1,0">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="78" /><RowDefinition Height="*" /><RowDefinition Height="86" /></Grid.RowDefinitions>
-                <Grid Margin="17,0,12,0">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="38" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <Border Width="32" Height="32" CornerRadius="4" Background="#111821" BorderBrush="#263242" BorderThickness="1" VerticalAlignment="Center">
-                        <Image Source="Assets/mouse_menu.png" Width="26" Height="26" Stretch="Uniform" />
+                <Grid Margin="15,0,12,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="46" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Width="40" Height="40" CornerRadius="5" Background="#111821" BorderBrush="#263242" BorderThickness="1" VerticalAlignment="Center" ClipToBounds="False">
+                        <Image Source="Assets/mouse_logo.png" Width="32" Height="32" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True" />
                     </Border>
-                    <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="RPT TERMINAL" Foreground="#F1F5F9" FontWeight="SemiBold" FontSize="12.5" />
                         <TextBlock Text="ROBLOX RESALE MONITOR" Foreground="#647184" FontSize="8.5" Margin="0,3,0,0" />
                     </StackPanel>
@@ -45,7 +45,7 @@
                             <TextBlock x:Name="SidebarMonitorDot" Text="●" Foreground="#2DD881" FontSize="9" VerticalAlignment="Center" />
                             <TextBlock x:Name="SidebarMonitorText" Text="Monitoring" Foreground="#B5C0CE" FontSize="9.5" FontWeight="SemiBold" Margin="7,0,0,0" />
                         </StackPanel>
-                        <TextBlock Text="v0.4.0 · 3AYZE" Foreground="#536071" FontSize="8.5" Margin="14,6,0,0" />
+                        <TextBlock Text="v0.4.1 · 3AYZE" Foreground="#536071" FontSize="8.5" Margin="14,6,0,0" />
                     </StackPanel>
                 </Border>
             </Grid>
@@ -196,12 +196,12 @@
                     </Grid>
                     <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="12">
                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <StackPanel><TextBlock x:Name="ReportChartTitle" Text="Price history" FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ReportObservationText" Text="0 observations" Foreground="#667383" FontSize="8.5" Margin="0,4,0,0"/></StackPanel>
-                            <StackPanel Grid.Column="1"><TextBlock Text="LAST" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportCurrentText" Text="—" FontWeight="SemiBold" FontSize="11" Margin="0,5,0,0"/></StackPanel>
-                            <StackPanel Grid.Column="2"><TextBlock Text="TARGET" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportTargetText" Text="—" FontWeight="SemiBold" FontSize="11" Margin="0,5,0,0"/></StackPanel>
-                            <StackPanel Grid.Column="3"><TextBlock Text="LOW" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportLowText" Text="—" FontWeight="SemiBold" FontSize="11" Margin="0,5,0,0"/></StackPanel>
-                            <StackPanel Grid.Column="4"><TextBlock Text="HIGH" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportHighText" Text="—" FontWeight="SemiBold" FontSize="11" Margin="0,5,0,0"/></StackPanel>
-                            <StackPanel Grid.Column="5"><TextBlock Text="CHANGE" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportChangeText" Text="—" FontWeight="SemiBold" FontSize="11" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel><TextBlock x:Name="ReportChartTitle" Text="Price history" Foreground="#DCE5EE" FontWeight="SemiBold" FontSize="11.5" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="ReportObservationText" Text="0 observations" Foreground="#8795A6" FontSize="8.5" Margin="0,4,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="1"><TextBlock Text="LAST" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportCurrentText" Text="—" Foreground="#F0F4F8" FontWeight="SemiBold" FontSize="11.5" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Text="TARGET" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportTargetText" Text="—" Foreground="#F0F4F8" FontWeight="SemiBold" FontSize="11.5" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="3"><TextBlock Text="LOW" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportLowText" Text="—" Foreground="#DCE5EE" FontWeight="SemiBold" FontSize="11.5" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="4"><TextBlock Text="HIGH" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportHighText" Text="—" Foreground="#DCE5EE" FontWeight="SemiBold" FontSize="11.5" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="5"><TextBlock Text="CHANGE" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ReportChangeText" Text="—" Foreground="#DCE5EE" FontWeight="SemiBold" FontSize="11.5" Margin="0,5,0,0"/></StackPanel>
                         </Grid>
                     </Border>
                     <Border Grid.Row="2" Style="{StaticResource CardStyle}" Padding="8"><local:PriceChart x:Name="ReportPriceChart"/></Border>
@@ -231,6 +231,15 @@
                             </StackPanel>
                         </Border>
 
+                        <TextBlock Text="UPDATES" Style="{StaticResource SectionLabelStyle}" Margin="0,20,0,0"/>
+                        <Border Style="{StaticResource CardStyle}" Margin="0,8,0,0" Width="850">
+                            <StackPanel>
+                                <CheckBox x:Name="AutoUpdateCheckBox" Content="Automatically check GitHub Releases for updates" />
+                                <TextBlock Text="Verified releases download in the background. The app asks before restarting, and your local watchlist, history, alerts, and settings are not replaced." Foreground="#778597" FontSize="9" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                <Grid Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="UpdateStatusText" Text="Update status has not been checked yet." Foreground="#A7B2C0" FontSize="9" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,15,0"/><Button x:Name="CheckForUpdatesButton" Grid.Column="1" Content="CHECK FOR UPDATE" Style="{StaticResource SecondaryButtonStyle}" Click="CheckForUpdates_Click"/></Grid>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Text="DATA &amp; DIAGNOSTICS" Style="{StaticResource SectionLabelStyle}" Margin="0,20,0,0"/>
                         <Border Style="{StaticResource CardStyle}" Margin="0,8,0,0" Width="850">
                             <StackPanel>
@@ -243,7 +252,7 @@
                         </Border>
 
                         <TextBlock Text="ABOUT" Style="{StaticResource SectionLabelStyle}" Margin="0,20,0,0"/>
-                        <Border Style="{StaticResource CardStyle}" Margin="0,8,0,0" Width="850"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Width="42" Height="42" Background="#141C26" BorderBrush="#263242" BorderThickness="1" CornerRadius="4"><Image Source="Assets/mouse_window.png" Stretch="Uniform"/></Border><StackPanel Grid.Column="1" Margin="10,0,0,0"><TextBlock Text="Roblox Price Tracker" FontWeight="SemiBold" FontSize="12"/><TextBlock Foreground="{StaticResource TextSecondary}" FontSize="9.5" Margin="0,4,0,0"><Run Text="Created by "/><Hyperlink NavigateUri="https://github.com/3AYZE" RequestNavigate="CreatorLink_RequestNavigate">3AYZE</Hyperlink></TextBlock><TextBlock Text="Read-only Limited resale monitoring. No Roblox login, cookie, or auto-buying." Foreground="{StaticResource TextTertiary}" FontSize="9" Margin="0,4,0,0"/></StackPanel></Grid></Border>
+                        <Border Style="{StaticResource CardStyle}" Margin="0,8,0,0" Width="850"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="52"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Width="42" Height="42" Background="#141C26" BorderBrush="#263242" BorderThickness="1" CornerRadius="4"><Image Source="Assets/mouse_window.png" Stretch="Uniform"/></Border><StackPanel Grid.Column="1" Margin="10,0,0,0"><TextBlock Text="Roblox Price Tracker v0.4.1" FontWeight="SemiBold" FontSize="12"/><TextBlock Foreground="{StaticResource TextSecondary}" FontSize="9.5" Margin="0,4,0,0"><Run Text="Created by "/><Hyperlink NavigateUri="https://github.com/3AYZE" RequestNavigate="CreatorLink_RequestNavigate">3AYZE</Hyperlink></TextBlock><TextBlock Text="Read-only Limited resale monitoring. No Roblox login, cookie, or auto-buying." Foreground="{StaticResource TextTertiary}" FontSize="9" Margin="0,4,0,0"/></StackPanel></Grid></Border>
 
                         <StackPanel Orientation="Horizontal" Margin="0,16,0,0"><Button Content="SAVE SETTINGS" Style="{StaticResource PrimaryButtonStyle}" Width="132" Click="SaveSettings_Click"/><TextBlock x:Name="SettingsSavedText" Foreground="#2DD881" FontSize="9.5" VerticalAlignment="Center" Margin="12,0,0,0"/></StackPanel>
                     </StackPanel>
