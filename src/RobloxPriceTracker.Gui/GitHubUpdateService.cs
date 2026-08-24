@@ -1,10 +1,17 @@
+using System;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+using RobloxPriceTracker.Infrastructure;
 
 namespace RobloxPriceTracker.Gui;
 
@@ -113,7 +120,7 @@ public sealed class GitHubUpdateService : IDisposable
 
             var current = CurrentVersion;
             var latest = NormalizeVersion(latestVersion);
-            if (latest <= current)
+            if (latest.CompareTo(current) <= 0)
             {
                 return new UpdateCheckResult(false, $"Up to date · v{FormatVersion(current)}");
             }
