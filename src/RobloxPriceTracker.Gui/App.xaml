@@ -31,6 +31,11 @@
             <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
         </Style>
 
+        <!-- WPF TextBlock otherwise falls back to a light-theme foreground in a few templates. -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+        </Style>
+
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource PanelBackground}" />
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}" />
@@ -143,11 +148,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="{StaticResource SidebarHover}" /></Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="NavBorder" Property="Background" Value="#121A24" />
-                                <Setter TargetName="ActiveBar" Property="Background" Value="#3B82F6" />
-                                <Setter Property="Foreground" Value="#F2F6FA" />
-                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="#121A24" /><Setter TargetName="ActiveBar" Property="Background" Value="#3B82F6" /><Setter Property="Foreground" Value="#F2F6FA" /></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -166,19 +167,74 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
 
+        <!-- Full custom template prevents Windows' light ComboBox chrome from leaking into dark mode. -->
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="#0E141C" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Foreground" Value="#E6EDF3" />
             <Setter Property="BorderBrush" Value="#293545" />
-            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="10,0,32,0" />
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="MaxDropDownHeight" Value="320" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid x:Name="Root">
+                            <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" />
+                            <ContentPresenter x:Name="SelectedContent"
+                                              Margin="{TemplateBinding Padding}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              HorizontalAlignment="Left"
+                                              IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                            <Path x:Name="Arrow" Data="M 0 0 L 4 4 L 8 0 Z" Fill="#7F8B9A" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,11,0" IsHitTestVisible="False" />
+                            <ToggleButton Background="Transparent" BorderThickness="0" Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent" /></ControlTemplate></ToggleButton.Template>
+                            </ToggleButton>
+                            <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                                <Border Background="#0D131B" BorderBrush="#314052" BorderThickness="1" CornerRadius="4" Margin="0,3,0,0" MinWidth="160">
+                                    <ScrollViewer Margin="2" SnapsToDevicePixels="True" VerticalScrollBarVisibility="Auto" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#405269" /></Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#4C8DDF" /></Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#4C8DDF" /><Setter TargetName="Arrow" Property="Fill" Value="#AFC7E8" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Root" Property="Opacity" Value="0.45" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="#101720" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
-            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Background" Value="#0D131B" />
+            <Setter Property="Foreground" Value="#DCE5EE" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#182435" /><Setter Property="Foreground" Value="#F4F8FC" /></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#173052" /><Setter Property="Foreground" Value="#F4F8FC" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="CheckBox">
@@ -187,9 +243,7 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
 
-        <Style TargetType="Hyperlink">
-            <Setter Property="Foreground" Value="#64A8FF" />
-        </Style>
+        <Style TargetType="Hyperlink"><Setter Property="Foreground" Value="#64A8FF" /></Style>
 
         <Style TargetType="DataGrid">
             <Setter Property="Background" Value="#0E131A" />
@@ -217,7 +271,7 @@
 
         <Style TargetType="DataGridColumnHeader">
             <Setter Property="Background" Value="#0B1016" />
-            <Setter Property="Foreground" Value="#738092" />
+            <Setter Property="Foreground" Value="#8391A3" />
             <Setter Property="BorderBrush" Value="#202A36" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
             <Setter Property="Padding" Value="11,8" />
@@ -226,7 +280,7 @@
         </Style>
 
         <Style TargetType="DataGridCell">
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Foreground" Value="#D9E2EC" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="11,6" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -234,7 +288,7 @@
         </Style>
 
         <Style TargetType="DataGridRow">
-            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+            <Setter Property="Foreground" Value="#D9E2EC" />
             <Setter Property="BorderThickness" Value="0" />
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#14243A" /><Setter Property="Foreground" Value="#F4F7FA" /></Trigger>
