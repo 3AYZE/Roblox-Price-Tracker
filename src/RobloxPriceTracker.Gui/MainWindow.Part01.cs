@@ -98,6 +98,8 @@ public partial class MainWindow : Window
         {
             UpdateMonitoringUi(false);
         }
+
+        InitializeUpdateChecks();
     }
 
     private void Window_Closing(object? sender, CancelEventArgs e)
@@ -119,6 +121,7 @@ public partial class MainWindow : Window
         _startupDelayCts?.Cancel();
         _monitoringCts?.Cancel();
         _notificationTimer?.Stop();
+        StopUpdateChecks();
         DisposeTrayIcon();
     }
 
