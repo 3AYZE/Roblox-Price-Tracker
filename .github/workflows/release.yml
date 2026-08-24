@@ -1,0 +1,81 @@
+name: Publish Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, verify, and publish versioned release
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Read application version
+        id: version
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content 'src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj'
+          $version = [string]$project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Application Version is missing from the GUI project.' }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Application Version '$version' is not a three-part semantic version." }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check whether release already exists
+        id: existing
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release view $env:TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            'exists=true' >> $env:GITHUB_OUTPUT
+            Write-Host "Release $env:TAG already exists; publishing is skipped."
+          } else {
+            'exists=false' >> $env:GITHUB_OUTPUT
+            $global:LASTEXITCODE = 0
+          }
+
+      - name: Build, run regression tests, and publish single EXE
+        if: steps.existing.outputs.exists != 'true'
+        shell: powershell
+        run: ./tools/Build-Windows.ps1
+
+      - name: Generate SHA-256 checksum
+        if: steps.existing.outputs.exists != 'true'
+        shell: powershell
+        run: |
+          $exe = Resolve-Path 'dist/RobloxPriceTracker.exe'
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  RobloxPriceTracker.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker.exe.sha256' -Encoding ascii -NoNewline
+          Write-Host "SHA-256: $hash"
+
+      - name: Publish GitHub Release
+        if: steps.existing.outputs.exists != 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create $env:TAG `
+            'dist/RobloxPriceTracker.exe#RobloxPriceTracker.exe' `
+            'dist/RobloxPriceTracker.exe.sha256#RobloxPriceTracker.exe.sha256' `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "Roblox Price Tracker v$env:VERSION" `
+            --notes "Verified Windows x64 release. Built from $env:GITHUB_SHA after the regression suite passed. Includes SHA-256 verification for the in-app updater."
