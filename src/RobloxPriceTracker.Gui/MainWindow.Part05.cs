@@ -74,8 +74,9 @@ public partial class MainWindow : Window
         StartWithWindowsCheckBox.IsChecked = _services.Settings.StartWithWindows;
         StartMinimizedCheckBox.IsChecked = _services.Settings.StartMinimizedToTray;
         StartupDelayTextBox.Text = _services.Settings.StartupDelaySeconds.ToString();
+        AutoUpdateCheckBox.IsChecked = _services.Settings.AutoUpdateEnabled;
         DataPathText.Text = _services.DataDirectory;
-        DiagnosticsVersionText.Text = "v0.4.0";
+        DiagnosticsVersionText.Text = "v0.4.1";
         DiagnosticsStartupText.Text = FormatStartupStatus();
     }
 
@@ -122,6 +123,7 @@ public partial class MainWindow : Window
         _services.Settings.StartWithWindows = StartWithWindowsCheckBox.IsChecked == true;
         _services.Settings.StartMinimizedToTray = StartMinimizedCheckBox.IsChecked == true;
         _services.Settings.StartupDelaySeconds = startupDelay;
+        _services.Settings.AutoUpdateEnabled = AutoUpdateCheckBox.IsChecked == true;
         await _services.SettingsStore.SaveAsync(_services.Settings);
 
         try
@@ -137,6 +139,7 @@ public partial class MainWindow : Window
             SettingsSavedText.Text = "Saved, but Windows startup could not be changed.";
         }
 
+        ApplyUpdateSetting();
         await RefreshWatchlistAsync();
     }
 
@@ -162,7 +165,7 @@ public partial class MainWindow : Window
             {
                 writer.WriteLine("Roblox Price Tracker data backup");
                 writer.WriteLine($"Created: {DateTimeOffset.Now:O}");
-                writer.WriteLine("Application: v0.4.0");
+                writer.WriteLine("Application: v0.4.1");
                 writer.WriteLine("Contains local tracker state and application settings.");
             }
             ShowBanner("Backup created", $"Saved {Path.GetFileName(dialog.FileName)}");
