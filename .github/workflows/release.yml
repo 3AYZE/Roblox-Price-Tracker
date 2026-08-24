@@ -41,13 +41,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release view $env:TAG --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $releases = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json
+          $exists = @($releases | Where-Object { $_.tagName -eq $env:TAG }).Count -gt 0
+          if ($exists) {
             'exists=true' >> $env:GITHUB_OUTPUT
             Write-Host "Release $env:TAG already exists; publishing is skipped."
           } else {
             'exists=false' >> $env:GITHUB_OUTPUT
-            $global:LASTEXITCODE = 0
+            Write-Host "Release $env:TAG does not exist; a verified build will be published."
           }
 
       - name: Build, run regression tests, and publish single EXE
