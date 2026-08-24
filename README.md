@@ -4,11 +4,14 @@ A professional Windows desktop market monitor for Roblox Limited/resellable item
 
 **Creator:** [3AYZE](https://github.com/3AYZE)
 
-## v0.4.0 market-terminal UI
+## v0.4.1 market-terminal UI
 
 The interface is designed like a compact financial quote terminal rather than a generic dashboard:
 
 - Dark, low-distraction market-terminal workspace
+- Fully dark custom selector/dropdown chrome across Price History, Watchlist, and Settings
+- Higher-contrast Price History title, metric values, table values, and headers
+- Corrected sidebar logo presentation using the dedicated logo asset at native proportions
 - Quote tape for tracked assets, near-target signals, target hits, and API health
 - Dense watchlist columns for **Last / Vs Target / Target / Session Low / Signal / Updated**
 - Green target-hit, amber near-target, and red/orange issue signaling
@@ -33,7 +36,22 @@ The interface is designed like a compact financial quote terminal rather than a 
 - Second-instance activation: opening the EXE while it is already running brings the existing instance forward
 - Self-contained Windows x64 single-file publish flow
 - Windows GitHub Actions build/test/publish workflow
+- Versioned GitHub Release publishing with `RobloxPriceTracker.exe` and SHA-256 checksum assets
+- Optional in-app GitHub Release updater with SHA-256 verification and restart-to-install replacement
 - No third-party NuGet dependencies
+
+## Updates
+
+The desktop app can check GitHub Releases automatically every six hours and can also check manually from **Settings → Updates**. A newer release is downloaded into the local data directory, validated as a Windows PE file, verified against the published SHA-256 checksum, and only then offered for restart/install.
+
+The updater never replaces local tracker data. Watchlist, history, alert state, settings, and logs remain under `%LOCALAPPDATA%\RobloxPriceTracker`.
+
+The source repository is currently private. GitHub does not provide anonymous access to private-repository Releases, so a normal standalone EXE cannot silently authenticate to this private feed. The updater supports two deployment-safe options without embedding credentials in the executable:
+
+- `RPT_GITHUB_TOKEN` — optional GitHub token supplied only on the local machine for private-release access.
+- `RPT_UPDATE_REPOSITORY=owner/repository` — points the updater at a separate public release-only repository while the source repository stays private.
+
+For public distribution, a public release feed is the recommended configuration. Do not embed a private GitHub token into the executable.
 
 ## Privacy and safety
 
@@ -47,7 +65,7 @@ Runtime data is stored outside the executable at:
 %LOCALAPPDATA%\RobloxPriceTracker
 ```
 
-This includes the watchlist, settings, history, alerts, and runtime logs.
+This includes the watchlist, settings, history, alerts, staged verified updates, and runtime logs.
 
 ## Windows startup/background behavior
 
@@ -83,7 +101,7 @@ dist\RobloxPriceTracker.exe
 
 The normal source restore/build has no third-party package dependencies. The final self-contained publish may download official Microsoft .NET runtime/linker packs from NuGet.
 
-GitHub Actions performs the same Windows build, regression-test, and single-EXE publish process on `main`.
+GitHub Actions performs the same Windows build, regression-test, and single-EXE publish process on `main`. The release workflow publishes a new GitHub Release only when the application version is new, and includes both the EXE and its SHA-256 checksum.
 
 ## Roblox API behavior
 
