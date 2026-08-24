@@ -3,73 +3,73 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:RobloxPriceTracker.Gui"
         Icon="Assets/mouse_app.ico"
-        Title="Item details"
-        Width="1040" Height="780"
-        MinWidth="900" MinHeight="680"
+        Title="Asset details"
+        Width="1060" Height="790"
+        MinWidth="920" MinHeight="680"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Loaded="Window_Loaded">
     <Grid Background="{StaticResource AppBackground}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="94" />
+            <RowDefinition Height="86" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="70" />
+            <RowDefinition Height="60" />
         </Grid.RowDefinitions>
 
-        <Border Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="26,0">
+        <Border Background="#0C1117" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="24,0">
             <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="70" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <Grid Width="58" Height="58" VerticalAlignment="Center">
-                    <Border Background="#F2F4F7" BorderBrush="#EAECF0" BorderThickness="1" CornerRadius="9" />
+                <Grid.ColumnDefinitions><ColumnDefinition Width="62" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <Grid Width="52" Height="52" VerticalAlignment="Center">
+                    <Border Background="#141C26" BorderBrush="#263242" BorderThickness="1" CornerRadius="4" />
                     <Image x:Name="ItemThumbnail" Stretch="UniformToFill" Margin="3" />
-                    <TextBlock x:Name="ItemThumbnailFallback" Text="R" Foreground="#98A2B3" FontWeight="SemiBold" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <TextBlock x:Name="ItemThumbnailFallback" Text="R" Foreground="#6E7B8C" FontWeight="SemiBold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Grid>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,18,0">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock x:Name="ItemNameText" Text="Item" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <Border x:Name="ItemStatusBadge" Background="#F2F4F7" CornerRadius="10" Padding="9,4" Margin="10,0,0,0" VerticalAlignment="Center">
-                            <TextBlock x:Name="ItemStatusText" Text="Waiting" Foreground="#667085" FontSize="9.5" FontWeight="SemiBold" />
+                        <TextBlock x:Name="ItemNameText" Text="Item" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Border x:Name="ItemStatusBadge" Background="#151C25" CornerRadius="3" Padding="8,3" Margin="9,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="ItemStatusText" Text="Waiting" Foreground="#98A5B5" FontSize="8.5" FontWeight="SemiBold" />
                         </Border>
                     </StackPanel>
-                    <TextBlock x:Name="ItemMetaText" Foreground="{StaticResource TextSecondary}" FontSize="10.5" Margin="0,5,0,0" />
+                    <TextBlock x:Name="ItemMetaText" Foreground="{StaticResource TextSecondary}" FontSize="9.5" Margin="0,4,0,0" />
                 </StackPanel>
-                <Button Grid.Column="2" Content="Open on Roblox" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" Click="OpenRoblox_Click" />
+                <Button Grid.Column="2" Content="OPEN ON ROBLOX" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" Click="OpenRoblox_Click" />
             </Grid>
         </Border>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="26,20,26,26">
+            <StackPanel Margin="20,16,20,20">
                 <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="CURRENT LOWEST" Foreground="{StaticResource TextSecondary}" FontSize="9" FontWeight="SemiBold" /><TextBlock x:Name="CurrentPriceText" Text="—" FontSize="18" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock x:Name="TargetDistanceText" Text="Target unavailable" Foreground="{StaticResource TextTertiary}" FontSize="9.5" Margin="0,4,0,0" /></StackPanel></Border>
-                    <Border Grid.Column="2" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="TARGET" Foreground="{StaticResource TextSecondary}" FontSize="9" FontWeight="SemiBold" /><TextBlock x:Name="TargetPriceText" Text="—" FontSize="18" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock Text="Alert threshold" Foreground="{StaticResource TextTertiary}" FontSize="9.5" Margin="0,4,0,0" /></StackPanel></Border>
-                    <Border Grid.Column="4" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="TRACKED LOW" Foreground="{StaticResource TextSecondary}" FontSize="9" FontWeight="SemiBold" /><TextBlock x:Name="TrackedLowText" Text="—" FontSize="18" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock Text="Lowest observed by this app" Foreground="{StaticResource TextTertiary}" FontSize="9.5" Margin="0,4,0,0" /></StackPanel></Border>
-                    <Border Grid.Column="6" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="LAST SUCCESS" Foreground="{StaticResource TextSecondary}" FontSize="9" FontWeight="SemiBold" /><TextBlock x:Name="LastCheckedText" Text="—" FontSize="14" FontWeight="SemiBold" Margin="0,9,0,0" /><TextBlock x:Name="ObservationCountText" Text="0 observations" Foreground="{StaticResource TextTertiary}" FontSize="9.5" Margin="0,4,0,0" /></StackPanel></Border>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="LAST" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="CurrentPriceText" Text="—" FontSize="19" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock x:Name="TargetDistanceText" Text="Target unavailable" Foreground="{StaticResource TextTertiary}" FontSize="8.5" Margin="0,4,0,0" /></StackPanel></Border>
+                    <Border Grid.Column="2" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="TARGET" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="TargetPriceText" Text="—" FontSize="19" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock Text="Alert threshold" Foreground="{StaticResource TextTertiary}" FontSize="8.5" Margin="0,4,0,0" /></StackPanel></Border>
+                    <Border Grid.Column="4" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="SESSION LOW" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="TrackedLowText" Text="—" FontSize="19" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock Text="Lowest observed" Foreground="{StaticResource TextTertiary}" FontSize="8.5" Margin="0,4,0,0" /></StackPanel></Border>
+                    <Border Grid.Column="6" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="UPDATED" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="LastCheckedText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,9,0,0" /><TextBlock x:Name="ObservationCountText" Text="0 observations" Foreground="{StaticResource TextTertiary}" FontSize="8.5" Margin="0,4,0,0" /></StackPanel></Border>
                 </Grid>
 
-                <Grid Margin="0,15,0,0">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Style="{StaticResource CompactCardStyle}" Background="#FFFFFF"><StackPanel><TextBlock Text="RANGE LOW" Foreground="{StaticResource TextSecondary}" FontSize="9" FontWeight="SemiBold" /><TextBlock x:Name="RangeLowText" Text="—" FontSize="13" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel></Border>
-                    <Border Grid.Column="2" Style="{StaticResource CompactCardStyle}" Background="#FFFFFF"><StackPanel><TextBlock Text="RANGE HIGH" Foreground="{StaticResource TextSecondary}" FontSize="9" FontWeight="SemiBold" /><TextBlock x:Name="RangeHighText" Text="—" FontSize="13" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel></Border>
-                    <Border Grid.Column="4" Style="{StaticResource CompactCardStyle}" Background="#FFFFFF"><StackPanel><TextBlock Text="RANGE CHANGE" Foreground="{StaticResource TextSecondary}" FontSize="9" FontWeight="SemiBold" /><TextBlock x:Name="RangeChangeText" Text="—" FontSize="13" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel></Border>
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="RANGE LOW" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="RangeLowText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel></Border>
+                    <Border Grid.Column="2" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="RANGE HIGH" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="RangeHighText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel></Border>
+                    <Border Grid.Column="4" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="RANGE CHANGE" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="RangeChangeText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel></Border>
                 </Grid>
 
-                <Border Style="{StaticResource CardStyle}" Padding="16" Margin="0,15,0,0" Height="300">
+                <Border Style="{StaticResource CardStyle}" Padding="8" Margin="0,12,0,0" Height="310">
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="38" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                        <TextBlock Text="Recorded resale-price history" FontSize="13.5" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <ComboBox x:Name="DetailRangeCombo" Width="145" HorizontalAlignment="Right" SelectedIndex="1" SelectionChanged="DetailRangeCombo_SelectionChanged">
-                            <ComboBoxItem Content="Last 24 hours" Tag="24H" />
-                            <ComboBoxItem Content="Last 7 days" Tag="7D" />
-                            <ComboBoxItem Content="Last 30 days" Tag="30D" />
-                            <ComboBoxItem Content="All history" Tag="All" />
+                        <Grid.RowDefinitions><RowDefinition Height="42" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <StackPanel VerticalAlignment="Center" Margin="7,0,0,0"><TextBlock Text="PRICE HISTORY" Foreground="#C8D2DE" FontSize="10" FontWeight="SemiBold" /><TextBlock Text="Lowest reseller observations" Foreground="#5E6B7B" FontSize="8.5" Margin="0,2,0,0" /></StackPanel>
+                        <ComboBox x:Name="DetailRangeCombo" Width="140" HorizontalAlignment="Right" SelectedIndex="1" SelectionChanged="DetailRangeCombo_SelectionChanged">
+                            <ComboBoxItem Content="24 Hours" Tag="24H" />
+                            <ComboBoxItem Content="7 Days" Tag="7D" />
+                            <ComboBoxItem Content="30 Days" Tag="30D" />
+                            <ComboBoxItem Content="All History" Tag="All" />
                         </ComboBox>
                         <local:PriceChart x:Name="DetailPriceChart" Grid.Row="1" />
                     </Grid>
                 </Border>
 
-                <TextBlock Text="Recent observations" FontSize="13.5" FontWeight="SemiBold" Margin="0,17,0,9" />
-                <DataGrid x:Name="DetailHistoryGrid" Height="210" IsReadOnly="True" AlternationCount="2" RowHeight="44">
+                <TextBlock Text="RECENT OBSERVATIONS" Style="{StaticResource SectionLabelStyle}" Margin="0,15,0,8" />
+                <DataGrid x:Name="DetailHistoryGrid" Height="205" IsReadOnly="True" AlternationCount="2" RowHeight="42">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="TIME" Binding="{Binding Time}" Width="1.6*" />
                         <DataGridTextColumn Header="PRICE" Binding="{Binding Price}" Width="1.2*" />
@@ -79,10 +79,10 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,0" Padding="26,0">
+        <Border Grid.Row="2" Background="#0C1117" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,0" Padding="24,0">
             <Grid>
-                <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" FontSize="10.5" />
-                <Button Content="Close" HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}" Click="Close_Click" />
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}" FontSize="9.5" />
+                <Button Content="CLOSE" HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}" Click="Close_Click" />
             </Grid>
         </Border>
     </Grid>
