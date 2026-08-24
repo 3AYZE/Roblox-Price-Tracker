@@ -75,7 +75,7 @@ public partial class MainWindow : Window
         StartMinimizedCheckBox.IsChecked = _services.Settings.StartMinimizedToTray;
         StartupDelayTextBox.Text = _services.Settings.StartupDelaySeconds.ToString();
         DataPathText.Text = _services.DataDirectory;
-        DiagnosticsVersionText.Text = "v0.3.3";
+        DiagnosticsVersionText.Text = "v0.4.0";
         DiagnosticsStartupText.Text = FormatStartupStatus();
     }
 
@@ -162,7 +162,7 @@ public partial class MainWindow : Window
             {
                 writer.WriteLine("Roblox Price Tracker data backup");
                 writer.WriteLine($"Created: {DateTimeOffset.Now:O}");
-                writer.WriteLine("Application: v0.3.3");
+                writer.WriteLine("Application: v0.4.0");
                 writer.WriteLine("Contains local tracker state and application settings.");
             }
             ShowBanner("Backup created", $"Saved {Path.GetFileName(dialog.FileName)}");
