@@ -20,7 +20,8 @@ public sealed class AppServices : IDisposable
         AppLogger logger,
         AppSettingsStore settingsStore,
         AppSettings settings,
-        RobloxThumbnailService thumbnailService)
+        RobloxThumbnailService thumbnailService,
+        GitHubUpdateService updateService)
     {
         DataDirectory = dataDirectory;
         Repository = repository;
@@ -35,6 +36,7 @@ public sealed class AppServices : IDisposable
         SettingsStore = settingsStore;
         Settings = settings;
         ThumbnailService = thumbnailService;
+        UpdateService = updateService;
     }
 
     public string DataDirectory { get; }
@@ -50,6 +52,7 @@ public sealed class AppServices : IDisposable
     public AppSettingsStore SettingsStore { get; }
     public AppSettings Settings { get; }
     public RobloxThumbnailService ThumbnailService { get; }
+    public GitHubUpdateService UpdateService { get; }
 
     public PollPlanner CreatePollPlanner() => new(
         TimeSpan.FromSeconds(Math.Max(10, Settings.NormalPollSeconds)),
@@ -105,6 +108,7 @@ public sealed class AppServices : IDisposable
         var notificationSink = new GuiNotificationSink();
         var dispatcher = new NotificationDispatcher(repository, notificationSink);
         var thumbnailService = new RobloxThumbnailService(httpClient);
+        var updateService = new GitHubUpdateService(dataDir, logger);
 
         return new AppServices(
             dataDir,
@@ -119,10 +123,15 @@ public sealed class AppServices : IDisposable
             logger,
             settingsStore,
             settings,
-            thumbnailService);
+            thumbnailService,
+            updateService);
     }
 
-    public void Dispose() => HttpClient.Dispose();
+    public void Dispose()
+    {
+        UpdateService.Dispose();
+        HttpClient.Dispose();
+    }
 }
 
 public sealed class GuiNotificationEventArgs : EventArgs
