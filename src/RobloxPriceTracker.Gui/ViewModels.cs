@@ -17,9 +17,9 @@ public sealed class WatchlistRow : INotifyPropertyChanged
     private string _targetDistance = "Target unavailable";
     private string _status = "Unknown";
     private string _lastChecked = "Never";
-    private Brush _statusBackground = Brush(243, 244, 246);
-    private Brush _statusForeground = Brush(75, 85, 99);
-    private Brush _priceForeground = Brush(17, 24, 39);
+    private Brush _statusBackground = Brush(21, 28, 37);
+    private Brush _statusForeground = Brush(154, 165, 180);
+    private Brush _priceForeground = Brush(230, 237, 243);
 
     public ItemKey ItemKey { get; private set; }
     public TrackerItemSnapshot Snapshot { get; private set; } = null!;
@@ -69,7 +69,7 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         IsIssue = false;
         TargetDistanceSort = double.MaxValue;
         TargetDistance = TargetValue is > 0 ? "Waiting for reseller price" : "Target unavailable";
-        PriceForeground = Brush(17, 24, 39);
+        PriceForeground = Brush(230, 237, 243);
 
         var current = snapshot.Market.CurrentLowestPrice;
         var target = TargetValue;
@@ -83,7 +83,7 @@ public sealed class WatchlistRow : INotifyPropertyChanged
                 TargetDistance = delta == 0
                     ? "At target"
                     : $"{Math.Abs(delta):N0} R$ below target";
-                PriceForeground = Brush(21, 128, 61);
+                PriceForeground = Brush(45, 216, 129);
             }
             else
             {
@@ -91,7 +91,7 @@ public sealed class WatchlistRow : INotifyPropertyChanged
                 IsNearTarget = percent <= 10d;
                 if (IsNearTarget)
                 {
-                    PriceForeground = Brush(180, 83, 9);
+                    PriceForeground = Brush(243, 201, 105);
                 }
             }
         }
@@ -99,14 +99,14 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         if (IsStale)
         {
             IsIssue = true;
-            SetStatus("Stale data", 255, 247, 237, 154, 52, 18);
+            SetStatus("Stale data", 51, 37, 21, 255, 184, 107);
             RaiseComputedFlags();
             return;
         }
 
         if (IsTargetHit)
         {
-            SetStatus("Target hit", 236, 253, 245, 4, 120, 87);
+            SetStatus("Target hit", 13, 40, 27, 45, 216, 129);
             RaiseComputedFlags();
             return;
         }
@@ -114,30 +114,30 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         switch (snapshot.Market.ObservedStatus)
         {
             case MarketStatus.Available when IsNearTarget:
-                SetStatus("Near target", 255, 247, 237, 180, 83, 9);
+                SetStatus("Near target", 51, 42, 16, 243, 201, 105);
                 break;
             case MarketStatus.Available:
-                SetStatus("Watching", 239, 246, 255, 29, 78, 216);
+                SetStatus("Watching", 16, 38, 63, 100, 168, 255);
                 break;
             case MarketStatus.NoResellers:
                 IsIssue = true;
-                SetStatus("No sellers", 255, 247, 237, 154, 52, 18);
+                SetStatus("No sellers", 51, 37, 21, 255, 184, 107);
                 break;
             case MarketStatus.OffSale:
                 IsIssue = true;
-                SetStatus("Off sale", 243, 244, 246, 75, 85, 99);
+                SetStatus("Off sale", 35, 40, 51, 170, 178, 191);
                 break;
             case MarketStatus.InvalidPrice:
                 IsIssue = true;
-                SetStatus("Price issue", 254, 242, 242, 185, 28, 28);
+                SetStatus("Price issue", 56, 25, 28, 255, 122, 122);
                 break;
             case MarketStatus.Unsupported:
                 IsIssue = true;
-                SetStatus("Unsupported", 254, 242, 242, 185, 28, 28);
+                SetStatus("Unsupported", 56, 25, 28, 255, 122, 122);
                 break;
             default:
                 IsIssue = true;
-                SetStatus("Waiting", 243, 244, 246, 75, 85, 99);
+                SetStatus("Waiting", 31, 41, 54, 154, 165, 180);
                 break;
         }
 
@@ -210,11 +210,11 @@ public sealed record AlertRow(
 {
     public string Time => CreatedAtUtc.ToLocalTime().ToString("MMM d, h:mm:ss tt");
     public Brush SeverityBackground => Severity == "High"
-        ? new SolidColorBrush(Color.FromRgb(236, 253, 245))
-        : new SolidColorBrush(Color.FromRgb(239, 246, 255));
+        ? new SolidColorBrush(Color.FromRgb(13, 40, 27))
+        : new SolidColorBrush(Color.FromRgb(16, 38, 63));
     public Brush SeverityForeground => Severity == "High"
-        ? new SolidColorBrush(Color.FromRgb(4, 120, 87))
-        : new SolidColorBrush(Color.FromRgb(29, 78, 216));
+        ? new SolidColorBrush(Color.FromRgb(45, 216, 129))
+        : new SolidColorBrush(Color.FromRgb(100, 168, 255));
 }
 
 public sealed record HistoryRow(
