@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Icon="Assets/mouse_app.ico"
-        Title="Add item"
+        Title="Track asset"
         Width="650" Height="610"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
@@ -10,82 +10,82 @@
         Loaded="Window_Loaded">
     <Grid Background="{StaticResource AppBackground}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="82" />
+            <RowDefinition Height="74" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="76" />
+            <RowDefinition Height="66" />
         </Grid.RowDefinitions>
 
-        <Border Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="26,0">
+        <Border Background="#0C1117" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,0,0,1" Padding="24,0">
             <Grid>
                 <StackPanel VerticalAlignment="Center">
-                    <TextBlock x:Name="DialogTitleText" Text="Add watchlist item" FontSize="20" FontWeight="SemiBold" />
-                    <TextBlock x:Name="DialogSubtitleText" Text="Verify the Roblox item first, then choose the price you want to be alerted at." Foreground="{StaticResource TextSecondary}" FontSize="11.5" Margin="0,4,0,0" />
+                    <TextBlock x:Name="DialogTitleText" Text="Track market asset" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock x:Name="DialogSubtitleText" Text="Verify the Roblox asset, then set the price level you want monitored." Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,4,0,0" />
                 </StackPanel>
-                <Border Width="38" Height="38" CornerRadius="9" Background="#EFF4FF" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <TextBlock Text="" FontFamily="Segoe MDL2 Assets" Foreground="#2563EB" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <Border Width="34" Height="34" CornerRadius="4" Background="#111A26" BorderBrush="#26374A" BorderThickness="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="" FontFamily="Segoe MDL2 Assets" Foreground="#64A8FF" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
             </Grid>
         </Border>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="26,22,26,24">
-                <TextBlock Text="Roblox item" FontSize="11.5" FontWeight="SemiBold" />
+            <StackPanel Margin="24,20,24,22">
+                <TextBlock Text="ASSET" Style="{StaticResource SectionLabelStyle}" />
                 <Grid Margin="0,7,0,0">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="118" /></Grid.ColumnDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="9" /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
                     <TextBox x:Name="ItemInputTextBox" TextChanged="ItemInputTextBox_TextChanged" />
-                    <Button x:Name="VerifyButton" Grid.Column="2" Content="Verify Item" Style="{StaticResource SecondaryButtonStyle}" Click="VerifyButton_Click" />
+                    <Button x:Name="VerifyButton" Grid.Column="2" Content="VERIFY" Style="{StaticResource SecondaryButtonStyle}" Click="VerifyButton_Click" />
                 </Grid>
-                <TextBlock Text="Paste an asset ID or a roblox.com/catalog URL." Foreground="{StaticResource TextTertiary}" FontSize="10" Margin="0,5,0,0" />
+                <TextBlock Text="Paste an asset ID or roblox.com/catalog URL." Foreground="{StaticResource TextTertiary}" FontSize="9" Margin="0,5,0,0" />
 
-                <Border x:Name="ResolvedItemPanel" Visibility="Collapsed" Style="{StaticResource CardStyle}" Padding="16" Margin="0,18,0,0" Background="#FFFFFF">
+                <Border x:Name="ResolvedItemPanel" Visibility="Collapsed" Style="{StaticResource CardStyle}" Padding="14" Margin="0,16,0,0">
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="76" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <Grid Width="64" Height="64" VerticalAlignment="Top">
-                            <Border Background="#F2F4F7" BorderBrush="#EAECF0" BorderThickness="1" CornerRadius="9" />
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="68" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid Width="58" Height="58" VerticalAlignment="Top">
+                            <Border Background="#141C26" BorderBrush="#263242" BorderThickness="1" CornerRadius="4" />
                             <Image x:Name="ResolvedThumbnail" Stretch="UniformToFill" Margin="3" />
-                            <TextBlock x:Name="ResolvedThumbnailFallback" Text="R" Foreground="#98A2B3" FontWeight="SemiBold" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <TextBlock x:Name="ResolvedThumbnailFallback" Text="R" Foreground="#6E7B8C" FontWeight="SemiBold" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Grid>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,12,0">
-                            <TextBlock x:Name="ResolvedNameText" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock x:Name="ResolvedAssetIdText" Foreground="{StaticResource TextTertiary}" FontSize="10" Margin="0,3,0,0" />
-                            <TextBlock x:Name="ResolvedPriceText" FontSize="11.5" FontWeight="SemiBold" Margin="0,9,0,0" />
+                            <TextBlock x:Name="ResolvedNameText" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="ResolvedAssetIdText" Foreground="{StaticResource TextTertiary}" FontSize="9" Margin="0,3,0,0" />
+                            <TextBlock x:Name="ResolvedPriceText" Foreground="#DCE4EC" FontSize="12" FontWeight="SemiBold" Margin="0,8,0,0" />
                         </StackPanel>
-                        <Border x:Name="ResolvedStatusBadge" Grid.Column="2" Background="#ECFDF3" CornerRadius="10" Padding="9,4" HorizontalAlignment="Right" VerticalAlignment="Top">
-                            <TextBlock x:Name="ResolvedStatusText" Text="Verified" Foreground="#067647" FontSize="9.5" FontWeight="SemiBold" />
+                        <Border x:Name="ResolvedStatusBadge" Grid.Column="2" Background="#0D281B" CornerRadius="3" Padding="8,3" HorizontalAlignment="Right" VerticalAlignment="Top">
+                            <TextBlock x:Name="ResolvedStatusText" Text="Verified" Foreground="#2DD881" FontSize="8.5" FontWeight="SemiBold" />
                         </Border>
                     </Grid>
                 </Border>
 
-                <Border x:Name="ErrorPanel" Visibility="Collapsed" Background="#FEF3F2" BorderBrush="#FECDCA" BorderThickness="1" CornerRadius="7" Padding="12" Margin="0,14,0,0">
+                <Border x:Name="ErrorPanel" Visibility="Collapsed" Background="#2A1417" BorderBrush="#573038" BorderThickness="1" CornerRadius="4" Padding="11" Margin="0,12,0,0">
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="24" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <TextBlock Text="" FontFamily="Segoe MDL2 Assets" Foreground="#B42318" FontSize="12" VerticalAlignment="Top" Margin="1,2,0,0" />
-                        <TextBlock x:Name="ErrorText" Grid.Column="1" Foreground="#912018" FontSize="10.5" TextWrapping="Wrap" />
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="22" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="" FontFamily="Segoe MDL2 Assets" Foreground="#FF7777" FontSize="11" VerticalAlignment="Top" Margin="1,2,0,0" />
+                        <TextBlock x:Name="ErrorText" Grid.Column="1" Foreground="#FF9999" FontSize="9.5" TextWrapping="Wrap" />
                     </Grid>
                 </Border>
 
-                <Border Height="1" Background="{StaticResource BorderBrushSoft}" Margin="0,20,0,18" />
+                <Border Height="1" Background="{StaticResource BorderBrushSoft}" Margin="0,18,0,16" />
 
-                <TextBlock Text="Target price" FontSize="11.5" FontWeight="SemiBold" />
+                <TextBlock Text="TARGET PRICE" Style="{StaticResource SectionLabelStyle}" />
                 <TextBox x:Name="TargetPriceTextBox" Margin="0,7,0,0" />
-                <TextBlock Text="Whole Robux amount. The alert triggers when the current lowest reseller price reaches or drops below this value." Foreground="{StaticResource TextSecondary}" FontSize="10" Margin="0,5,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="The signal triggers when the current lowest reseller price reaches or falls below this level." Foreground="{StaticResource TextSecondary}" FontSize="9" Margin="0,5,0,0" TextWrapping="Wrap" />
 
-                <Border Background="#F9FAFB" BorderBrush="#EAECF0" BorderThickness="1" CornerRadius="7" Padding="12" Margin="0,18,0,0">
+                <Border Background="#0D131A" BorderBrush="#1F2A37" BorderThickness="1" CornerRadius="4" Padding="11" Margin="0,16,0,0">
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="26" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <TextBlock Text="" FontFamily="Segoe MDL2 Assets" Foreground="#667085" FontSize="13" VerticalAlignment="Top" Margin="1,2,0,0" />
-                        <TextBlock Grid.Column="1" Text="The tracker monitors lowest reseller listings only. Missing sellers or API failures are never treated as a 0 R$ price." Foreground="{StaticResource TextSecondary}" FontSize="10.5" TextWrapping="Wrap" />
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="24" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="" FontFamily="Segoe MDL2 Assets" Foreground="#6F7D8E" FontSize="12" VerticalAlignment="Top" Margin="1,2,0,0" />
+                        <TextBlock Grid.Column="1" Text="Only lowest reseller listings are monitored. Missing sellers and API failures are never treated as 0 R$." Foreground="{StaticResource TextSecondary}" FontSize="9.5" TextWrapping="Wrap" />
                     </Grid>
                 </Border>
             </StackPanel>
         </ScrollViewer>
 
-        <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,0" Padding="26,0">
+        <Border Grid.Row="2" Background="#0C1117" BorderBrush="{StaticResource BorderBrushSoft}" BorderThickness="0,1,0,0" Padding="24,0">
             <Grid>
-                <Button Content="Cancel" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Left" VerticalAlignment="Center" Click="CancelButton_Click" />
+                <Button Content="CANCEL" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Left" VerticalAlignment="Center" Click="CancelButton_Click" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <TextBlock x:Name="BusyText" Text="" Foreground="{StaticResource TextSecondary}" FontSize="10.5" VerticalAlignment="Center" Margin="0,0,12,0" />
-                    <Button x:Name="SaveButton" Content="Add to Watchlist" IsEnabled="False" Style="{StaticResource PrimaryButtonStyle}" Click="SaveButton_Click" />
+                    <TextBlock x:Name="BusyText" Text="" Foreground="{StaticResource TextSecondary}" FontSize="9.5" VerticalAlignment="Center" Margin="0,0,11,0" />
+                    <Button x:Name="SaveButton" Content="ADD TO WATCHLIST" IsEnabled="False" Style="{StaticResource PrimaryButtonStyle}" Click="SaveButton_Click" />
                 </StackPanel>
             </Grid>
         </Border>
