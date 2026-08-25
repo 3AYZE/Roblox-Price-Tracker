@@ -24,6 +24,18 @@ public partial class ItemDetailsWindow : Window
         _itemKey = itemKey;
         InitializeComponent();
         DetailHistoryGrid.ItemsSource = _historyRows;
+        if (!DetailRangeCombo.Items.OfType<ComboBoxItem>().Any(x => Equals(x.Tag, "1H")))
+        {
+            DetailRangeCombo.Items.Insert(0, new ComboBoxItem { Content = "1 Hour", Tag = "1H" });
+        }
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Escape)
+            {
+                e.Handled = true;
+                Close();
+            }
+        };
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e) => await RefreshAsync();
@@ -40,7 +52,7 @@ public partial class ItemDetailsWindow : Window
             }
 
             ItemNameText.Text = _snapshot.Item.Name;
-            ItemMetaText.Text = $"Asset ID {_itemKey.Id} · Lowest reseller monitoring";
+            ItemMetaText.Text = $"Asset ID {_itemKey.Id} · Lowest reseller quote";
             CurrentPriceText.Text = DisplayFormatting.Price(_snapshot.Market.CurrentLowestPrice);
             var target = _snapshot.Rules.FirstOrDefault(x => x.RuleType == AlertRuleType.TargetPrice)?.Threshold;
             TargetPriceText.Text = DisplayFormatting.Price(target);
@@ -68,7 +80,7 @@ public partial class ItemDetailsWindow : Window
             _allHistory = await _services.Repository.GetPriceHistoryAsync(_itemKey, 5000);
             ApplyRange();
             DetailPriceChart.SetTargetPrice(target);
-            StatusText.Text = "Current data is stored locally and remains available after the application restarts.";
+            StatusText.Text = "Hover the chart for an exact quote. Press Esc to close.";
         }
         catch (Exception ex)
         {
@@ -91,6 +103,7 @@ public partial class ItemDetailsWindow : Window
         var now = DateTimeOffset.UtcNow;
         DateTimeOffset? cutoff = range switch
         {
+            "1H" => now - TimeSpan.FromHours(1),
             "24H" => now - TimeSpan.FromHours(24),
             "7D" => now - TimeSpan.FromDays(7),
             "30D" => now - TimeSpan.FromDays(30),
@@ -121,6 +134,7 @@ public partial class ItemDetailsWindow : Window
             RangeLowText.Text = "—";
             RangeHighText.Text = "—";
             RangeChangeText.Text = "—";
+            RangeChangeText.Foreground = new SolidColorBrush(Color.FromRgb(167, 178, 192));
             return;
         }
 
@@ -128,6 +142,12 @@ public partial class ItemDetailsWindow : Window
         RangeLowText.Text = DisplayFormatting.Price(prices.Min());
         RangeHighText.Text = DisplayFormatting.Price(prices.Max());
         RangeChangeText.Text = DisplayFormatting.PercentageChange(valid[0].Price!.Value, valid[^1].Price!.Value);
+        RangeChangeText.Foreground = new SolidColorBrush(valid[^1].Price!.Value switch
+        {
+            var last when last > valid[0].Price!.Value => Color.FromRgb(0, 192, 118),
+            var last when last < valid[0].Price!.Value => Color.FromRgb(246, 70, 93),
+            _ => Color.FromRgb(167, 178, 192)
+        });
     }
 
     private void SetStatusBadge(TrackerItemSnapshot snapshot, long? target)
@@ -139,26 +159,26 @@ public partial class ItemDetailsWindow : Window
 
         if (stale)
         {
-            SetBadge("Stale data", Color.FromRgb(255, 247, 237), Color.FromRgb(154, 52, 18));
+            SetBadge("Stale data", Color.FromRgb(52, 38, 18), Color.FromRgb(240, 185, 11));
             return;
         }
         if (targetRule is { State: AlertState.Triggered })
         {
-            SetBadge("Target hit", Color.FromRgb(236, 253, 245), Color.FromRgb(4, 120, 87));
+            SetBadge("Target hit", Color.FromRgb(8, 42, 29), Color.FromRgb(0, 192, 118));
             return;
         }
         if (snapshot.Market.ObservedStatus == MarketStatus.Available && current is > 0 && target is > 0 && current.Value > target.Value && current.Value <= target.Value * 1.10)
         {
-            SetBadge("Near target", Color.FromRgb(255, 247, 237), Color.FromRgb(181, 71, 8));
+            SetBadge("Near target", Color.FromRgb(52, 42, 14), Color.FromRgb(240, 185, 11));
             return;
         }
 
         switch (snapshot.Market.ObservedStatus)
         {
-            case MarketStatus.Available: SetBadge("Watching", Color.FromRgb(239, 246, 255), Color.FromRgb(29, 78, 216)); break;
-            case MarketStatus.NoResellers: SetBadge("No sellers", Color.FromRgb(255, 247, 237), Color.FromRgb(154, 52, 18)); break;
-            case MarketStatus.OffSale: SetBadge("Off sale", Color.FromRgb(242, 244, 247), Color.FromRgb(71, 84, 103)); break;
-            default: SetBadge("Waiting", Color.FromRgb(242, 244, 247), Color.FromRgb(102, 112, 133)); break;
+            case MarketStatus.Available: SetBadge("Watching", Color.FromRgb(16, 38, 63), Color.FromRgb(100, 168, 255)); break;
+            case MarketStatus.NoResellers: SetBadge("No sellers", Color.FromRgb(52, 38, 18), Color.FromRgb(240, 185, 11)); break;
+            case MarketStatus.OffSale: SetBadge("Off sale", Color.FromRgb(35, 40, 51), Color.FromRgb(170, 178, 191)); break;
+            default: SetBadge("Waiting", Color.FromRgb(31, 41, 54), Color.FromRgb(154, 165, 180)); break;
         }
     }
 
