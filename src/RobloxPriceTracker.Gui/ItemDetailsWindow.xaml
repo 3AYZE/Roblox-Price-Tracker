@@ -4,11 +4,12 @@
         xmlns:local="clr-namespace:RobloxPriceTracker.Gui"
         Icon="Assets/mouse_app.ico"
         Title="Asset details"
-        Width="1060" Height="790"
-        MinWidth="920" MinHeight="680"
+        Width="1120" Height="890"
+        MinWidth="980" MinHeight="720"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Loaded="Window_Loaded">
+        Loaded="Window_Loaded"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <Grid Background="{StaticResource AppBackground}">
         <Grid.RowDefinitions>
             <RowDefinition Height="86" />
@@ -54,11 +55,47 @@
                     <Border Grid.Column="4" Style="{StaticResource CompactCardStyle}"><StackPanel><TextBlock Text="RANGE CHANGE" Style="{StaticResource SectionLabelStyle}" /><TextBlock x:Name="RangeChangeText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel></Border>
                 </Grid>
 
+                <Border Style="{StaticResource CardStyle}" Margin="0,12,0,0" Padding="14">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="MARKET FORECAST" Foreground="#D8E2EC" FontSize="10.5" FontWeight="SemiBold" />
+                                <TextBlock Text="Statistical estimate from lowest-listing history plus Roblox RAP and daily sales volume when available. Not a guaranteed future price." Foreground="#667383" FontSize="8.5" Margin="0,3,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <Border Grid.Column="1" Background="#121A24" BorderBrush="#273545" BorderThickness="1" CornerRadius="3" Padding="9,4" Margin="12,0,0,0" VerticalAlignment="Top">
+                                <TextBlock x:Name="ForecastDirectionText" Text="WAITING" Foreground="#8A98A8" FontSize="8.5" FontWeight="SemiBold" />
+                            </Border>
+                        </Grid>
+
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.25*"/><ColumnDefinition Width="1.15*"/><ColumnDefinition Width="0.85*"/><ColumnDefinition Width="0.85*"/><ColumnDefinition Width="0.85*"/><ColumnDefinition Width="0.9*"/></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="NEXT PRICE" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastPriceText" Text="—" FontSize="18" FontWeight="SemiBold" Margin="0,6,0,0"/><TextBlock x:Name="ForecastRangeText" Text="Insufficient data" Foreground="#6F7C8D" FontSize="8.2" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/></StackPanel>
+                            <StackPanel Grid.Column="1"><TextBlock Text="FAIR VALUE" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastFairValueText" Text="—" FontSize="14" FontWeight="SemiBold" Margin="0,7,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Text="CONF" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastConfidenceText" Text="—" FontSize="14" FontWeight="SemiBold" Margin="0,7,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="3"><TextBlock Text="RAP" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastRapText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,8,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="4"><TextBlock Text="SALES/D" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastSalesText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,8,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="5"><TextBlock Text="LIQUIDITY" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastLiquidityText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,8,0,0"/></StackPanel>
+                        </Grid>
+
+                        <Border Height="1" Background="#202A36" Margin="0,13,0,12" />
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="1.2*"/><ColumnDefinition Width="1.3*"/></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="TARGET 1H" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastTarget1hText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="1"><TextBlock Text="TARGET 6H" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastTarget6hText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="2"><TextBlock Text="TARGET 24H" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastTarget24hText" Text="—" FontSize="12" FontWeight="SemiBold" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="3"><TextBlock Text="EST. TIME TO TARGET" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastEtaText" Text="—" FontSize="11" FontWeight="SemiBold" Margin="0,5,0,0"/></StackPanel>
+                            <StackPanel Grid.Column="4"><TextBlock Text="BACKTEST" Style="{StaticResource SectionLabelStyle}"/><TextBlock x:Name="ForecastAccuracyText" Text="Learning" FontSize="11" FontWeight="SemiBold" Margin="0,5,0,0"/><TextBlock x:Name="ForecastStatusText" Text="Waiting for data" Foreground="#667383" FontSize="7.8" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/></StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
                 <Border Style="{StaticResource CardStyle}" Padding="8" Margin="0,12,0,0" Height="310">
                     <Grid>
                         <Grid.RowDefinitions><RowDefinition Height="42" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                         <StackPanel VerticalAlignment="Center" Margin="7,0,0,0"><TextBlock Text="PRICE HISTORY" Foreground="#C8D2DE" FontSize="10" FontWeight="SemiBold" /><TextBlock Text="Lowest reseller observations" Foreground="#5E6B7B" FontSize="8.5" Margin="0,2,0,0" /></StackPanel>
-                        <ComboBox x:Name="DetailRangeCombo" Width="140" HorizontalAlignment="Right" SelectedIndex="1" SelectionChanged="DetailRangeCombo_SelectionChanged">
+                        <ComboBox x:Name="DetailRangeCombo" Width="140" HorizontalAlignment="Right" SelectedIndex="2" SelectionChanged="DetailRangeCombo_SelectionChanged">
+                            <ComboBoxItem Content="1 Hour" Tag="1H" />
                             <ComboBoxItem Content="24 Hours" Tag="24H" />
                             <ComboBoxItem Content="7 Days" Tag="7D" />
                             <ComboBoxItem Content="30 Days" Tag="30D" />
