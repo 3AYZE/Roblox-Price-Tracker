@@ -76,7 +76,7 @@ public partial class MainWindow : Window
         StartupDelayTextBox.Text = _services.Settings.StartupDelaySeconds.ToString();
         AutoUpdateCheckBox.IsChecked = _services.Settings.AutoUpdateEnabled;
         DataPathText.Text = _services.DataDirectory;
-        DiagnosticsVersionText.Text = "v0.4.1";
+        DiagnosticsVersionText.Text = "v0.4.2";
         DiagnosticsStartupText.Text = FormatStartupStatus();
     }
 
@@ -165,7 +165,7 @@ public partial class MainWindow : Window
             {
                 writer.WriteLine("Roblox Price Tracker data backup");
                 writer.WriteLine($"Created: {DateTimeOffset.Now:O}");
-                writer.WriteLine("Application: v0.4.1");
+                writer.WriteLine("Application: v0.4.2");
                 writer.WriteLine("Contains local tracker state and application settings.");
             }
             ShowBanner("Backup created", $"Saved {Path.GetFileName(dialog.FileName)}");
