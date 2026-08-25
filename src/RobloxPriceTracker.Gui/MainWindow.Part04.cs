@@ -81,6 +81,9 @@ public partial class MainWindow : Window
             case "Checked":
                 _watchlistView.SortDescriptions.Add(new SortDescription(nameof(WatchlistRow.LastCheckedSort), ListSortDirection.Descending));
                 break;
+            case "Change":
+                _watchlistView.SortDescriptions.Add(new SortDescription(nameof(WatchlistRow.Change24hSort), ListSortDirection.Descending));
+                break;
         }
     }
 
@@ -172,6 +175,7 @@ public partial class MainWindow : Window
             ReportLowText.Text = "—";
             ReportHighText.Text = "—";
             ReportChangeText.Text = "—";
+            ReportChangeText.Foreground = new SolidColorBrush(Color.FromRgb(167, 178, 192));
             return;
         }
 
@@ -179,6 +183,12 @@ public partial class MainWindow : Window
         ReportLowText.Text = DisplayFormatting.Price(prices.Min());
         ReportHighText.Text = DisplayFormatting.Price(prices.Max());
         ReportChangeText.Text = DisplayFormatting.PercentageChange(valid[0].Price!.Value, valid[^1].Price!.Value);
+        ReportChangeText.Foreground = new SolidColorBrush(valid[^1].Price!.Value switch
+        {
+            var last when last > valid[0].Price!.Value => Color.FromRgb(0, 192, 118),
+            var last when last < valid[0].Price!.Value => Color.FromRgb(246, 70, 93),
+            _ => Color.FromRgb(167, 178, 192)
+        });
     }
 
     private DateTimeOffset? GetReportCutoff()
@@ -187,6 +197,7 @@ public partial class MainWindow : Window
         var now = DateTimeOffset.UtcNow;
         return range switch
         {
+            "1H" => now - TimeSpan.FromHours(1),
             "24H" => now - TimeSpan.FromHours(24),
             "7D" => now - TimeSpan.FromDays(7),
             "30D" => now - TimeSpan.FromDays(30),
@@ -206,6 +217,7 @@ public partial class MainWindow : Window
         ReportLowText.Text = "—";
         ReportHighText.Text = "—";
         ReportChangeText.Text = "—";
+        ReportChangeText.Foreground = new SolidColorBrush(Color.FromRgb(167, 178, 192));
         ReportObservationText.Text = "0 observations";
     }
 }
