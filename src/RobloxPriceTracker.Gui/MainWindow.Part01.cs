@@ -53,6 +53,7 @@ public partial class MainWindow : Window
         _backgroundLaunch = backgroundLaunch;
         _startupLaunch = startupLaunch;
         InitializeComponent();
+        ConfigureStockUi();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -146,11 +147,11 @@ public partial class MainWindow : Window
 
         (PageTitleText.Text, PageSubtitleText.Text) = page switch
         {
-            "Watchlist" => ("Watchlist", "Search, filter, and manage the items currently being monitored."),
-            "Alerts" => ("Alerts", "Persistent audit trail of target hits and new tracked lows."),
-            "Reports" => ("Reports", "Review recorded resale-price history and target performance."),
-            "Settings" => ("Settings", "Monitoring cadence, application behavior, data, and diagnostics."),
-            _ => ("Dashboard", "Live marketplace monitoring at a glance.")
+            "Watchlist" => ("Watchlist", "Live quotes, 24H movement, target distance, and market signals."),
+            "Alerts" => ("Alerts", "Event tape for target crossings and new observed lows."),
+            "Reports" => ("Price History", "Interactive resale charts, range performance, and recorded observations."),
+            "Settings" => ("Settings", "Monitoring cadence, background behavior, updates, data, and diagnostics."),
+            _ => ("Market Overview", "Roblox resale quotes and target signals at a glance.")
         };
     }
 
@@ -195,6 +196,20 @@ public partial class MainWindow : Window
                 {
                     row.SetThumbnail(thumbnail);
                 }
+            }
+        }
+
+        foreach (var row in _watchlistRows)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var history = await _services.Repository.GetPriceHistoryAsync(row.ItemKey, 96);
+                row.UpdateTrend(history);
+            }
+            catch (Exception ex)
+            {
+                _services.Logger.Error($"Could not calculate market trend for {row.ItemKey}: {ex.Message}");
             }
         }
 
