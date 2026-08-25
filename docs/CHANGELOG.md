@@ -1,5 +1,17 @@
 # Roblox Price Tracker changelog
 
+## v0.5.1
+- Reworked the watchlist into a more recognizable stock-app quote board with **Last / 24H / Trend / Vs Target / Target / Low / Signal / Updated** market data.
+- Added 24-hour price movement in both percent and Robux, using conventional green/red market colors.
+- Added compact per-item sparklines built from locally recorded resale-price observations.
+- Added a **24H change** sort mode for quickly finding the strongest movers.
+- Added a **1 Hour** range alongside 24H / 7D / 30D / All History in market reports and item details.
+- Upgraded price charts with range-direction coloring, hover crosshair, exact price/time quote tooltip, area fill, and target reference line.
+- Updated item details to behave more like a quote page, including range-colored movement metrics and dark market-status badges.
+- Added desktop-terminal keyboard controls: **F5** refresh, **Ctrl+F** search, **Ctrl+N** track asset, **Ctrl+,** settings, **Enter** details, **Delete** remove, and **Esc** close details.
+- Renamed the presentation to **RPT MARKETS / ROBLOX MARKET WATCH** while preserving the original mouse artwork and the existing background/startup/update systems.
+- Switched displayed version/backup metadata to the executable's runtime version so future releases stay synchronized automatically.
+
 ## v0.4.2
 - Restored the exact original mouse artwork supplied for Roblox Price Tracker branding instead of the later cropped/tiny logo treatment.
 - Regenerated the Windows multi-size `.ico` from the original mouse image for the EXE, taskbar, and WPF window icon.
