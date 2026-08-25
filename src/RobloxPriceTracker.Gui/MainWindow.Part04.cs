@@ -84,6 +84,12 @@ public partial class MainWindow : Window
             case "Change":
                 _watchlistView.SortDescriptions.Add(new SortDescription(nameof(WatchlistRow.Change24hSort), ListSortDirection.Descending));
                 break;
+            case "ForecastConfidence":
+                _watchlistView.SortDescriptions.Add(new SortDescription(nameof(WatchlistRow.ForecastConfidenceSort), ListSortDirection.Descending));
+                break;
+            case "ForecastPrice":
+                _watchlistView.SortDescriptions.Add(new SortDescription(nameof(WatchlistRow.ForecastPriceSort), ListSortDirection.Ascending));
+                break;
         }
     }
 
@@ -167,7 +173,7 @@ public partial class MainWindow : Window
         ReportChartTitle.Text = $"{row.Name} — lowest reseller price";
         ReportCurrentText.Text = row.CurrentPrice;
         ReportTargetText.Text = row.TargetPrice;
-        ReportObservationText.Text = $"{filtered.Length:N0} observation{(filtered.Length == 1 ? string.Empty : "s")}";
+        ReportObservationText.Text = $"{filtered.Length:N0} observation{(filtered.Length == 1 ? string.Empty : "s")} · Forecast {row.ForecastPrice} · {row.ForecastConfidence} confidence";
 
         var valid = filtered.Where(x => x.Price is > 0).OrderBy(x => x.ObservedAtUtc).ToArray();
         if (valid.Length == 0)
