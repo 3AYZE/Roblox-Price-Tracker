@@ -1,5 +1,14 @@
 # Roblox Price Tracker changelog
 
+## v0.6.2
+- Fixed the v0.6.1 startup failure caused by the WPF runtime failing to decode the application ICO while loading window XAML.
+- Reworked icon generation to create a native Windows/WPF-compatible ICO from the canonical PNG artwork during the Windows build.
+- Added build-time validation through both the Win32 icon decoder and WPF `BitmapFrame` decoder before compiling the release.
+- Added a packaged EXE startup smoke test using `--background`; releases now fail if the finished WPF application cannot initialize and remain running.
+- Enabled .NET single-file compression while keeping the app self-contained and requiring no separate .NET installation.
+- Reduced the standalone EXE from 170,496,514 bytes in v0.6.1 to approximately 74,404,812 bytes, a reduction of about 56%.
+- Preserved the embedded EXE/taskbar icon, background monitoring, updater, forecasts, watchlist data, and all existing local app-data formats.
+
 ## v0.6.0
 - Added a deterministic **Market Forecast** engine for the next observed lowest reseller quote, with expected range, fair value, market direction, and confidence instead of presenting a single price as certain.
 - Forecasting requires at least **8 valid local price observations**; before that the UI explicitly reports **Insufficient data**.
@@ -68,7 +77,7 @@
 - Added watchlist search, status filtering, sorting, target-distance text, near-target status, issue state, and empty states.
 - Reworked Add Item into a verify-first workflow with item identity and current-market preview.
 - Reworked Item Details with range controls, current/target/tracked-low metrics, range low/high/change, and chart target line.
-- Reworked Reports with 24h/7d/30d/all ranges, metrics, and CSV export.
+- Reworked Reports with 24h/7d/30d/all ranges, metrics, CSV export.
 - Added settings diagnostics and ZIP backup creation.
 - Added a dependency-free Windows tray workflow with alert balloons, open/check/pause-resume/exit actions, and optional close-to-tray behavior.
 - Serialized GUI-triggered/automatic check entry to reduce overlapping poll races.
