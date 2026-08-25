@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using RobloxPriceTracker.Infrastructure;
 using Point = System.Windows.Point;
@@ -11,6 +12,13 @@ public sealed class PriceChart : FrameworkElement
 {
     private IReadOnlyList<JsonFileRepository.PriceHistoryEntry> _points = Array.Empty<JsonFileRepository.PriceHistoryEntry>();
     private long? _targetPrice;
+    private int? _hoverIndex;
+
+    public PriceChart()
+    {
+        Cursor = Cursors.Cross;
+        SnapsToDevicePixels = true;
+    }
 
     public void SetPoints(IEnumerable<JsonFileRepository.PriceHistoryEntry> points)
     {
@@ -19,6 +27,7 @@ public sealed class PriceChart : FrameworkElement
             .OrderBy(x => x.ObservedAtUtc)
             .TakeLast(500)
             .ToArray();
+        _hoverIndex = null;
         InvalidateVisual();
     }
 
@@ -28,13 +37,55 @@ public sealed class PriceChart : FrameworkElement
         InvalidateVisual();
     }
 
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (_points.Count == 0)
+        {
+            _hoverIndex = null;
+            return;
+        }
+
+        const double left = 62;
+        const double right = 22;
+        var plotWidth = Math.Max(1, ActualWidth - left - right);
+        var mouseX = Math.Clamp(e.GetPosition(this).X, left, left + plotWidth);
+        var ratio = (mouseX - left) / plotWidth;
+        var start = _points[0].ObservedAtUtc;
+        var end = _points[^1].ObservedAtUtc;
+        var targetTicks = start.UtcTicks + (long)((end.UtcTicks - start.UtcTicks) * ratio);
+
+        var bestIndex = 0;
+        var bestDistance = long.MaxValue;
+        for (var i = 0; i < _points.Count; i++)
+        {
+            var distance = Math.Abs(_points[i].ObservedAtUtc.UtcTicks - targetTicks);
+            if (distance >= bestDistance) continue;
+            bestDistance = distance;
+            bestIndex = i;
+        }
+
+        if (_hoverIndex != bestIndex)
+        {
+            _hoverIndex = bestIndex;
+            InvalidateVisual();
+        }
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hoverIndex is null) return;
+        _hoverIndex = null;
+        InvalidateVisual();
+    }
+
     protected override void OnRender(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
         var width = Math.Max(1, ActualWidth);
         var height = Math.Max(1, ActualHeight);
-        var background = new SolidColorBrush(Color.FromRgb(16, 21, 28));
-        background.Freeze();
+        var background = FrozenBrush(10, 15, 21);
         drawingContext.DrawRectangle(background, null, new Rect(0, 0, width, height));
 
         const double left = 62;
@@ -44,9 +95,7 @@ public sealed class PriceChart : FrameworkElement
         var plotWidth = Math.Max(1, width - left - right);
         var plotHeight = Math.Max(1, height - top - bottom);
 
-        var gridBrush = new SolidColorBrush(Color.FromRgb(31, 41, 53));
-        gridBrush.Freeze();
-        var gridPen = new Pen(gridBrush, 1);
+        var gridPen = new Pen(FrozenBrush(28, 38, 49), 1);
         for (var i = 0; i <= 4; i++)
         {
             var y = top + plotHeight * i / 4.0;
@@ -60,10 +109,7 @@ public sealed class PriceChart : FrameworkElement
         }
 
         var prices = _points.Select(x => x.Price!.Value).ToList();
-        if (_targetPrice is > 0)
-        {
-            prices.Add(_targetPrice.Value);
-        }
+        if (_targetPrice is > 0) prices.Add(_targetPrice.Value);
 
         var min = prices.Min();
         var max = prices.Max();
@@ -103,17 +149,23 @@ public sealed class PriceChart : FrameworkElement
         {
             var targetNormalized = (_targetPrice.Value - min) / (double)range;
             var targetY = top + plotHeight - targetNormalized * plotHeight;
-            var targetBrush = new SolidColorBrush(Color.FromRgb(243, 201, 105));
-            targetBrush.Freeze();
-            var targetPen = new Pen(targetBrush, 1.1) { DashStyle = DashStyles.Dash };
+            var targetBrush = FrozenBrush(240, 185, 11);
+            var targetPen = new Pen(targetBrush, 1.05) { DashStyle = DashStyles.Dash };
             drawingContext.DrawLine(targetPen, new Point(left, targetY), new Point(left + plotWidth, targetY));
-            var targetLabel = CreateText($"TARGET {FormatCompact(_targetPrice.Value)}", 8.5, Color.FromRgb(243, 201, 105));
+            var targetLabel = CreateText($"TARGET {FormatCompact(_targetPrice.Value)}", 8.5, Color.FromRgb(240, 185, 11));
             drawingContext.DrawRectangle(background, null, new Rect(left + 5, targetY - 9, targetLabel.Width + 9, 18));
             drawingContext.DrawText(targetLabel, new Point(left + 9, targetY - 7));
         }
 
-        var lineBrush = new SolidColorBrush(Color.FromRgb(76, 141, 255));
-        lineBrush.Freeze();
+        var firstPrice = _points[0].Price!.Value;
+        var lastPrice = _points[^1].Price!.Value;
+        var lineColor = lastPrice switch
+        {
+            var value when value > firstPrice => Color.FromRgb(0, 192, 118),
+            var value when value < firstPrice => Color.FromRgb(246, 70, 93),
+            _ => Color.FromRgb(76, 141, 255)
+        };
+        var lineBrush = FrozenBrush(lineColor.R, lineColor.G, lineColor.B);
 
         if (_points.Count >= 2)
         {
@@ -123,15 +175,12 @@ public sealed class PriceChart : FrameworkElement
                 var first = MapPoint(_points[0]);
                 context.BeginFigure(new Point(first.X, top + plotHeight), true, true);
                 context.LineTo(first, true, false);
-                for (var i = 1; i < _points.Count; i++)
-                {
-                    context.LineTo(MapPoint(_points[i]), true, false);
-                }
+                for (var i = 1; i < _points.Count; i++) context.LineTo(MapPoint(_points[i]), true, false);
                 var last = MapPoint(_points[^1]);
                 context.LineTo(new Point(last.X, top + plotHeight), true, false);
             }
             area.Freeze();
-            var areaBrush = new SolidColorBrush(Color.FromArgb(28, 76, 141, 255));
+            var areaBrush = new SolidColorBrush(Color.FromArgb(26, lineColor.R, lineColor.G, lineColor.B));
             areaBrush.Freeze();
             drawingContext.DrawGeometry(areaBrush, null, area);
 
@@ -146,7 +195,7 @@ public sealed class PriceChart : FrameworkElement
                 }
             }
             geometry.Freeze();
-            drawingContext.DrawGeometry(null, new Pen(lineBrush, 2), geometry);
+            drawingContext.DrawGeometry(null, new Pen(lineBrush, 1.8), geometry);
         }
         else
         {
@@ -158,6 +207,39 @@ public sealed class PriceChart : FrameworkElement
         var endText = end.ToLocalTime().ToString("MMM d, h:mm tt");
         var formattedEnd = CreateText(endText, 8.5, Color.FromRgb(96, 108, 123));
         drawingContext.DrawText(formattedEnd, new Point(left + plotWidth - formattedEnd.Width, top + plotHeight + 9));
+
+        DrawHover(drawingContext, MapPoint, left, top, plotWidth, plotHeight, width);
+    }
+
+    private void DrawHover(
+        DrawingContext drawingContext,
+        Func<JsonFileRepository.PriceHistoryEntry, Point> mapPoint,
+        double left,
+        double top,
+        double plotWidth,
+        double plotHeight,
+        double width)
+    {
+        if (_hoverIndex is not { } hover || hover < 0 || hover >= _points.Count) return;
+        var entry = _points[hover];
+        var point = mapPoint(entry);
+        var crossPen = new Pen(FrozenBrush(76, 91, 110), 1) { DashStyle = DashStyles.Dot };
+        drawingContext.DrawLine(crossPen, new Point(point.X, top), new Point(point.X, top + plotHeight));
+        drawingContext.DrawEllipse(FrozenBrush(238, 244, 249), new Pen(FrozenBrush(20, 28, 38), 1), point, 3.2, 3.2);
+
+        var priceText = CreateText($"{entry.Price!.Value:N0} R$", 11, Color.FromRgb(240, 244, 248));
+        var timeText = CreateText(entry.ObservedAtUtc.ToLocalTime().ToString("MMM d · h:mm:ss tt"), 8.5, Color.FromRgb(142, 154, 169));
+        var boxWidth = Math.Max(priceText.Width, timeText.Width) + 20;
+        const double boxHeight = 47;
+        var desiredX = point.X + 10;
+        var boxX = desiredX + boxWidth > width - 8 ? point.X - boxWidth - 10 : desiredX;
+        boxX = Math.Max(left, Math.Min(boxX, left + plotWidth - boxWidth));
+        var boxY = Math.Max(top + 5, point.Y - boxHeight - 10);
+
+        var rect = new Rect(boxX, boxY, boxWidth, boxHeight);
+        drawingContext.DrawRoundedRectangle(FrozenBrush(15, 22, 30), new Pen(FrozenBrush(47, 61, 78), 1), rect, 4, 4);
+        drawingContext.DrawText(priceText, new Point(boxX + 10, boxY + 7));
+        drawingContext.DrawText(timeText, new Point(boxX + 10, boxY + 25));
     }
 
     private static string FormatCompact(double price) => price switch
@@ -178,4 +260,11 @@ public sealed class PriceChart : FrameworkElement
         size,
         new SolidColorBrush(color),
         1.0);
+
+    private static SolidColorBrush FrozenBrush(byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
 }
