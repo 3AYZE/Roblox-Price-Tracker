@@ -277,10 +277,10 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         ForecastConfidence = $"{forecast.ConfidencePercent:0}%";
         ForecastDirection = forecast.Direction switch
         {
-            ForecastDirection.StrongBearish => "▼▼ BEARISH",
-            ForecastDirection.Bearish => "▼ BEARISH",
-            ForecastDirection.StrongBullish => "▲▲ BULLISH",
-            ForecastDirection.Bullish => "▲ BULLISH",
+            RobloxPriceTracker.Infrastructure.ForecastDirection.StrongBearish => "▼▼ BEARISH",
+            RobloxPriceTracker.Infrastructure.ForecastDirection.Bearish => "▼ BEARISH",
+            RobloxPriceTracker.Infrastructure.ForecastDirection.StrongBullish => "▲▲ BULLISH",
+            RobloxPriceTracker.Infrastructure.ForecastDirection.Bullish => "▲ BULLISH",
             _ => "• NEUTRAL"
         };
         ForecastTarget24h = forecast.TargetProbability24h is { } probability && !double.IsNaN(probability)
@@ -289,8 +289,8 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         ForecastStatus = forecast.Status;
         ForecastForeground = forecast.Direction switch
         {
-            ForecastDirection.StrongBearish or ForecastDirection.Bearish => Brush(246, 70, 93),
-            ForecastDirection.StrongBullish or ForecastDirection.Bullish => Brush(0, 192, 118),
+            RobloxPriceTracker.Infrastructure.ForecastDirection.StrongBearish or RobloxPriceTracker.Infrastructure.ForecastDirection.Bearish => Brush(246, 70, 93),
+            RobloxPriceTracker.Infrastructure.ForecastDirection.StrongBullish or RobloxPriceTracker.Infrastructure.ForecastDirection.Bullish => Brush(0, 192, 118),
             _ => Brush(100, 168, 255)
         };
         ForecastConfidenceSort = forecast.ConfidencePercent;
