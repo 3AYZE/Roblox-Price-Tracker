@@ -21,10 +21,21 @@ public sealed class WatchlistRow : INotifyPropertyChanged
     private string _change24h = "—";
     private string _change24hAmount = "No 24H baseline";
     private IReadOnlyList<double> _sparklineValues = Array.Empty<double>();
+    private string _forecastPrice = "—";
+    private string _forecastRange = "Insufficient data";
+    private string _forecastConfidence = "—";
+    private string _forecastDirection = "WAITING";
+    private string _forecastTarget24h = "—";
+    private string _forecastLiquidity = "—";
+    private string _forecastSalesVelocity = "—";
+    private string _forecastRap = "—";
+    private string _forecastAccuracy = "Learning";
+    private string _forecastStatus = "Waiting for enough observations.";
     private Brush _statusBackground = Brush(21, 28, 37);
     private Brush _statusForeground = Brush(154, 165, 180);
     private Brush _priceForeground = Brush(230, 237, 243);
     private Brush _trendForeground = Brush(102, 115, 131);
+    private Brush _forecastForeground = Brush(102, 115, 131);
 
     public ItemKey ItemKey { get; private set; }
     public TrackerItemSnapshot Snapshot { get; private set; } = null!;
@@ -41,16 +52,29 @@ public sealed class WatchlistRow : INotifyPropertyChanged
     public string Change24h { get => _change24h; private set => SetField(ref _change24h, value); }
     public string Change24hAmount { get => _change24hAmount; private set => SetField(ref _change24hAmount, value); }
     public IReadOnlyList<double> SparklineValues { get => _sparklineValues; private set => SetField(ref _sparklineValues, value); }
+    public string ForecastPrice { get => _forecastPrice; private set => SetField(ref _forecastPrice, value); }
+    public string ForecastRange { get => _forecastRange; private set => SetField(ref _forecastRange, value); }
+    public string ForecastConfidence { get => _forecastConfidence; private set => SetField(ref _forecastConfidence, value); }
+    public string ForecastDirection { get => _forecastDirection; private set => SetField(ref _forecastDirection, value); }
+    public string ForecastTarget24h { get => _forecastTarget24h; private set => SetField(ref _forecastTarget24h, value); }
+    public string ForecastLiquidity { get => _forecastLiquidity; private set => SetField(ref _forecastLiquidity, value); }
+    public string ForecastSalesVelocity { get => _forecastSalesVelocity; private set => SetField(ref _forecastSalesVelocity, value); }
+    public string ForecastRap { get => _forecastRap; private set => SetField(ref _forecastRap, value); }
+    public string ForecastAccuracy { get => _forecastAccuracy; private set => SetField(ref _forecastAccuracy, value); }
+    public string ForecastStatus { get => _forecastStatus; private set => SetField(ref _forecastStatus, value); }
     public Brush StatusBackground { get => _statusBackground; private set => SetField(ref _statusBackground, value); }
     public Brush StatusForeground { get => _statusForeground; private set => SetField(ref _statusForeground, value); }
     public Brush PriceForeground { get => _priceForeground; private set => SetField(ref _priceForeground, value); }
     public Brush TrendForeground { get => _trendForeground; private set => SetField(ref _trendForeground, value); }
+    public Brush ForecastForeground { get => _forecastForeground; private set => SetField(ref _forecastForeground, value); }
 
     public long? TargetValue => Snapshot?.Rules.FirstOrDefault(x => x.RuleType == AlertRuleType.TargetPrice)?.Threshold;
     public long? CurrentPriceValue => Snapshot?.Market.CurrentLowestPrice;
     public long CurrentPriceSort => CurrentPriceValue ?? long.MaxValue;
     public double TargetDistanceSort { get; private set; } = double.MaxValue;
     public double Change24hSort { get; private set; } = double.MinValue;
+    public double ForecastConfidenceSort { get; private set; } = -1d;
+    public long ForecastPriceSort { get; private set; } = long.MaxValue;
     public long LastCheckedSort => Snapshot?.Market.LastSuccessAtUtc?.UtcDateTime.Ticks ?? 0;
     public bool IsNearTarget { get; private set; }
     public bool IsTargetHit { get; private set; }
@@ -211,6 +235,70 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         OnPropertyChanged(nameof(Change24hSort));
     }
 
+    public void UpdateForecast(
+        PriceForecastResult forecast,
+        ForecastBacktestStats backtest,
+        RobloxResaleMarketData? resaleData)
+    {
+        ForecastSalesVelocity = resaleData is { IsAvailable: true, HasSalesSeries: true }
+            ? $"{resaleData.SalesPerDay7d:0.#}/day"
+            : "—";
+        ForecastRap = resaleData?.RecentAveragePrice is > 0
+            ? $"{resaleData.RecentAveragePrice.Value:N0} R$"
+            : "—";
+        ForecastLiquidity = forecast.LiquidityScore is { } liquidity ? $"{liquidity:0}/100" : "—";
+        ForecastAccuracy = backtest.EvaluatedForecasts switch
+        {
+            >= 5 => $"{backtest.AccuracyPercent:0}% · n={backtest.EvaluatedForecasts}",
+            > 0 => $"Learning · n={backtest.EvaluatedForecasts}",
+            _ => "Learning"
+        };
+
+        if (!forecast.IsAvailable || forecast.NextPrice is not > 0)
+        {
+            ForecastPrice = "—";
+            ForecastRange = forecast.Status;
+            ForecastConfidence = "—";
+            ForecastDirection = "INSUFFICIENT";
+            ForecastTarget24h = "—";
+            ForecastStatus = forecast.Status;
+            ForecastForeground = Brush(102, 115, 131);
+            ForecastConfidenceSort = -1;
+            ForecastPriceSort = long.MaxValue;
+            OnPropertyChanged(nameof(ForecastConfidenceSort));
+            OnPropertyChanged(nameof(ForecastPriceSort));
+            return;
+        }
+
+        ForecastPrice = DisplayFormatting.Price(forecast.NextPrice);
+        ForecastRange = forecast.RangeLow is > 0 && forecast.RangeHigh is > 0
+            ? $"{DisplayFormatting.Price(forecast.RangeLow)} – {DisplayFormatting.Price(forecast.RangeHigh)}"
+            : "—";
+        ForecastConfidence = $"{forecast.ConfidencePercent:0}%";
+        ForecastDirection = forecast.Direction switch
+        {
+            ForecastDirection.StrongBearish => "▼▼ BEARISH",
+            ForecastDirection.Bearish => "▼ BEARISH",
+            ForecastDirection.StrongBullish => "▲▲ BULLISH",
+            ForecastDirection.Bullish => "▲ BULLISH",
+            _ => "• NEUTRAL"
+        };
+        ForecastTarget24h = forecast.TargetProbability24h is { } probability && !double.IsNaN(probability)
+            ? $"{probability:0}%"
+            : "—";
+        ForecastStatus = forecast.Status;
+        ForecastForeground = forecast.Direction switch
+        {
+            ForecastDirection.StrongBearish or ForecastDirection.Bearish => Brush(246, 70, 93),
+            ForecastDirection.StrongBullish or ForecastDirection.Bullish => Brush(0, 192, 118),
+            _ => Brush(100, 168, 255)
+        };
+        ForecastConfidenceSort = forecast.ConfidencePercent;
+        ForecastPriceSort = forecast.NextPrice.Value;
+        OnPropertyChanged(nameof(ForecastConfidenceSort));
+        OnPropertyChanged(nameof(ForecastPriceSort));
+    }
+
     public void SetThumbnail(string? thumbnailUrl)
     {
         ThumbnailUrl = thumbnailUrl ?? string.Empty;
@@ -220,6 +308,8 @@ public sealed class WatchlistRow : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(TargetDistanceSort));
         OnPropertyChanged(nameof(Change24hSort));
+        OnPropertyChanged(nameof(ForecastConfidenceSort));
+        OnPropertyChanged(nameof(ForecastPriceSort));
         OnPropertyChanged(nameof(LastCheckedSort));
         OnPropertyChanged(nameof(IsNearTarget));
         OnPropertyChanged(nameof(IsTargetHit));
