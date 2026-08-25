@@ -1,5 +1,11 @@
 # Roblox Price Tracker changelog
 
+## v0.4.2
+- Restored the exact original mouse artwork supplied for Roblox Price Tracker branding instead of the later cropped/tiny logo treatment.
+- Regenerated the Windows multi-size `.ico` from the original mouse image for the EXE, taskbar, and WPF window icon.
+- Unified the sidebar/menu/dialog PNG resources around the original mouse artwork so the branding stays consistent throughout the application.
+- Bumped the desktop application and diagnostics metadata to v0.4.2 so the corrected icon build can be published as a distinct verified update.
+
 ## v0.4.1
 - Fixed the Price History item/range selectors using a fully custom dark WPF ComboBox template so Windows light-theme chrome no longer produces white unreadable dropdowns.
 - Increased Price History title, metric, table, and header contrast for better readability against the market-terminal background.
