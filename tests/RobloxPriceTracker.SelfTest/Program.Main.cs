@@ -28,7 +28,12 @@ internal static partial class Program
             ("Provider retries anonymous 403 CSRF challenge", TestProviderAnonymousCsrfRetryAsync),
             ("Provider preserves completed chunks on partial failure", TestProviderPartialFailureAsync),
             ("Coordinator resyncs sequence after external commit", TestCoordinatorSequenceResyncAsync),
-            ("Notification dispatcher serializes concurrent delivery", TestNotificationDispatcherConcurrencyAsync)
+            ("Notification dispatcher serializes concurrent delivery", TestNotificationDispatcherConcurrencyAsync),
+            ("Resale parser reads RAP and daily volume", TestResaleDataParserAsync),
+            ("Forecast waits for minimum history", TestForecastRequiresMinimumHistoryAsync),
+            ("Forecast follows a clean downtrend", TestForecastFollowsCleanDowntrendAsync),
+            ("Liquidity raises forecast confidence", TestLiquidityRaisesForecastConfidenceAsync),
+            ("Forecast backtest store evaluates next quote", TestForecastBacktestStoreAsync)
         };
 
         var failed = 0;
