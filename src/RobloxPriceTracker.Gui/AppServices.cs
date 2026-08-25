@@ -21,7 +21,10 @@ public sealed class AppServices : IDisposable
         AppSettingsStore settingsStore,
         AppSettings settings,
         RobloxThumbnailService thumbnailService,
-        GitHubUpdateService updateService)
+        GitHubUpdateService updateService,
+        RobloxResaleDataService resaleDataService,
+        PriceForecastEngine forecastEngine,
+        ForecastHistoryStore forecastHistoryStore)
     {
         DataDirectory = dataDirectory;
         Repository = repository;
@@ -37,6 +40,9 @@ public sealed class AppServices : IDisposable
         Settings = settings;
         ThumbnailService = thumbnailService;
         UpdateService = updateService;
+        ResaleDataService = resaleDataService;
+        ForecastEngine = forecastEngine;
+        ForecastHistoryStore = forecastHistoryStore;
     }
 
     public string DataDirectory { get; }
@@ -53,6 +59,9 @@ public sealed class AppServices : IDisposable
     public AppSettings Settings { get; }
     public RobloxThumbnailService ThumbnailService { get; }
     public GitHubUpdateService UpdateService { get; }
+    public RobloxResaleDataService ResaleDataService { get; }
+    public PriceForecastEngine ForecastEngine { get; }
+    public ForecastHistoryStore ForecastHistoryStore { get; }
 
     public PollPlanner CreatePollPlanner() => new(
         TimeSpan.FromSeconds(Math.Max(10, Settings.NormalPollSeconds)),
@@ -109,6 +118,10 @@ public sealed class AppServices : IDisposable
         var dispatcher = new NotificationDispatcher(repository, notificationSink);
         var thumbnailService = new RobloxThumbnailService(httpClient);
         var updateService = new GitHubUpdateService(dataDir, logger);
+        var resaleDataService = new RobloxResaleDataService(httpClient, logger);
+        var forecastEngine = new PriceForecastEngine();
+        var forecastHistoryStore = new ForecastHistoryStore(Path.Combine(dataDir, "forecast-history.json"));
+        await forecastHistoryStore.InitializeAsync(cancellationToken);
 
         return new AppServices(
             dataDir,
@@ -124,7 +137,10 @@ public sealed class AppServices : IDisposable
             settingsStore,
             settings,
             thumbnailService,
-            updateService);
+            updateService,
+            resaleDataService,
+            forecastEngine,
+            forecastHistoryStore);
     }
 
     public void Dispose()
