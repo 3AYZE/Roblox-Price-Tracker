@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 using RobloxPriceTracker.Core;
+using RobloxPriceTracker.Infrastructure;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
 
@@ -17,9 +18,13 @@ public sealed class WatchlistRow : INotifyPropertyChanged
     private string _targetDistance = "Target unavailable";
     private string _status = "Unknown";
     private string _lastChecked = "Never";
+    private string _change24h = "—";
+    private string _change24hAmount = "No 24H baseline";
+    private IReadOnlyList<double> _sparklineValues = Array.Empty<double>();
     private Brush _statusBackground = Brush(21, 28, 37);
     private Brush _statusForeground = Brush(154, 165, 180);
     private Brush _priceForeground = Brush(230, 237, 243);
+    private Brush _trendForeground = Brush(102, 115, 131);
 
     public ItemKey ItemKey { get; private set; }
     public TrackerItemSnapshot Snapshot { get; private set; } = null!;
@@ -33,14 +38,19 @@ public sealed class WatchlistRow : INotifyPropertyChanged
     public string TargetDistance { get => _targetDistance; private set => SetField(ref _targetDistance, value); }
     public string Status { get => _status; private set => SetField(ref _status, value); }
     public string LastChecked { get => _lastChecked; private set => SetField(ref _lastChecked, value); }
+    public string Change24h { get => _change24h; private set => SetField(ref _change24h, value); }
+    public string Change24hAmount { get => _change24hAmount; private set => SetField(ref _change24hAmount, value); }
+    public IReadOnlyList<double> SparklineValues { get => _sparklineValues; private set => SetField(ref _sparklineValues, value); }
     public Brush StatusBackground { get => _statusBackground; private set => SetField(ref _statusBackground, value); }
     public Brush StatusForeground { get => _statusForeground; private set => SetField(ref _statusForeground, value); }
     public Brush PriceForeground { get => _priceForeground; private set => SetField(ref _priceForeground, value); }
+    public Brush TrendForeground { get => _trendForeground; private set => SetField(ref _trendForeground, value); }
 
     public long? TargetValue => Snapshot?.Rules.FirstOrDefault(x => x.RuleType == AlertRuleType.TargetPrice)?.Threshold;
     public long? CurrentPriceValue => Snapshot?.Market.CurrentLowestPrice;
     public long CurrentPriceSort => CurrentPriceValue ?? long.MaxValue;
     public double TargetDistanceSort { get; private set; } = double.MaxValue;
+    public double Change24hSort { get; private set; } = double.MinValue;
     public long LastCheckedSort => Snapshot?.Market.LastSuccessAtUtc?.UtcDateTime.Ticks ?? 0;
     public bool IsNearTarget { get; private set; }
     public bool IsTargetHit { get; private set; }
@@ -83,7 +93,7 @@ public sealed class WatchlistRow : INotifyPropertyChanged
                 TargetDistance = delta == 0
                     ? "At target"
                     : $"{Math.Abs(delta):N0} R$ below target";
-                PriceForeground = Brush(45, 216, 129);
+                PriceForeground = Brush(0, 192, 118);
             }
             else
             {
@@ -91,7 +101,7 @@ public sealed class WatchlistRow : INotifyPropertyChanged
                 IsNearTarget = percent <= 10d;
                 if (IsNearTarget)
                 {
-                    PriceForeground = Brush(243, 201, 105);
+                    PriceForeground = Brush(240, 185, 11);
                 }
             }
         }
@@ -99,14 +109,14 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         if (IsStale)
         {
             IsIssue = true;
-            SetStatus("Stale data", 51, 37, 21, 255, 184, 107);
+            SetStatus("Stale data", 52, 38, 18, 240, 185, 11);
             RaiseComputedFlags();
             return;
         }
 
         if (IsTargetHit)
         {
-            SetStatus("Target hit", 13, 40, 27, 45, 216, 129);
+            SetStatus("Target hit", 8, 42, 29, 0, 192, 118);
             RaiseComputedFlags();
             return;
         }
@@ -114,14 +124,14 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         switch (snapshot.Market.ObservedStatus)
         {
             case MarketStatus.Available when IsNearTarget:
-                SetStatus("Near target", 51, 42, 16, 243, 201, 105);
+                SetStatus("Near target", 52, 42, 14, 240, 185, 11);
                 break;
             case MarketStatus.Available:
                 SetStatus("Watching", 16, 38, 63, 100, 168, 255);
                 break;
             case MarketStatus.NoResellers:
                 IsIssue = true;
-                SetStatus("No sellers", 51, 37, 21, 255, 184, 107);
+                SetStatus("No sellers", 52, 38, 18, 240, 185, 11);
                 break;
             case MarketStatus.OffSale:
                 IsIssue = true;
@@ -129,11 +139,11 @@ public sealed class WatchlistRow : INotifyPropertyChanged
                 break;
             case MarketStatus.InvalidPrice:
                 IsIssue = true;
-                SetStatus("Price issue", 56, 25, 28, 255, 122, 122);
+                SetStatus("Price issue", 55, 22, 29, 246, 70, 93);
                 break;
             case MarketStatus.Unsupported:
                 IsIssue = true;
-                SetStatus("Unsupported", 56, 25, 28, 255, 122, 122);
+                SetStatus("Unsupported", 55, 22, 29, 246, 70, 93);
                 break;
             default:
                 IsIssue = true;
@@ -144,6 +154,63 @@ public sealed class WatchlistRow : INotifyPropertyChanged
         RaiseComputedFlags();
     }
 
+    public void UpdateTrend(IEnumerable<JsonFileRepository.PriceHistoryEntry> history)
+    {
+        var valid = history
+            .Where(x => x.Price is > 0)
+            .OrderBy(x => x.ObservedAtUtc)
+            .ToArray();
+
+        SparklineValues = valid.TakeLast(32).Select(x => (double)x.Price!.Value).ToArray();
+        Change24h = "—";
+        Change24hAmount = "No 24H baseline";
+        Change24hSort = double.MinValue;
+        TrendForeground = Brush(102, 115, 131);
+
+        if (valid.Length == 0)
+        {
+            OnPropertyChanged(nameof(Change24hSort));
+            return;
+        }
+
+        var recent = valid.Where(x => x.ObservedAtUtc >= DateTimeOffset.UtcNow - TimeSpan.FromHours(24)).ToArray();
+        if (recent.Length < 2)
+        {
+            TrendForeground = valid.Length >= 2 && valid[^1].Price > valid[0].Price
+                ? Brush(0, 192, 118)
+                : valid.Length >= 2 && valid[^1].Price < valid[0].Price
+                    ? Brush(246, 70, 93)
+                    : Brush(100, 168, 255);
+            OnPropertyChanged(nameof(Change24hSort));
+            return;
+        }
+
+        var first = recent[0].Price!.Value;
+        var last = CurrentPriceValue is > 0 ? CurrentPriceValue.Value : recent[^1].Price!.Value;
+        var delta = last - first;
+        var percent = first > 0 ? delta / (double)first * 100d : 0d;
+        Change24hSort = percent;
+        Change24h = percent switch
+        {
+            > 0.0001 => $"▲ {percent:0.#}%",
+            < -0.0001 => $"▼ {Math.Abs(percent):0.#}%",
+            _ => "0.0%"
+        };
+        Change24hAmount = delta switch
+        {
+            > 0 => $"+{delta:N0} R$",
+            < 0 => $"-{Math.Abs(delta):N0} R$",
+            _ => "0 R$"
+        };
+        TrendForeground = delta switch
+        {
+            > 0 => Brush(0, 192, 118),
+            < 0 => Brush(246, 70, 93),
+            _ => Brush(100, 168, 255)
+        };
+        OnPropertyChanged(nameof(Change24hSort));
+    }
+
     public void SetThumbnail(string? thumbnailUrl)
     {
         ThumbnailUrl = thumbnailUrl ?? string.Empty;
@@ -152,6 +219,7 @@ public sealed class WatchlistRow : INotifyPropertyChanged
     private void RaiseComputedFlags()
     {
         OnPropertyChanged(nameof(TargetDistanceSort));
+        OnPropertyChanged(nameof(Change24hSort));
         OnPropertyChanged(nameof(LastCheckedSort));
         OnPropertyChanged(nameof(IsNearTarget));
         OnPropertyChanged(nameof(IsTargetHit));
@@ -210,10 +278,10 @@ public sealed record AlertRow(
 {
     public string Time => CreatedAtUtc.ToLocalTime().ToString("MMM d, h:mm:ss tt");
     public Brush SeverityBackground => Severity == "High"
-        ? new SolidColorBrush(Color.FromRgb(13, 40, 27))
+        ? new SolidColorBrush(Color.FromRgb(8, 42, 29))
         : new SolidColorBrush(Color.FromRgb(16, 38, 63));
     public Brush SeverityForeground => Severity == "High"
-        ? new SolidColorBrush(Color.FromRgb(45, 216, 129))
+        ? new SolidColorBrush(Color.FromRgb(0, 192, 118))
         : new SolidColorBrush(Color.FromRgb(100, 168, 255));
 }
 
