@@ -89,7 +89,12 @@ public sealed class PriceForecastEngine
             : 0d;
         salesWeight = Clamp(salesWeight, 0, 0.26);
 
-        var localCore = shortEma * 0.44 + mediumEma * 0.24 + recentMedian * 0.17 + regressionNext * 0.15;
+        // Next quote is primarily a momentum problem. Lagging averages are used as
+        // dampers, not as raw price-level targets, so a clean falling market does not
+        // incorrectly forecast upward simply because its EMA still sits above LAST.
+        var emaMomentumNext = current + (current - shortEma) * 0.42d;
+        var medianMomentumNext = current + (current - recentMedian) * 0.12d;
+        var localCore = current * 0.24d + regressionNext * 0.46d + emaMomentumNext * 0.20d + medianMomentumNext * 0.10d;
         var next = salesBaseline is > 0
             ? localCore * (1d - salesWeight) + salesBaseline.Value * salesWeight
             : localCore;
@@ -99,8 +104,8 @@ public sealed class PriceForecastEngine
         next = Clamp(next, current * (1d - maxStep), current * (1d + maxStep));
 
         var fairValue = salesBaseline is > 0
-            ? recentMedian * 0.30 + mediumEma * 0.25 + salesBaseline.Value * 0.45
-            : recentMedian * 0.50 + mediumEma * 0.50;
+            ? current * 0.20d + recentMedian * 0.20d + mediumEma * 0.15d + salesBaseline.Value * 0.45d
+            : current * 0.40d + recentMedian * 0.35d + mediumEma * 0.25d;
 
         var spanHours = Math.Max(0, (samples[^1].AtUtc - samples[0].AtUtc).TotalHours);
         var observationScore = Math.Min(25d, Math.Max(0, valid.Length - MinimumObservations) * 1.25d);
@@ -192,7 +197,7 @@ public sealed class PriceForecastEngine
         return Clamp(velocity * recencyFactor, 0, 100);
     }
 
-    private static double CalculateTargetProbability(
+    private static double? CalculateTargetProbability(
         double current,
         double fairValue,
         double trendPerHour,
@@ -201,7 +206,7 @@ public sealed class PriceForecastEngine
         double hours,
         double? liquidityScore)
     {
-        if (targetPrice is not > 0) return double.NaN;
+        if (targetPrice is not > 0) return null;
         var target = (double)targetPrice.Value;
         if (current <= target) return 100d;
 
