@@ -147,11 +147,11 @@ public partial class MainWindow : Window
 
         (PageTitleText.Text, PageSubtitleText.Text) = page switch
         {
-            "Watchlist" => ("Watchlist", "Live quotes, 24H movement, target distance, and market signals."),
+            "Watchlist" => ("Watchlist", "Live quotes, forecast, sales velocity, target distance, and market signals."),
             "Alerts" => ("Alerts", "Event tape for target crossings and new observed lows."),
-            "Reports" => ("Price History", "Interactive resale charts, range performance, and recorded observations."),
+            "Reports" => ("Price History", "Interactive resale charts, range performance, forecast context, and recorded observations."),
             "Settings" => ("Settings", "Monitoring cadence, background behavior, updates, data, and diagnostics."),
-            _ => ("Market Overview", "Roblox resale quotes and target signals at a glance.")
+            _ => ("Market Overview", "Roblox resale quotes, forecast direction, liquidity, and target signals at a glance.")
         };
     }
 
@@ -199,17 +199,45 @@ public partial class MainWindow : Window
             }
         }
 
+        IReadOnlyDictionary<long, RobloxResaleMarketData> resaleByAsset;
+        try
+        {
+            resaleByAsset = await _services.ResaleDataService.GetManyAsync(_watchlistRows.Select(x => x.AssetId), cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Error($"Could not refresh Roblox resale aggregates: {ex.Message}");
+            resaleByAsset = new Dictionary<long, RobloxResaleMarketData>();
+        }
+
         foreach (var row in _watchlistRows)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var history = await _services.Repository.GetPriceHistoryAsync(row.ItemKey, 96);
+                var history = await _services.Repository.GetPriceHistoryAsync(row.ItemKey, 256, cancellationToken);
                 row.UpdateTrend(history);
+
+                resaleByAsset.TryGetValue(row.AssetId, out var resaleData);
+                var forecast = _services.ForecastEngine.Calculate(history, resaleData, row.TargetValue);
+                var observedAt = row.Snapshot.Market.LastSuccessAtUtc ?? DateTimeOffset.UtcNow;
+                await _services.ForecastHistoryStore.RecordAsync(
+                    row.ItemKey,
+                    row.Snapshot.Market.LastPollSequence,
+                    forecast,
+                    row.CurrentPriceValue,
+                    observedAt,
+                    cancellationToken);
+                var backtest = await _services.ForecastHistoryStore.GetStatsAsync(row.ItemKey, 50, cancellationToken);
+                row.UpdateForecast(forecast, backtest, resaleData);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                _services.Logger.Error($"Could not calculate market trend for {row.ItemKey}: {ex.Message}");
+                _services.Logger.Error($"Could not calculate market analytics for {row.ItemKey}: {ex.Message}");
             }
         }
 
