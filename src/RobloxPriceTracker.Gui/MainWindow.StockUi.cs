@@ -17,6 +17,11 @@ public partial class MainWindow : Window
         {
             WatchlistSortCombo.Items.Add(new ComboBoxItem { Content = "24H change", Tag = "Change" });
         }
+        if (!WatchlistSortCombo.Items.OfType<ComboBoxItem>().Any(x => Equals(x.Tag, "ForecastConfidence")))
+        {
+            WatchlistSortCombo.Items.Add(new ComboBoxItem { Content = "Forecast confidence", Tag = "ForecastConfidence" });
+            WatchlistSortCombo.Items.Add(new ComboBoxItem { Content = "Forecast price", Tag = "ForecastPrice" });
+        }
 
         if (!ReportRangeCombo.Items.OfType<ComboBoxItem>().Any(x => Equals(x.Tag, "1H")))
         {
@@ -24,7 +29,7 @@ public partial class MainWindow : Window
         }
 
         WatchlistSearchBox.ToolTip = "Ctrl+F · Search item name or asset ID";
-        WatchlistGrid.ToolTip = "Enter: details · Delete: remove · F5: refresh";
+        WatchlistGrid.ToolTip = "Forecasts are statistical estimates, not guaranteed prices. Enter: details · Delete: remove · F5: refresh";
         PreviewKeyDown += Window_StockPreviewKeyDown;
         Loaded += (_, _) => ApplyStockBranding();
     }
@@ -40,35 +45,34 @@ public partial class MainWindow : Window
 
         grid.Columns.Clear();
         grid.Columns.Add(asset);
-        grid.Columns.Add(CreateTextColumn("LAST", nameof(WatchlistRow.CurrentPrice), compact ? 0.95 : 0.92, nameof(WatchlistRow.PriceForeground), fontSize: compact ? 11d : 11.5d, semiBold: true));
-        grid.Columns.Add(CreateMovementColumn(compact ? 0.9 : 0.95));
-        grid.Columns.Add(CreateSparklineColumn(compact ? 1.05 : 1.1));
+        grid.Columns.Add(CreateTextColumn("LAST", nameof(WatchlistRow.CurrentPrice), compact ? 0.90 : 0.84, nameof(WatchlistRow.PriceForeground), fontSize: compact ? 11d : 11.5d, semiBold: true));
+        grid.Columns.Add(CreateMovementColumn(compact ? 0.82 : 0.82));
+        grid.Columns.Add(CreateSparklineColumn(compact ? 0.95 : 0.96));
+        grid.Columns.Add(CreateForecastColumn(compact ? 1.10 : 1.05));
+        grid.Columns.Add(CreateTextColumn("CONF", nameof(WatchlistRow.ForecastConfidence), compact ? 0.58 : 0.58, nameof(WatchlistRow.ForecastForeground), fontSize: 9.5d, semiBold: true));
 
         if (!compact)
         {
-            grid.Columns.Add(CreateTextColumn("VS TARGET", nameof(WatchlistRow.TargetDistance), 1.35, null, "#8996A6", 9d));
+            grid.Columns.Add(CreateTextColumn("SALES/D", nameof(WatchlistRow.ForecastSalesVelocity), 0.72, null, "#A7B2C0", 9d));
+            grid.Columns.Add(CreateTextColumn("TARGET 24H", nameof(WatchlistRow.ForecastTarget24h), 0.72, null, "#C7D0DA", 9.5d, true));
+            grid.Columns.Add(CreateTextColumn("VS TARGET", nameof(WatchlistRow.TargetDistance), 1.15, null, "#8996A6", 8.7d));
         }
 
-        grid.Columns.Add(CreateTextColumn("TARGET", nameof(WatchlistRow.TargetPrice), compact ? 0.9 : 0.9, null, "#C7D0DA", compact ? 10d : 10.5d));
-
-        if (!compact)
-        {
-            grid.Columns.Add(CreateTextColumn("LOW", nameof(WatchlistRow.TrackedLow), 0.88, null, "#A7B2C0", 10d));
-        }
+        grid.Columns.Add(CreateTextColumn("TARGET", nameof(WatchlistRow.TargetPrice), compact ? 0.82 : 0.78, null, "#C7D0DA", compact ? 9.8d : 10d));
 
         if (signal is not null)
         {
             signal.Header = "SIGNAL";
-            signal.Width = new DataGridLength(compact ? 0.95 : 0.92, DataGridLengthUnitType.Star);
+            signal.Width = new DataGridLength(compact ? 0.85 : 0.82, DataGridLengthUnitType.Star);
             grid.Columns.Add(signal);
         }
 
         if (!compact)
         {
-            grid.Columns.Add(CreateTextColumn("UPDATED", nameof(WatchlistRow.LastChecked), 0.95, null, "#758294", 9d));
+            grid.Columns.Add(CreateTextColumn("UPDATED", nameof(WatchlistRow.LastChecked), 0.86, null, "#758294", 8.7d));
         }
 
-        grid.RowHeight = compact ? 54 : 58;
+        grid.RowHeight = compact ? 56 : 60;
         grid.ColumnHeaderHeight = 34;
     }
 
@@ -112,14 +116,14 @@ public partial class MainWindow : Window
         var percent = new FrameworkElementFactory(typeof(TextBlock));
         percent.SetBinding(TextBlock.TextProperty, new Binding(nameof(WatchlistRow.Change24h)));
         percent.SetBinding(TextBlock.ForegroundProperty, new Binding(nameof(WatchlistRow.TrendForeground)));
-        percent.SetValue(TextBlock.FontSizeProperty, 10.5d);
+        percent.SetValue(TextBlock.FontSizeProperty, 10.2d);
         percent.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
         panel.AppendChild(percent);
 
         var amount = new FrameworkElementFactory(typeof(TextBlock));
         amount.SetBinding(TextBlock.TextProperty, new Binding(nameof(WatchlistRow.Change24hAmount)));
         amount.SetValue(TextBlock.ForegroundProperty, new SolidColorBrush(Color.FromRgb(103, 116, 132)));
-        amount.SetValue(TextBlock.FontSizeProperty, 8.2d);
+        amount.SetValue(TextBlock.FontSizeProperty, 8.0d);
         amount.SetValue(TextBlock.MarginProperty, new Thickness(0, 2, 0, 0));
         panel.AppendChild(amount);
 
@@ -137,7 +141,7 @@ public partial class MainWindow : Window
         spark.SetBinding(MiniSparkline.ValuesProperty, new Binding(nameof(WatchlistRow.SparklineValues)));
         spark.SetBinding(MiniSparkline.StrokeProperty, new Binding(nameof(WatchlistRow.TrendForeground)));
         spark.SetValue(FrameworkElement.HeightProperty, 28d);
-        spark.SetValue(FrameworkElement.MinWidthProperty, 64d);
+        spark.SetValue(FrameworkElement.MinWidthProperty, 58d);
         spark.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
 
         return new DataGridTemplateColumn
@@ -145,6 +149,33 @@ public partial class MainWindow : Window
             Header = "TREND",
             Width = new DataGridLength(width, DataGridLengthUnitType.Star),
             CellTemplate = new DataTemplate { VisualTree = spark }
+        };
+    }
+
+    private static DataGridTemplateColumn CreateForecastColumn(double width)
+    {
+        var panel = new FrameworkElementFactory(typeof(StackPanel));
+        panel.SetValue(StackPanel.VerticalAlignmentProperty, VerticalAlignment.Center);
+
+        var price = new FrameworkElementFactory(typeof(TextBlock));
+        price.SetBinding(TextBlock.TextProperty, new Binding(nameof(WatchlistRow.ForecastPrice)));
+        price.SetBinding(TextBlock.ForegroundProperty, new Binding(nameof(WatchlistRow.ForecastForeground)));
+        price.SetValue(TextBlock.FontSizeProperty, 10.6d);
+        price.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        panel.AppendChild(price);
+
+        var direction = new FrameworkElementFactory(typeof(TextBlock));
+        direction.SetBinding(TextBlock.TextProperty, new Binding(nameof(WatchlistRow.ForecastDirection)));
+        direction.SetBinding(TextBlock.ForegroundProperty, new Binding(nameof(WatchlistRow.ForecastForeground)));
+        direction.SetValue(TextBlock.FontSizeProperty, 7.8d);
+        direction.SetValue(TextBlock.MarginProperty, new Thickness(0, 2, 0, 0));
+        panel.AppendChild(direction);
+
+        return new DataGridTemplateColumn
+        {
+            Header = "FORECAST",
+            Width = new DataGridLength(width, DataGridLengthUnitType.Star),
+            CellTemplate = new DataTemplate { VisualTree = panel }
         };
     }
 
