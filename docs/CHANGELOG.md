@@ -1,5 +1,21 @@
 # Roblox Price Tracker changelog
 
+## v0.6.0
+- Added a deterministic **Market Forecast** engine for the next observed lowest reseller quote, with expected range, fair value, market direction, and confidence instead of presenting a single price as certain.
+- Forecasting requires at least **8 valid local price observations**; before that the UI explicitly reports **Insufficient data**.
+- Added anonymous Roblox resale-aggregate retrieval for **Recent Average Price (RAP)** and daily sales-volume history. Legacy Limiteds use the Economy resale-data endpoint; migrated collectible items can fall back through `collectibleItemId` to the Marketplace Sales resale-data endpoint.
+- Added a 15-minute success cache / 5-minute failure cache for resale aggregates so normal UI refreshes do not repeatedly hammer Roblox analytics endpoints.
+- Added **sales/day** and a 0–100 **liquidity score** derived from recent sale-volume aggregates and data recency.
+- Forecast inputs now combine recent quote momentum, short/medium EMA behavior, robust median, log-linear trend, normalized volatility, RAP, sales liquidity, and data age.
+- Added **1H / 6H / 24H target-hit probability** estimates plus an estimated time-to-target when the fitted direction supports a meaningful ETA.
+- Added a persistent `forecast-history.json` backtest store outside core tracker state. Every forecast can be evaluated against the next observed reseller quote.
+- Added rolling forecast quality metrics: evaluated sample count, mean absolute percentage error (MAPE), derived accuracy, and expected-range coverage.
+- Expanded the stock quote board with **Forecast / Confidence / Sales per Day / Target 24H** fields plus forecast-confidence and forecast-price sorting.
+- Added a dedicated Market Forecast panel to Item Details showing next forecast, fair value, expected range, direction, confidence, RAP, sales velocity, liquidity, target probabilities, ETA, and backtest performance.
+- Forecast direction uses conventional market colors (green bullish / red bearish) and all forecast UI clearly labels the output as a statistical estimate rather than a guaranteed future price.
+- Roblox sales inputs are aggregate RAP and daily volume series; the application does not claim to receive private or individual transaction records.
+- Added five forecasting regression tests covering resale parsing, minimum-data gating, clean downtrend behavior, liquidity/confidence behavior, and persistent next-quote backtesting.
+
 ## v0.5.1
 - Reworked the watchlist into a more recognizable stock-app quote board with **Last / 24H / Trend / Vs Target / Target / Low / Signal / Updated** market data.
 - Added 24-hour price movement in both percent and Robux, using conventional green/red market colors.
