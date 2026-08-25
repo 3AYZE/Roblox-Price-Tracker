@@ -7,7 +7,7 @@ $solution = Join-Path $repoRoot 'RobloxPriceTracker.sln'
 $guiProject = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\RobloxPriceTracker.Gui.csproj'
 $testProject = Join-Path $repoRoot 'tests\RobloxPriceTracker.SelfTest\RobloxPriceTracker.SelfTest.csproj'
 $iconPath = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets\mouse_app.ico'
-$iconBase64Path = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets\mouse_app.ico.b64'
+$iconSourcePath = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets\mouse_window.png'
 $dist = Join-Path $repoRoot 'dist'
 $publishDir = Join-Path $dist 'publish-temp'
 $finalExe = Join-Path $dist 'RobloxPriceTracker.exe'
@@ -29,26 +29,88 @@ function Invoke-DotNet([string]$Description, [string[]]$ArgsList) {
 }
 
 function Restore-AppIcon {
-    Write-Step 'Restoring canonical Windows application icon...'
-    if (-not (Test-Path $iconBase64Path)) { throw "Canonical icon source was not found: $iconBase64Path" }
+    Write-Step 'Generating Windows/WPF-compatible application icon from PNG...'
+    if (-not (Test-Path $iconSourcePath)) { throw "Icon source was not found: $iconSourcePath" }
 
-    $encoded = (Get-Content -Path $iconBase64Path -Raw).Trim()
-    if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'Canonical icon source is empty.' }
+    Add-Type -AssemblyName System.Drawing
+    if (-not ('RPTNativeIconMethods' -as [type])) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class RPTNativeIconMethods {
+    [DllImport("user32.dll")]
+    public static extern bool DestroyIcon(IntPtr handle);
+}
+"@
+    }
+
+    $source = $null
+    $bitmap = $null
+    $graphics = $null
+    $icon = $null
+    $stream = $null
+    $hIcon = [IntPtr]::Zero
 
     try {
-        $bytes = [Convert]::FromBase64String($encoded)
+        $source = [System.Drawing.Image]::FromFile($iconSourcePath)
+        $bitmap = New-Object System.Drawing.Bitmap 64, 64, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+        $graphics.Clear([System.Drawing.Color]::Transparent)
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+
+        $maxSize = 58.0
+        $scale = [Math]::Min($maxSize / $source.Width, $maxSize / $source.Height)
+        $drawWidth = [int][Math]::Round($source.Width * $scale)
+        $drawHeight = [int][Math]::Round($source.Height * $scale)
+        $drawX = [int][Math]::Floor((64 - $drawWidth) / 2.0)
+        $drawY = [int][Math]::Floor((64 - $drawHeight) / 2.0)
+        $graphics.DrawImage($source, $drawX, $drawY, $drawWidth, $drawHeight)
+
+        $hIcon = $bitmap.GetHicon()
+        if ($hIcon -eq [IntPtr]::Zero) { throw 'Windows failed to create an HICON from the application artwork.' }
+        $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+        $stream = [IO.File]::Create($iconPath)
+        $icon.Save($stream)
     }
-    catch {
-        throw "Canonical icon source is not valid base64: $($_.Exception.Message)"
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ($null -ne $icon) { $icon.Dispose() }
+        if ($hIcon -ne [IntPtr]::Zero) { [RPTNativeIconMethods]::DestroyIcon($hIcon) | Out-Null }
+        if ($null -ne $graphics) { $graphics.Dispose() }
+        if ($null -ne $bitmap) { $bitmap.Dispose() }
+        if ($null -ne $source) { $source.Dispose() }
     }
 
-    if ($bytes.Length -lt 4096) { throw "Decoded icon is unexpectedly small ($($bytes.Length) bytes)." }
-    if ($bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
-        throw 'Decoded icon does not contain a valid Windows ICO header.'
-    }
+    $iconBytes = (Get-Item $iconPath).Length
+    if ($iconBytes -lt 512) { throw "Generated icon is unexpectedly small ($iconBytes bytes)." }
 
-    [IO.File]::WriteAllBytes($iconPath, $bytes)
-    Write-Step "Windows icon restored: $($bytes.Length) bytes."
+    # Verify both the Win32 icon decoder and WPF's BitmapFrame decoder. The latter
+    # catches the exact XAML TypeConverter failure that caused the v0.6.1 regression.
+    $verifyIcon = New-Object System.Drawing.Icon $iconPath
+    try {
+        if ($verifyIcon.Width -lt 16 -or $verifyIcon.Height -lt 16) {
+            throw "Generated Win32 icon has invalid dimensions: $($verifyIcon.Width)x$($verifyIcon.Height)."
+        }
+    }
+    finally { $verifyIcon.Dispose() }
+
+    Add-Type -AssemblyName PresentationCore
+    $iconStream = [IO.File]::OpenRead($iconPath)
+    try {
+        $frame = [System.Windows.Media.Imaging.BitmapFrame]::Create(
+            $iconStream,
+            [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat,
+            [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
+        if ($frame.PixelWidth -lt 16 -or $frame.PixelHeight -lt 16) {
+            throw "Generated WPF icon has invalid dimensions: $($frame.PixelWidth)x$($frame.PixelHeight)."
+        }
+    }
+    finally { $iconStream.Dispose() }
+
+    Write-Step "Windows/WPF icon generated and decoded successfully: $iconBytes bytes."
 }
 
 function Assert-PublishedIcon([string]$ExePath) {
@@ -63,8 +125,30 @@ function Assert-PublishedIcon([string]$ExePath) {
         }
         Write-Step "Embedded Windows icon validated: $($icon.Width)x$($icon.Height)."
     }
+    finally { $icon.Dispose() }
+}
+
+function Assert-PublishedStartup([string]$ExePath) {
+    Write-Step 'Smoke-testing packaged WPF startup...'
+    $process = Start-Process -FilePath $ExePath -ArgumentList '--background' -PassThru
+    try {
+        Start-Sleep -Seconds 10
+        $process.Refresh()
+        if ($process.HasExited) {
+            throw "Packaged app exited during startup smoke test with code $($process.ExitCode)."
+        }
+        Write-Step 'Packaged WPF startup smoke test passed.'
+    }
     finally {
-        $icon.Dispose()
+        try {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                $process.WaitForExit(5000) | Out-Null
+            }
+        }
+        catch { }
+        $process.Dispose()
     }
 }
 
@@ -90,7 +174,7 @@ try {
 
     if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
-    Write-Step 'Publishing self-contained single-file Windows x64 EXE...'
+    Write-Step 'Publishing compressed self-contained single-file Windows x64 EXE...'
     & dotnet publish $guiProject `
         -c Release `
         -r win-x64 `
@@ -99,7 +183,7 @@ try {
         -p:PublishSingleFile=true `
         -p:PublishTrimmed=false `
         -p:IncludeNativeLibrariesForSelfExtract=true `
-        -p:EnableCompressionInSingleFile=false `
+        -p:EnableCompressionInSingleFile=true `
         -p:PublishReadyToRun=false `
         -p:DebugType=None `
         -p:DebugSymbols=false `
@@ -112,6 +196,11 @@ try {
     if ($dlls.Count -gt 0) { throw "Single-file invariant failed: publish output contains $($dlls.Count) DLL(s)." }
 
     Assert-PublishedIcon $publishedExe
+    Assert-PublishedStartup $publishedExe
+
+    $publishedBytes = (Get-Item $publishedExe).Length
+    $publishedMiB = [Math]::Round($publishedBytes / 1MB, 1)
+    Write-Step "Published EXE size: $publishedBytes bytes ($publishedMiB MiB)."
 
     Copy-Item $publishedExe $finalExe -Force
     Write-Step "Build complete: $finalExe"
