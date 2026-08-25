@@ -4,29 +4,30 @@ A professional Windows desktop market monitor for Roblox Limited/resellable item
 
 **Creator:** [3AYZE](https://github.com/3AYZE)
 
-## v0.4.1 market-terminal UI
+## v0.5.1 stock-market UI
 
-The interface is designed like a compact financial quote terminal rather than a generic dashboard:
+The interface is designed like a compact stock/market app rather than a generic dashboard:
 
-- Dark, low-distraction market-terminal workspace
-- Fully dark custom selector/dropdown chrome across Price History, Watchlist, and Settings
-- Higher-contrast Price History title, metric values, table values, and headers
-- Corrected sidebar logo presentation using the dedicated logo asset at native proportions
+- Dark, low-distraction **RPT MARKETS** workspace
 - Quote tape for tracked assets, near-target signals, target hits, and API health
-- Dense watchlist columns for **Last / Vs Target / Target / Session Low / Signal / Updated**
-- Green target-hit, amber near-target, and red/orange issue signaling
-- Dark trading-style price charts with target reference line and observed-price area fill
-- Asset verification and target entry flow styled as an order/quote workflow
-- Item detail view with Last, Target, Session Low, Range Low/High/Change, and history
+- Stock-style watchlist columns for **Last / 24H / Trend / Vs Target / Target / Low / Signal / Updated**
+- 24-hour percent and Robux movement with conventional green/red market coloring
+- Compact per-asset sparklines built from locally recorded resale observations
+- **24H change** sorting for finding the strongest movers quickly
+- Fully dark selector/dropdown chrome across Price History, Watchlist, and Settings
+- 1H / 24H / 7D / 30D / All History chart ranges
+- Interactive trading charts with hover crosshair, exact price/time quote tooltip, range-direction coloring, area fill, and target reference line
+- Asset detail view styled as a quote page with Last, Target, Low, range performance, and recent observations
+- Keyboard workflow: **F5** refresh, **Ctrl+F** search, **Ctrl+N** track asset, **Ctrl+,** settings, **Enter** details, **Delete** remove, **Esc** close details
 - Search, status filters, sorting, empty states, selection actions, and report export
 
 ## Features
 
 - Roblox item thumbnails and verify-before-save asset workflow
-- Current lowest resale price, target price, tracked low, and target-distance display
-- Search, status filters, sorting, stale/error/no-seller states
+- Current lowest resale price, target price, tracked low, target-distance display, 24H movement, and trend sparkline
+- Search, status filters, movement/price/target sorting, stale/error/no-seller states
 - Persistent alert history and price history
-- Item detail charts and 24H / 7D / 30D / All reports
+- Interactive item detail and report charts with 1H / 24H / 7D / 30D / All ranges
 - CSV report export and ZIP data backup
 - Windows tray monitoring and notifications
 - Optional **Start with Windows** support
