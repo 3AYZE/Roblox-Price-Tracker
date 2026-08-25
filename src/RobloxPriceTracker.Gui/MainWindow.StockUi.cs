@@ -150,12 +150,13 @@ public partial class MainWindow : Window
 
     private void ApplyStockBranding()
     {
+        var version = CurrentVersionText();
         foreach (var text in FindLogicalChildren<TextBlock>(this))
         {
             if (text.Text == "RPT TERMINAL") text.Text = "RPT MARKETS";
             else if (text.Text == "ROBLOX RESALE MONITOR") text.Text = "ROBLOX MARKET WATCH";
-            else if (text.Text.StartsWith("v0.4.", StringComparison.Ordinal) && text.Text.Contains("3AYZE", StringComparison.Ordinal)) text.Text = "v0.5.0 · 3AYZE";
-            else if (text.Text.StartsWith("Roblox Price Tracker v0.4.", StringComparison.Ordinal)) text.Text = "Roblox Price Tracker v0.5.0";
+            else if (text.Text.StartsWith("v0.", StringComparison.Ordinal) && text.Text.Contains("3AYZE", StringComparison.Ordinal)) text.Text = $"v{version} · 3AYZE";
+            else if (text.Text.StartsWith("Roblox Price Tracker v0.", StringComparison.Ordinal)) text.Text = $"Roblox Price Tracker v{version}";
         }
     }
 
