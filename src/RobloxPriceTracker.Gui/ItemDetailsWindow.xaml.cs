@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using RobloxPriceTracker.Core;
@@ -24,18 +25,6 @@ public partial class ItemDetailsWindow : Window
         _itemKey = itemKey;
         InitializeComponent();
         DetailHistoryGrid.ItemsSource = _historyRows;
-        if (!DetailRangeCombo.Items.OfType<ComboBoxItem>().Any(x => Equals(x.Tag, "1H")))
-        {
-            DetailRangeCombo.Items.Insert(0, new ComboBoxItem { Content = "1 Hour", Tag = "1H" });
-        }
-        PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == System.Windows.Input.Key.Escape)
-            {
-                e.Handled = true;
-                Close();
-            }
-        };
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e) => await RefreshAsync();
@@ -80,7 +69,28 @@ public partial class ItemDetailsWindow : Window
             _allHistory = await _services.Repository.GetPriceHistoryAsync(_itemKey, 5000);
             ApplyRange();
             DetailPriceChart.SetTargetPrice(target);
-            StatusText.Text = "Hover the chart for an exact quote. Press Esc to close.";
+
+            RobloxResaleMarketData? resaleData = null;
+            try
+            {
+                resaleData = await _services.ResaleDataService.GetAsync(_itemKey.Id);
+            }
+            catch (Exception ex)
+            {
+                _services.Logger.Error($"Could not load resale aggregates for {_itemKey}: {ex.Message}");
+            }
+
+            var forecast = _services.ForecastEngine.Calculate(_allHistory, resaleData, target);
+            await _services.ForecastHistoryStore.RecordAsync(
+                _itemKey,
+                _snapshot.Market.LastPollSequence,
+                forecast,
+                _snapshot.Market.CurrentLowestPrice,
+                _snapshot.Market.LastSuccessAtUtc ?? DateTimeOffset.UtcNow);
+            var backtest = await _services.ForecastHistoryStore.GetStatsAsync(_itemKey, 50);
+            ApplyForecast(forecast, resaleData, backtest);
+
+            StatusText.Text = "Hover the chart for an exact quote. Forecasts are statistical estimates and are backtested automatically.";
         }
         catch (Exception ex)
         {
@@ -150,6 +160,91 @@ public partial class ItemDetailsWindow : Window
         });
     }
 
+    private void ApplyForecast(PriceForecastResult forecast, RobloxResaleMarketData? resaleData, ForecastBacktestStats backtest)
+    {
+        ForecastRapText.Text = resaleData?.RecentAveragePrice is > 0
+            ? $"{resaleData.RecentAveragePrice.Value:N0} R$"
+            : "—";
+        ForecastSalesText.Text = resaleData is { IsAvailable: true, HasSalesSeries: true }
+            ? $"{resaleData.SalesPerDay7d:0.#}/day"
+            : "—";
+        ForecastLiquidityText.Text = forecast.LiquidityScore is { } liquidity ? $"{liquidity:0}/100" : "—";
+        ForecastAccuracyText.Text = backtest.EvaluatedForecasts switch
+        {
+            >= 5 => $"{backtest.AccuracyPercent:0}% accuracy · n={backtest.EvaluatedForecasts}",
+            > 0 => $"Learning · n={backtest.EvaluatedForecasts}",
+            _ => "Learning"
+        };
+
+        if (!forecast.IsAvailable || forecast.NextPrice is not > 0)
+        {
+            ForecastPriceText.Text = "—";
+            ForecastFairValueText.Text = "—";
+            ForecastRangeText.Text = forecast.Status;
+            ForecastConfidenceText.Text = "—";
+            ForecastDirectionText.Text = "INSUFFICIENT";
+            ForecastDirectionText.Foreground = new SolidColorBrush(Color.FromRgb(132, 145, 162));
+            ForecastPriceText.Foreground = new SolidColorBrush(Color.FromRgb(167, 178, 192));
+            ForecastTarget1hText.Text = "—";
+            ForecastTarget6hText.Text = "—";
+            ForecastTarget24hText.Text = "—";
+            ForecastEtaText.Text = "—";
+            ForecastStatusText.Text = forecast.Status;
+            return;
+        }
+
+        ForecastPriceText.Text = DisplayFormatting.Price(forecast.NextPrice);
+        ForecastFairValueText.Text = DisplayFormatting.Price(forecast.FairValue);
+        ForecastRangeText.Text = forecast.RangeLow is > 0 && forecast.RangeHigh is > 0
+            ? $"Expected {DisplayFormatting.Price(forecast.RangeLow)} – {DisplayFormatting.Price(forecast.RangeHigh)}"
+            : "—";
+        ForecastConfidenceText.Text = $"{forecast.ConfidencePercent:0}%";
+        ForecastDirectionText.Text = forecast.Direction switch
+        {
+            ForecastDirection.StrongBearish => "▼▼ STRONG BEARISH",
+            ForecastDirection.Bearish => "▼ BEARISH",
+            ForecastDirection.StrongBullish => "▲▲ STRONG BULLISH",
+            ForecastDirection.Bullish => "▲ BULLISH",
+            _ => "• NEUTRAL"
+        };
+
+        var directionColor = forecast.Direction switch
+        {
+            ForecastDirection.StrongBearish or ForecastDirection.Bearish => Color.FromRgb(246, 70, 93),
+            ForecastDirection.StrongBullish or ForecastDirection.Bullish => Color.FromRgb(0, 192, 118),
+            _ => Color.FromRgb(100, 168, 255)
+        };
+        var directionBrush = new SolidColorBrush(directionColor);
+        ForecastDirectionText.Foreground = directionBrush;
+        ForecastPriceText.Foreground = directionBrush;
+        ForecastConfidenceText.Foreground = new SolidColorBrush(forecast.ConfidencePercent switch
+        {
+            >= 75 => Color.FromRgb(0, 192, 118),
+            >= 50 => Color.FromRgb(240, 185, 11),
+            _ => Color.FromRgb(246, 112, 93)
+        });
+
+        ForecastTarget1hText.Text = FormatProbability(forecast.TargetProbability1h);
+        ForecastTarget6hText.Text = FormatProbability(forecast.TargetProbability6h);
+        ForecastTarget24hText.Text = FormatProbability(forecast.TargetProbability24h);
+        ForecastEtaText.Text = forecast.EstimatedHoursToTarget switch
+        {
+            0 => "Target already reached",
+            > 0 and < 1 => $"~{forecast.EstimatedHoursToTarget.Value * 60:0} min",
+            > 0 and < 48 => $"~{forecast.EstimatedHoursToTarget.Value:0.#} hr",
+            > 0 => $"~{forecast.EstimatedHoursToTarget.Value / 24d:0.#} days",
+            _ => "No current ETA"
+        };
+        ForecastStatusText.Text = backtest.EvaluatedForecasts >= 5
+            ? $"MAPE {backtest.MeanAbsolutePercentError:0.#}% · range hit {backtest.RangeCoveragePercent:0}%"
+            : forecast.SalesDataAvailable
+                ? "RAP + daily volume active"
+                : "Local quote model only";
+    }
+
+    private static string FormatProbability(double? probability) =>
+        probability is { } value && !double.IsNaN(value) ? $"{value:0}%" : "—";
+
     private void SetStatusBadge(TrackerItemSnapshot snapshot, long? target)
     {
         var current = snapshot.Market.CurrentLowestPrice;
@@ -214,6 +309,15 @@ public partial class ItemDetailsWindow : Window
     {
         try { Process.Start(new ProcessStartInfo($"https://www.roblox.com/catalog/{_itemKey.Id}") { UseShellExecute = true }); }
         catch { }
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+        }
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
