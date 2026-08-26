@@ -5,18 +5,21 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using RobloxPriceTracker.Core;
 
 namespace RobloxPriceTracker.Gui;
 
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<UgcHunterItem> _hunterRows = new();
+    private readonly ObservableCollection<PaperPositionRow> _paperRows = new();
     private ICollectionView? _hunterView;
     private RadioButton? _hunterNav;
     private RadioButton? _portfolioNav;
     private Grid? _hunterPage;
     private Grid? _portfolioPage;
     private DataGrid? _hunterGrid;
+    private DataGrid? _portfolioGrid;
     private TextBox? _hunterSearchBox;
     private ComboBox? _hunterCategoryCombo;
     private ComboBox? _hunterOpportunityCombo;
@@ -43,8 +46,14 @@ public partial class MainWindow : Window
     private TextBlock? _hunterInspectorRisks;
     private Button? _hunterOpenRobloxButton;
     private Button? _hunterTrackButton;
+    private TextBlock? _portfolioCostText;
+    private TextBlock? _portfolioValueText;
+    private TextBlock? _portfolioPnlText;
+    private TextBlock? _portfolioWinRateText;
+    private TextBlock? _portfolioStatusText;
     private DispatcherTimer? _hunterTimer;
     private bool _hunterRefreshInProgress;
+    private bool _portfolioRefreshInProgress;
     private DateTimeOffset? _hunterLastRefreshUtc;
 
     private static readonly Brush TerminalGreen = new SolidColorBrush(Color.FromRgb(39, 211, 139));
@@ -80,8 +89,6 @@ public partial class MainWindow : Window
         {
             _hunterPage = BuildHunterPage();
             _portfolioPage = BuildPortfolioPage();
-            Panel.SetZIndex(_hunterPage, 0);
-            Panel.SetZIndex(_portfolioPage, 0);
             contentHost.Children.Add(_hunterPage);
             contentHost.Children.Add(_portfolioPage);
         }
@@ -89,6 +96,7 @@ public partial class MainWindow : Window
         _hunterView = CollectionViewSource.GetDefaultView(_hunterRows);
         _hunterView.Filter = FilterHunterRow;
         if (_hunterGrid is not null) _hunterGrid.ItemsSource = _hunterView;
+        if (_portfolioGrid is not null) _portfolioGrid.ItemsSource = _paperRows;
 
         _hunterTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
         _hunterTimer.Tick += async (_, _) =>
@@ -120,9 +128,8 @@ public partial class MainWindow : Window
         Title = "RPT Markets — Roblox Limited Market Terminal";
         PageSubtitleText.Text = "Live Roblox Limited market intelligence, resale tracking, and UGC opportunity scanning.";
         CheckNowButton.ToolTip = "F5 · Refresh tracked market data";
-
-        if (DashboardWatchlistList.Columns.Count > 0) DashboardWatchlistList.RowHeight = 58;
-        if (WatchlistGrid.Columns.Count > 0) WatchlistGrid.RowHeight = 58;
+        DashboardWatchlistList.RowHeight = 58;
+        WatchlistGrid.RowHeight = 58;
     }
 
     private Grid BuildHunterPage()
@@ -345,7 +352,7 @@ public partial class MainWindow : Window
         _hunterOpenRobloxButton = new Button { Content = "OPEN ROBLOX", Style = (Style)FindResource("SecondaryButtonStyle"), IsEnabled = false };
         _hunterOpenRobloxButton.Click += (_, _) => OpenSelectedHunterOnRoblox();
         actions.Children.Add(_hunterOpenRobloxButton);
-        _hunterTrackButton = new Button { Content = "TRACK AFTER DROP", Style = (Style)FindResource("PrimaryButtonStyle"), IsEnabled = false };
+        _hunterTrackButton = new Button { Content = "PAPER ENTRY", Style = (Style)FindResource("PrimaryButtonStyle"), IsEnabled = false, ToolTip = "Record a simulated 1-unit entry. No Robux is spent." };
         _hunterTrackButton.Click += async (_, _) => await TrackSelectedHunterAsync();
         Grid.SetColumn(_hunterTrackButton, 2);
         actions.Children.Add(_hunterTrackButton);
@@ -356,65 +363,79 @@ public partial class MainWindow : Window
     private Grid BuildPortfolioPage()
     {
         var root = new Grid { Visibility = Visibility.Collapsed, Margin = new Thickness(16, 14, 16, 16) };
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(72) });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(78) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.Children.Add(header);
-        var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        header.Children.Add(title);
-        title.Children.Add(new TextBlock { Text = "PORTFOLIO LAB", Foreground = TerminalText, FontSize = 18, FontWeight = FontWeights.SemiBold });
-        title.Children.Add(new TextBlock { Text = "Paper-trade Hunter ideas before committing Robux. Position accounting will expand in the next portfolio pass.", Foreground = TerminalMuted, FontSize = 9, Margin = new Thickness(0, 4, 0, 0) });
 
-        var content = new Grid();
-        Grid.SetRow(content, 2);
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.7, GridUnitType.Star) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        root.Children.Add(content);
+        var metrics = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        header.Children.Add(metrics);
+        metrics.Children.Add(MakeSmallLabel("PAPER COST"));
+        _portfolioCostText = MakeMetric("0 R$", TerminalText, 14);
+        _portfolioCostText.Margin = new Thickness(8, 0, 24, 0);
+        metrics.Children.Add(_portfolioCostText);
+        metrics.Children.Add(MakeSmallLabel("MARKET VALUE"));
+        _portfolioValueText = MakeMetric("—", TerminalText, 14);
+        _portfolioValueText.Margin = new Thickness(8, 0, 24, 0);
+        metrics.Children.Add(_portfolioValueText);
+        metrics.Children.Add(MakeSmallLabel("P/L"));
+        _portfolioPnlText = MakeMetric("—", TerminalMuted, 14);
+        _portfolioPnlText.Margin = new Thickness(8, 0, 24, 0);
+        metrics.Children.Add(_portfolioPnlText);
+        metrics.Children.Add(MakeSmallLabel("WIN RATE"));
+        _portfolioWinRateText = MakeMetric("—", TerminalMuted, 14);
+        _portfolioWinRateText.Margin = new Thickness(8, 0, 0, 0);
+        metrics.Children.Add(_portfolioWinRateText);
 
-        var left = MakePanel();
-        content.Children.Add(left);
-        var leftStack = new StackPanel { Margin = new Thickness(18) };
-        left.Child = leftStack;
-        leftStack.Children.Add(MakeSmallLabel("PAPER TRADING WORKSPACE"));
-        leftStack.Children.Add(new TextBlock { Text = "Validate the Hunter model before using real Robux", Foreground = TerminalText, FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
-        leftStack.Children.Add(new TextBlock { Text = "The production plan records simulated entries, forecast snapshots, sellout results, and later resale performance. This page is intentionally separated from automatic purchasing: Hunter analyzes opportunities but never buys for you.", Foreground = new SolidColorBrush(Color.FromRgb(145, 158, 174)), FontSize = 10, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 9, 0, 0), LineHeight = 17 });
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(actions, 1);
+        header.Children.Add(actions);
+        _portfolioStatusText = new TextBlock { Text = "Paper positions are local only", Foreground = TerminalMuted, FontSize = 8.5, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+        actions.Children.Add(_portfolioStatusText);
+        var refresh = new Button { Content = "REFRESH FLOORS", Style = (Style)FindResource("SecondaryButtonStyle") };
+        refresh.Click += async (_, _) => await RefreshPaperPortfolioAsync();
+        actions.Children.Add(refresh);
+        var open = new Button { Content = "OPEN ROBLOX", Style = (Style)FindResource("SecondaryButtonStyle"), Margin = new Thickness(7, 0, 0, 0) };
+        open.Click += (_, _) => OpenSelectedPaperPosition();
+        actions.Children.Add(open);
+        var remove = new Button { Content = "REMOVE", Style = (Style)FindResource("SecondaryButtonStyle"), Margin = new Thickness(7, 0, 0, 0) };
+        remove.Click += async (_, _) => await RemoveSelectedPaperPositionAsync();
+        actions.Children.Add(remove);
 
-        var stages = new[]
+        var panel = MakePanel();
+        Grid.SetRow(panel, 2);
+        root.Children.Add(panel);
+        var panelGrid = new Grid();
+        panelGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(46) });
+        panelGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        panel.Child = panelGrid;
+
+        var title = new Grid { Margin = new Thickness(12, 0, 12, 0) };
+        title.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        title.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        panelGrid.Children.Add(title);
+        title.Children.Add(new TextBlock { Text = "PAPER POSITIONS", Foreground = TerminalText, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        var note = new TextBlock { Text = "Hunter entry snapshots · actual resale floor when available", Foreground = TerminalMuted, FontSize = 8.3, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(note, 1);
+        title.Children.Add(note);
+
+        _portfolioGrid = new DataGrid
         {
-            ("01", "ENTRY SNAPSHOT", "Opportunity / Entry / Risk / Confidence frozen at the paper entry."),
-            ("02", "LIVE FOLLOW-UP", "Sellout time, velocity decay, supply absorption, and resale discovery."),
-            ("03", "BACKTEST", "Compare predicted range and direction against what actually happened."),
-            ("04", "CALIBRATION", "Use accumulated error to improve future Hunter scoring weights.")
+            IsReadOnly = true,
+            RowHeight = 56,
+            ColumnHeaderHeight = 34,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            SelectionMode = DataGridSelectionMode.Single,
+            SelectionUnit = DataGridSelectionUnit.FullRow
         };
-        foreach (var stage in stages)
-        {
-            var row = new Grid { Margin = new Thickness(0, 15, 0, 0) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            leftStack.Children.Add(row);
-            row.Children.Add(new TextBlock { Text = stage.Item1, Foreground = TerminalBlue, FontWeight = FontWeights.Bold, FontSize = 10, VerticalAlignment = VerticalAlignment.Top });
-            var info = new StackPanel();
-            Grid.SetColumn(info, 1);
-            row.Children.Add(info);
-            info.Children.Add(new TextBlock { Text = stage.Item2, Foreground = TerminalText, FontWeight = FontWeights.SemiBold, FontSize = 9.5 });
-            info.Children.Add(new TextBlock { Text = stage.Item3, Foreground = TerminalMuted, FontSize = 8.7, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) });
-        }
-
-        var right = MakePanel();
-        Grid.SetColumn(right, 2);
-        content.Children.Add(right);
-        var rightStack = new StackPanel { Margin = new Thickness(18) };
-        right.Child = rightStack;
-        rightStack.Children.Add(MakeSmallLabel("MODEL DISCIPLINE"));
-        rightStack.Children.Add(new TextBlock { Text = "No automatic buying", Foreground = TerminalGreen, FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
-        rightStack.Children.Add(new TextBlock { Text = "The terminal keeps decision support separate from execution. Forecasts are measured against later outcomes so weak signals can be downgraded instead of presented as certainty.", Foreground = TerminalMuted, FontSize = 9.5, TextWrapping = TextWrapping.Wrap, LineHeight = 16, Margin = new Thickness(0, 7, 0, 0) });
-        rightStack.Children.Add(MakeSeparator(16, 13));
-        rightStack.Children.Add(MakeSmallLabel("PLANNED POSITION METRICS"));
-        foreach (var metric in new[] { "Average entry", "Current floor", "Unrealized P/L", "ROI", "Liquidity", "Exit pressure", "Forecast accuracy" })
-            AddInspectorMetric(rightStack, metric, "—");
+        _portfolioGrid.MouseDoubleClick += (_, _) => OpenSelectedPaperPosition();
+        Grid.SetRow(_portfolioGrid, 1);
+        panelGrid.Children.Add(_portfolioGrid);
+        AddPortfolioColumns(_portfolioGrid);
 
         return root;
     }
@@ -431,6 +452,19 @@ public partial class MainWindow : Window
         grid.Columns.Add(HunterTextColumn("RISK", nameof(UgcHunterItem.RiskText), 0.55, TerminalRed, true));
         grid.Columns.Add(HunterTextColumn("CONF", nameof(UgcHunterItem.ConfidenceText), 0.64, TerminalAmber));
         grid.Columns.Add(HunterTextColumn("PHASE", nameof(UgcHunterItem.Phase), 1.08, TerminalMuted));
+    }
+
+    private void AddPortfolioColumns(DataGrid grid)
+    {
+        grid.Columns.Add(HunterTextColumn("ASSET", nameof(PaperPositionRow.Name), 1.8, TerminalText, true));
+        grid.Columns.Add(HunterTextColumn("QTY", nameof(PaperPositionRow.Quantity), 0.45, TerminalMuted));
+        grid.Columns.Add(HunterTextColumn("ENTRY", nameof(PaperPositionRow.Entry), 0.72, TerminalText, true));
+        grid.Columns.Add(HunterTextColumn("FLOOR", nameof(PaperPositionRow.Floor), 0.72, TerminalText, true));
+        grid.Columns.Add(HunterTextColumn("VALUE", nameof(PaperPositionRow.Value), 0.78, TerminalMuted));
+        grid.Columns.Add(CreatePaperProfitColumn());
+        grid.Columns.Add(HunterTextColumn("FORECAST", nameof(PaperPositionRow.Forecast), 1.05, TerminalAmber));
+        grid.Columns.Add(HunterTextColumn("MODEL", nameof(PaperPositionRow.Scores), 0.92, TerminalBlue));
+        grid.Columns.Add(HunterTextColumn("ENTERED", nameof(PaperPositionRow.Entered), 0.96, TerminalMuted));
     }
 
     private DataGridTemplateColumn CreateHunterAssetColumn()
@@ -490,6 +524,30 @@ public partial class MainWindow : Window
         };
     }
 
+    private static DataGridTemplateColumn CreatePaperProfitColumn()
+    {
+        var panel = new FrameworkElementFactory(typeof(StackPanel));
+        panel.SetValue(StackPanel.VerticalAlignmentProperty, VerticalAlignment.Center);
+        var pnl = new FrameworkElementFactory(typeof(TextBlock));
+        pnl.SetBinding(TextBlock.TextProperty, new Binding(nameof(PaperPositionRow.ProfitLoss)));
+        pnl.SetBinding(TextBlock.ForegroundProperty, new Binding(nameof(PaperPositionRow.ProfitForeground)));
+        pnl.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        pnl.SetValue(TextBlock.FontSizeProperty, 9.4d);
+        panel.AppendChild(pnl);
+        var roi = new FrameworkElementFactory(typeof(TextBlock));
+        roi.SetBinding(TextBlock.TextProperty, new Binding(nameof(PaperPositionRow.Roi)));
+        roi.SetBinding(TextBlock.ForegroundProperty, new Binding(nameof(PaperPositionRow.ProfitForeground)));
+        roi.SetValue(TextBlock.FontSizeProperty, 8.0d);
+        roi.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 2, 0, 0));
+        panel.AppendChild(roi);
+        return new DataGridTemplateColumn
+        {
+            Header = "P/L",
+            Width = new DataGridLength(0.82, DataGridLengthUnitType.Star),
+            CellTemplate = new DataTemplate { VisualTree = panel }
+        };
+    }
+
     private bool FilterHunterRow(object item)
     {
         if (item is not UgcHunterItem row) return false;
@@ -515,9 +573,11 @@ public partial class MainWindow : Window
             await RefreshHunterAsync(silent: _hunterRows.Count > 0);
     }
 
-    private void PortfolioNav_Checked(object sender, RoutedEventArgs e)
+    private async void PortfolioNav_Checked(object sender, RoutedEventArgs e)
     {
-        if (IsLoaded) ShowPage("Portfolio");
+        if (!IsLoaded) return;
+        ShowPage("Portfolio");
+        await RefreshPaperPortfolioAsync();
     }
 
     private void SetTerminalPageVisibility(string page)
@@ -576,6 +636,70 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task RefreshPaperPortfolioAsync()
+    {
+        if (_portfolioRefreshInProgress) return;
+        _portfolioRefreshInProgress = true;
+        if (_portfolioStatusText is not null) _portfolioStatusText.Text = "Refreshing resale floors…";
+        try
+        {
+            var positions = await _services.PaperPortfolioStore.LoadAsync();
+            if (positions.Count > 0)
+            {
+                var keys = positions.Select(x => new ItemKey(CatalogItemType.Asset, x.AssetId)).Distinct().ToArray();
+                var result = await _services.Provider.FetchAsync(keys, CancellationToken.None);
+                var now = DateTimeOffset.UtcNow;
+                foreach (var position in positions)
+                {
+                    var key = new ItemKey(CatalogItemType.Asset, position.AssetId);
+                    if (result.Observations.TryGetValue(key, out var observation))
+                    {
+                        await _services.PaperPortfolioStore.UpdateMarketAsync(position.Id, observation.LowestResalePrice is > 0 ? observation.LowestResalePrice : null, now);
+                    }
+                }
+                positions = await _services.PaperPortfolioStore.LoadAsync();
+            }
+
+            _paperRows.Clear();
+            foreach (var position in positions) _paperRows.Add(new PaperPositionRow { Position = position });
+            UpdatePortfolioSummary();
+            if (_portfolioStatusText is not null) _portfolioStatusText.Text = positions.Count == 0 ? "No paper positions yet" : $"Updated {DateTime.Now:h:mm:ss tt}";
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Error($"Paper portfolio refresh failed: {ex}");
+            if (_portfolioStatusText is not null) _portfolioStatusText.Text = "Floor refresh failed";
+        }
+        finally
+        {
+            _portfolioRefreshInProgress = false;
+        }
+    }
+
+    private void UpdatePortfolioSummary()
+    {
+        var positions = _paperRows.Select(x => x.Position).ToArray();
+        var cost = positions.Sum(x => x.EntryPrice * x.Quantity);
+        var priced = positions.Where(x => x.CurrentFloor is > 0).ToArray();
+        var value = priced.Sum(x => x.CurrentFloor!.Value * x.Quantity);
+        var pricedCost = priced.Sum(x => x.EntryPrice * x.Quantity);
+        var pnl = value - pricedCost;
+        var wins = priced.Count(x => x.CurrentFloor!.Value > x.EntryPrice);
+
+        if (_portfolioCostText is not null) _portfolioCostText.Text = $"{cost:N0} R$";
+        if (_portfolioValueText is not null) _portfolioValueText.Text = priced.Length > 0 ? $"{value:N0} R$" : "—";
+        if (_portfolioPnlText is not null)
+        {
+            _portfolioPnlText.Text = priced.Length > 0 ? $"{pnl:+#,##0;-#,##0;0} R$" : "—";
+            _portfolioPnlText.Foreground = priced.Length == 0 ? TerminalMuted : pnl >= 0 ? TerminalGreen : TerminalRed;
+        }
+        if (_portfolioWinRateText is not null)
+        {
+            _portfolioWinRateText.Text = priced.Length > 0 ? $"{(double)wins / priced.Length:P0}" : "—";
+            _portfolioWinRateText.Foreground = priced.Length == 0 ? TerminalMuted : wins * 2 >= priced.Length ? TerminalGreen : TerminalAmber;
+        }
+    }
+
     private void UpdateHunterInspector()
     {
         var item = _hunterGrid?.SelectedItem as UgcHunterItem;
@@ -616,20 +740,34 @@ public partial class MainWindow : Window
     private void OpenSelectedHunterOnRoblox()
     {
         if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
-        try { Process.Start(new ProcessStartInfo(item.RobloxUrl) { UseShellExecute = true }); }
-        catch (Exception ex) { _services.Logger.Error($"Could not open Roblox catalog page: {ex.Message}"); }
+        OpenRobloxAsset(item.AssetId);
     }
 
     private async Task TrackSelectedHunterAsync()
     {
-        if (_hunterGrid?.SelectedItem is not UgcHunterItem) return;
-        var dialog = new AddItemWindow(_services) { Owner = this };
-        if (dialog.ShowDialog() == true)
-        {
-            await RefreshAllAsync();
-            WatchlistNav.IsChecked = true;
-            ShowPage("Watchlist");
-        }
+        if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
+        await _services.PaperPortfolioStore.AddAsync(item, 1);
+        ShowBanner("Paper entry recorded", $"1 × {item.Name} at {item.Price:N0} R$. No Robux was spent.");
+        await RefreshPaperPortfolioAsync();
+    }
+
+    private void OpenSelectedPaperPosition()
+    {
+        if (_portfolioGrid?.SelectedItem is not PaperPositionRow row) return;
+        OpenRobloxAsset(row.Position.AssetId);
+    }
+
+    private async Task RemoveSelectedPaperPositionAsync()
+    {
+        if (_portfolioGrid?.SelectedItem is not PaperPositionRow row) return;
+        await _services.PaperPortfolioStore.RemoveAsync(row.Position.Id);
+        await RefreshPaperPortfolioAsync();
+    }
+
+    private void OpenRobloxAsset(long assetId)
+    {
+        try { Process.Start(new ProcessStartInfo($"https://www.roblox.com/catalog/{assetId}") { UseShellExecute = true }); }
+        catch (Exception ex) { _services.Logger.Error($"Could not open Roblox catalog page: {ex.Message}"); }
     }
 
     private static Border MakePanel() => new()
