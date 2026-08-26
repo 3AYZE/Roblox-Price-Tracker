@@ -1,5 +1,13 @@
 # Roblox Price Tracker changelog
 
+## v0.7.1
+- Fixed the UGC Hunter startup/live-scan HTTP 400 by removing the incompatible Updated + SortAggregation query combination.
+- Added supported Roblox catalog fallback routes for Collectibles, Accessories, and broad Marketplace searches; fallbacks are used only when the preferred route fails or finds no qualifying live Limited UGC.
+- Added response-detail logging for failed Hunter catalog routes so future Roblox API changes are diagnosable without exposing credentials.
+- Preserved the last successful Hunter rows and selected asset across refreshes instead of degrading the workspace when a later live request fails.
+- Background Hunter refresh failures are now non-blocking when cached market data exists; first-load failures show an explicit OFFLINE state.
+- Bumped the verified Windows release to v0.7.1 so the existing in-app updater can deliver the fix.
+
 ## v0.7.0
 - Reorganized the desktop application into a market-terminal workspace: **Market / UGC Hunter / Tracker / Portfolio / Research / Alerts / Settings**.
 - Added a live **UGC Hunter** scanner for qualifying catalog-buyable Limited UGC drops using anonymous Roblox catalog data.

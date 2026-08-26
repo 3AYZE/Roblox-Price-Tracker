@@ -594,11 +594,13 @@ public partial class MainWindow : Window
         if (_hunterErrorText is not null && !silent) _hunterErrorText.Visibility = Visibility.Collapsed;
         try
         {
+            var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
             var snapshot = await _services.UgcHunterService.RefreshAsync();
             _hunterRows.Clear();
             foreach (var item in snapshot.Items) _hunterRows.Add(item);
             _hunterView?.Refresh();
             _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
+            if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;
 
             if (_hunterRegimeText is not null)
             {
@@ -616,18 +618,45 @@ public partial class MainWindow : Window
             if (_hunterStrongCountText is not null) _hunterStrongCountText.Text = snapshot.Market.StrongDrops.ToString("N0");
             if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = $"Updated {snapshot.ObservedAtUtc.ToLocalTime():h:mm:ss tt}";
 
-            if (_hunterGrid is not null && _hunterGrid.SelectedItem is null && _hunterRows.Count > 0)
-                _hunterGrid.SelectedIndex = 0;
+            if (_hunterGrid is not null)
+            {
+                var previous = selectedAssetId is { } id ? _hunterRows.FirstOrDefault(x => x.AssetId == id) : null;
+                if (previous is not null) _hunterGrid.SelectedItem = previous;
+                else if (_hunterRows.Count > 0) _hunterGrid.SelectedIndex = 0;
+            }
             UpdateHunterInspector();
         }
         catch (Exception ex)
         {
             _services.Logger.Error($"UGC Hunter refresh failed: {ex}");
-            if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = "Scan failed";
+            var hasCachedRows = _hunterRows.Count > 0;
+            if (_hunterUpdatedText is not null)
+                _hunterUpdatedText.Text = hasCachedRows ? "Refresh failed · showing last scan" : "Scan failed";
+
+            if (!hasCachedRows)
+            {
+                if (_hunterRegimeText is not null)
+                {
+                    _hunterRegimeText.Text = "OFFLINE";
+                    _hunterRegimeText.Foreground = TerminalRed;
+                }
+                if (_hunterRegimeDetailText is not null)
+                    _hunterRegimeDetailText.Text = "Roblox catalog search is temporarily unavailable";
+            }
+
             if (_hunterErrorText is not null)
             {
-                _hunterErrorText.Text = $"UGC Hunter could not refresh: {ex.Message}";
-                _hunterErrorText.Visibility = Visibility.Visible;
+                if (silent && hasCachedRows)
+                {
+                    _hunterErrorText.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    _hunterErrorText.Text = hasCachedRows
+                        ? $"Live refresh failed. Showing the last successful scan. {ex.Message}"
+                        : $"UGC Hunter could not refresh: {ex.Message}";
+                    _hunterErrorText.Visibility = Visibility.Visible;
+                }
             }
         }
         finally

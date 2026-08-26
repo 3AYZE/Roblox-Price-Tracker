@@ -2,7 +2,12 @@ namespace RobloxPriceTracker.Gui;
 
 public sealed class UgcHunterService
 {
-    private const string SearchEndpoint = "https://catalog.roblox.com/v1/search/items/details?Category=2&Subcategory=2&SortType=3&SortAggregation=1&Limit=30";
+    private static readonly string[] SearchEndpoints =
+    [
+        "https://catalog.roblox.com/v1/search/items/details?Category=2&Subcategory=2&SortType=3&Limit=30",
+        "https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&SortType=3&Limit=30",
+        "https://catalog.roblox.com/v1/search/items/details?Category=1&SortType=3&Limit=30"
+    ];
     private const int MaxPagesPerScan = 3;
     private readonly HttpClient _httpClient;
     private readonly RobloxThumbnailService _thumbnailService;
@@ -124,46 +129,123 @@ public sealed class UgcHunterService
     private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
     {
         var candidates = new Dictionary<long, UgcRawCatalogItem>();
-        string? cursor = null;
+        var failures = new List<string>();
+        var anySourceSucceeded = false;
 
-        for (var page = 0; page < MaxPagesPerScan; page++)
+        foreach (var endpoint in SearchEndpoints)
         {
-            var url = cursor is null ? SearchEndpoint : $"{SearchEndpoint}&Cursor={Uri.EscapeDataString(cursor)}";
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Accept.ParseAdd("application/json");
-            request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+            string? cursor = null;
+            var sourceSucceeded = false;
 
-            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            for (var page = 0; page < MaxPagesPerScan; page++)
             {
-                if (page == 0)
+                var url = cursor is null ? endpoint : $"{endpoint}&Cursor={Uri.EscapeDataString(cursor)}";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Accept.ParseAdd("application/json");
+                request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+
+                HttpResponseMessage response;
+                try
                 {
-                    throw new HttpRequestException($"Roblox UGC search returned HTTP {(int)response.StatusCode} ({response.StatusCode}).", null, response.StatusCode);
+                    response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
                 }
-                _logger.Error($"UGC Hunter stopped paging after HTTP {(int)response.StatusCode} on page {page + 1}.");
-                break;
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    var failure = $"UGC Hunter source request failed on page {page + 1}: {ex.Message}";
+                    failures.Add(failure);
+                    _logger.Error(failure);
+                    break;
+                }
+
+                using (response)
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var detail = await ReadResponseDetailAsync(response, cancellationToken).ConfigureAwait(false);
+                        var suffix = string.IsNullOrWhiteSpace(detail) ? string.Empty : $" · {detail}";
+                        var failure = $"UGC Hunter source returned HTTP {(int)response.StatusCode} ({response.StatusCode}) on page {page + 1}{suffix}";
+                        failures.Add(failure);
+                        _logger.Error(failure);
+                        break;
+                    }
+
+                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                    JsonDocument document;
+                    try
+                    {
+                        document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (JsonException ex)
+                    {
+                        var failure = $"UGC Hunter source returned invalid JSON on page {page + 1}: {ex.Message}";
+                        failures.Add(failure);
+                        _logger.Error(failure);
+                        break;
+                    }
+
+                    using (document)
+                    {
+                        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                        {
+                            var failure = $"UGC Hunter source response did not contain a data array on page {page + 1}.";
+                            failures.Add(failure);
+                            _logger.Error(failure);
+                            break;
+                        }
+
+                        sourceSucceeded = true;
+                        anySourceSucceeded = true;
+
+                        foreach (var element in data.EnumerateArray())
+                        {
+                            if (TryParseCandidate(element, observedAtUtc, out var candidate))
+                                candidates[candidate.AssetId] = candidate;
+                        }
+
+                        cursor = document.RootElement.TryGetProperty("nextPageCursor", out var next) && next.ValueKind == JsonValueKind.String
+                            ? next.GetString()
+                            : null;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(cursor)) break;
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-            {
-                if (page == 0) throw new InvalidDataException("Roblox UGC search response did not contain a data array.");
-                break;
-            }
+            // Fallback routes are only used when the preferred collectible route fails
+            // or returns no qualifying catalog-buyable Limited UGC candidates.
+            if (sourceSucceeded && candidates.Count > 0) break;
+        }
 
-            foreach (var element in data.EnumerateArray())
-            {
-                if (TryParseCandidate(element, observedAtUtc, out var candidate)) candidates[candidate.AssetId] = candidate;
-            }
-
-            cursor = document.RootElement.TryGetProperty("nextPageCursor", out var next) && next.ValueKind == JsonValueKind.String
-                ? next.GetString()
-                : null;
-            if (string.IsNullOrWhiteSpace(cursor)) break;
+        if (!anySourceSucceeded)
+        {
+            var detail = failures.Count == 0
+                ? "No Roblox catalog source returned a usable response."
+                : string.Join(" | ", failures.Take(3));
+            throw new HttpRequestException($"Roblox UGC search failed across all supported catalog routes. {detail}");
         }
 
         return candidates.Values.ToList();
+    }
+
+    private static async Task<string?> ReadResponseDetailAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var text = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false))
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Trim();
+            if (text.Length == 0) return null;
+            return text.Length <= 220 ? text : text[..220] + "…";
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool TryParseCandidate(JsonElement element, DateTimeOffset observedAtUtc, out UgcRawCatalogItem item)
