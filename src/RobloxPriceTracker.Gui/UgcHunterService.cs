@@ -155,16 +155,36 @@ public sealed class UgcHunterService
         if (creatorId == 1) return false;
 
         var restrictions = GetStringArray(element, "itemRestrictions");
-        if (!restrictions.Any(x => x.Equals("Limited", StringComparison.OrdinalIgnoreCase) || x.Equals("LimitedUnique", StringComparison.OrdinalIgnoreCase))) return false;
-
-        var statuses = GetStringArray(element, "itemStatus");
-        if (!statuses.Any(x => x.Equals("Sale", StringComparison.OrdinalIgnoreCase))) return false;
+        if (!restrictions.Any(x =>
+                x.Equals("Limited", StringComparison.OrdinalIgnoreCase) ||
+                x.Equals("LimitedUnique", StringComparison.OrdinalIgnoreCase) ||
+                x.Equals("Collectible", StringComparison.OrdinalIgnoreCase))) return false;
 
         var assetType = TryGetInt32(element, "assetType", out var parsedAssetType) ? parsedAssetType : 0;
         if (!IsAvatarAccessory(assetType)) return false;
 
-        var purchaseCount = TryGetInt64(element, "purchaseCount", out var purchases) ? Math.Max(0, purchases) : 0;
+        if (TryGetBoolean(element, "isOffSale", out var isOffSale) && isOffSale) return false;
+        var priceStatus = GetString(element, "priceStatus");
+        if (priceStatus is not null &&
+            (priceStatus.Equals("OffSale", StringComparison.OrdinalIgnoreCase) ||
+             priceStatus.Equals("Off Sale", StringComparison.OrdinalIgnoreCase) ||
+             priceStatus.Equals("Free", StringComparison.OrdinalIgnoreCase))) return false;
+
         long? unitsAvailable = TryGetInt64(element, "unitsAvailableForConsumption", out var units) ? Math.Max(0, units) : null;
+        long? totalQuantity = TryGetInt64(element, "totalQuantity", out var total) && total > 0 ? total : null;
+        var statuses = GetStringArray(element, "itemStatus");
+        var hasSaleFlag = statuses.Any(x => x.Equals("Sale", StringComparison.OrdinalIgnoreCase) || x.Equals("SaleTimer", StringComparison.OrdinalIgnoreCase));
+
+        // For Limited UGC, positive remaining collectible supply is the strongest buyability signal.
+        // Keep Sale/SaleTimer as a fallback because older catalog payloads don't always include total supply fields.
+        if (unitsAvailable is not > 0 && !hasSaleFlag) return false;
+
+        var purchaseCount = TryGetInt64(element, "purchaseCount", out var purchases) ? Math.Max(0, purchases) : 0;
+        if (totalQuantity is { } knownTotal && unitsAvailable is { } remaining)
+        {
+            purchaseCount = Math.Max(purchaseCount, Math.Max(0, knownTotal - remaining));
+        }
+
         var favorites = TryGetInt64(element, "favoriteCount", out var favs) ? Math.Max(0, favs) : 0;
 
         item = new UgcRawCatalogItem(
@@ -177,6 +197,7 @@ public sealed class UgcHunterService
             price,
             purchaseCount,
             unitsAvailable,
+            totalQuantity,
             favorites,
             observedAtUtc);
         return true;
@@ -194,9 +215,11 @@ public sealed class UgcHunterService
             ? Math.Clamp((velocity1 - velocity5) / velocity5, -2.0, 4.0)
             : 0.0;
 
-        long? totalSupply = item.UnitsAvailable is { } remaining
-            ? Math.Max(1, item.PurchaseCount + remaining)
-            : null;
+        long? totalSupply = item.TotalQuantity is > 0
+            ? item.TotalQuantity
+            : item.UnitsAvailable is { } remaining
+                ? Math.Max(1, item.PurchaseCount + remaining)
+                : null;
         var soldPct = totalSupply is { } supply
             ? Math.Clamp((double)item.PurchaseCount / supply, 0, 1)
             : 0;
@@ -473,6 +496,15 @@ public sealed class UgcHunterService
         return element.TryGetProperty(name, out var token) && token.ValueKind == JsonValueKind.Number && token.TryGetInt64(out value);
     }
 
+    private static bool TryGetBoolean(JsonElement element, string name, out bool value)
+    {
+        value = false;
+        if (!element.TryGetProperty(name, out var token)) return false;
+        if (token.ValueKind == JsonValueKind.True) { value = true; return true; }
+        if (token.ValueKind == JsonValueKind.False) { value = false; return true; }
+        return false;
+    }
+
     private sealed record UgcRawCatalogItem(
         long AssetId,
         string Name,
@@ -483,6 +515,7 @@ public sealed class UgcHunterService
         int Price,
         long PurchaseCount,
         long? UnitsAvailable,
+        long? TotalQuantity,
         long FavoriteCount,
         DateTimeOffset ObservedAtUtc);
 }
