@@ -1,5 +1,17 @@
 # Roblox Price Tracker changelog
 
+## v0.8.0
+- Rebuilt **UGC Hunter** around post-sellout resale economics instead of treating fast sellout as a buy signal by itself.
+- Added Roblox community-Limited reseller-share economics, including gross break-even, estimated net proceeds, net profit, and net ROI.
+- Added dedicated resale-potential scoring with profitability hard gates so expensive near-sellout items with weak expected returns are capped or marked as poor entries.
+- Added reseller-market enrichment for the strongest Hunter candidates, including current floor, RAP, recent resale volume, active reseller count, listing depth, liquidity, and floor-stability signals.
+- Added penalties for thin or crowded resale books, unstable floors, weak resale volume, excessive purchase price, and live resale markets that do not clear break-even.
+- Recalibrated scarcity and near-sellout entry timing for the paid UGC Limited market so low remaining supply helps only when demand and resale economics support it.
+- Corrected Paper Portfolio market value, P/L, ROI, win rate, and profit coloring to use estimated reseller net proceeds instead of gross listing value.
+- Limited resale enrichment to the strongest candidates and retained caching/bounded requests to avoid excessive Roblox API traffic.
+- Added five resale-intelligence regression cases covering break-even math, expensive fast-sellout rejection, profitable/liquid ranking, unprofitable live-market rejection, and reseller-book parsing.
+- Bumped the Windows application to v0.8.0 while preserving existing Hunter history, paper positions, tracker data, updater behavior, and the single-EXE release pipeline.
+
 ## v0.7.1
 - Fixed the UGC Hunter startup/live-scan HTTP 400 by removing the incompatible Updated + SortAggregation query combination.
 - Replaced the failing legacy Collectibles route with Accessories-first Marketplace discovery plus broader fallbacks, bounded 429 retry/backoff, and paced pagination.
