@@ -1,5 +1,20 @@
 # Roblox Price Tracker changelog
 
+## v0.7.0
+- Reorganized the desktop application into a market-terminal workspace: **Market / UGC Hunter / Tracker / Portfolio / Research / Alerts / Settings**.
+- Added a live **UGC Hunter** scanner for qualifying catalog-buyable Limited UGC drops using anonymous Roblox catalog data.
+- Hunter scans multiple recent collectible result pages and excludes Roblox-authored classics, free/off-sale items, timed-ownership items, and experience-only/developer-API-only sale locations.
+- Added Opportunity, Entry, Risk, and Confidence scores with separate meanings instead of collapsing every signal into one opaque rating.
+- Added repeated 1m/5m/15m sales-velocity tracking, acceleration/cooling classification, remaining-supply analysis, supply absorption, launch lifecycle phases, and sellout ETA.
+- Hunter prefers Roblox `totalQuantity` and `unitsAvailableForConsumption` when available and can infer sold quantity from decreasing remaining supply when aggregate `purchaseCount` lags.
+- Added bear/base/bull resale scenario ranges and deterministic explanation/risk text; scenario values are explicitly presented as estimates rather than guaranteed resale prices.
+- Added a persistent right-side selected-drop inspector and stock-screener-style Hunter table with price, remaining supply, velocity, ETA, Opportunity, Entry, Risk, Confidence, and lifecycle phase.
+- Added local Hunter history in `%LOCALAPPDATA%\RobloxPriceTracker\ugc-hunter-history.json`.
+- Added a functional **Paper Portfolio**. `PAPER ENTRY` records a simulated 1-unit Hunter position with the exact model snapshot at entry and never spends Robux.
+- Added paper-position persistence in `%LOCALAPPDATA%\RobloxPriceTracker\paper-portfolio.json`.
+- Portfolio refreshes actual lowest reseller floors after a paper-traded item becomes resellable and calculates simulated market value, P/L, ROI, and priced-position win rate.
+- Preserved the existing resale Tracker, statistical forecast/backtesting, alert engine, background monitoring, tray workflow, updater, local data formats, and single-EXE publish pipeline.
+
 ## v0.6.2
 - Fixed the v0.6.1 startup failure caused by the WPF runtime failing to decode the application ICO while loading window XAML.
 - Reworked icon generation to create a native Windows/WPF-compatible ICO from the canonical PNG artwork during the Windows build.
