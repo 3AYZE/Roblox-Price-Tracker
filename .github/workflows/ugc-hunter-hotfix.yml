@@ -1,0 +1,328 @@
+name: Apply UGC Hunter Hotfix
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/ugc-hunter-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Apply Hunter source hotfix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          service_path = Path('src/RobloxPriceTracker.Gui/UgcHunterService.cs')
+          service = service_path.read_text(encoding='utf-8')
+
+          old_endpoint = '    private const string SearchEndpoint = "https://catalog.roblox.com/v1/search/items/details?Category=2&Subcategory=2&SortType=3&SortAggregation=1&Limit=30";'
+          new_endpoints = '''    private static readonly string[] SearchEndpoints =
+              [
+                  "https://catalog.roblox.com/v1/search/items/details?Category=2&Subcategory=2&SortType=3&Limit=30",
+                  "https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&SortType=3&Limit=30",
+                  "https://catalog.roblox.com/v1/search/items/details?Category=1&SortType=3&Limit=30"
+              ];'''
+          if old_endpoint not in service:
+              raise SystemExit('Expected UGC Hunter search endpoint was not found.')
+          service = service.replace(old_endpoint, new_endpoints, 1)
+
+          method_start = service.index('    private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync')
+          method_end = service.index('    private static bool TryParseCandidate', method_start)
+          new_method = r'''    private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
+              {
+                  var candidates = new Dictionary<long, UgcRawCatalogItem>();
+                  var failures = new List<string>();
+                  var anySourceSucceeded = false;
+
+                  foreach (var endpoint in SearchEndpoints)
+                  {
+                      string? cursor = null;
+                      var sourceSucceeded = false;
+
+                      for (var page = 0; page < MaxPagesPerScan; page++)
+                      {
+                          var url = cursor is null ? endpoint : $"{endpoint}&Cursor={Uri.EscapeDataString(cursor)}";
+                          using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                          request.Headers.Accept.ParseAdd("application/json");
+                          request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+
+                          HttpResponseMessage response;
+                          try
+                          {
+                              response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                          }
+                          catch (OperationCanceledException)
+                          {
+                              throw;
+                          }
+                          catch (Exception ex)
+                          {
+                              var failure = $"UGC Hunter source request failed on page {page + 1}: {ex.Message}";
+                              failures.Add(failure);
+                              _logger.Error(failure);
+                              break;
+                          }
+
+                          using (response)
+                          {
+                              if (!response.IsSuccessStatusCode)
+                              {
+                                  var detail = await ReadResponseDetailAsync(response, cancellationToken).ConfigureAwait(false);
+                                  var suffix = string.IsNullOrWhiteSpace(detail) ? string.Empty : $" · {detail}";
+                                  var failure = $"UGC Hunter source returned HTTP {(int)response.StatusCode} ({response.StatusCode}) on page {page + 1}{suffix}";
+                                  failures.Add(failure);
+                                  _logger.Error(failure);
+                                  break;
+                              }
+
+                              await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                              JsonDocument document;
+                              try
+                              {
+                                  document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                              }
+                              catch (Exception ex) when (ex is JsonException or InvalidDataException)
+                              {
+                                  var failure = $"UGC Hunter source returned invalid JSON on page {page + 1}: {ex.Message}";
+                                  failures.Add(failure);
+                                  _logger.Error(failure);
+                                  break;
+                              }
+
+                              using (document)
+                              {
+                                  if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+                                  {
+                                      var failure = $"UGC Hunter source response did not contain a data array on page {page + 1}.";
+                                      failures.Add(failure);
+                                      _logger.Error(failure);
+                                      break;
+                                  }
+
+                                  sourceSucceeded = true;
+                                  anySourceSucceeded = true;
+
+                                  foreach (var element in data.EnumerateArray())
+                                  {
+                                      if (TryParseCandidate(element, observedAtUtc, out var candidate))
+                                          candidates[candidate.AssetId] = candidate;
+                                  }
+
+                                  cursor = document.RootElement.TryGetProperty("nextPageCursor", out var next) && next.ValueKind == JsonValueKind.String
+                                      ? next.GetString()
+                                      : null;
+                              }
+                          }
+
+                          if (string.IsNullOrWhiteSpace(cursor)) break;
+                      }
+
+                      // The normal path stays at three requests. Fallback routes are only used when the
+                      // preferred collectible query fails or returns no qualifying live UGC Limiteds.
+                      if (sourceSucceeded && candidates.Count > 0) break;
+                  }
+
+                  if (!anySourceSucceeded)
+                  {
+                      var detail = failures.Count == 0
+                          ? "No Roblox catalog source returned a usable response."
+                          : string.Join(" | ", failures.Take(3));
+                      throw new HttpRequestException($"Roblox UGC search failed across all supported catalog routes. {detail}");
+                  }
+
+                  return candidates.Values.ToList();
+              }
+
+              private static async Task<string?> ReadResponseDetailAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+              {
+                  try
+                  {
+                      var text = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false))
+                          .Replace('\r', ' ')
+                          .Replace('\n', ' ')
+                          .Trim();
+                      if (text.Length == 0) return null;
+                      return text.Length <= 220 ? text : text[..220] + "…";
+                  }
+                  catch
+                  {
+                      return null;
+                  }
+              }
+          '''
+          service = service[:method_start] + new_method + '\n\n' + service[method_end:]
+          service_path.write_text(service, encoding='utf-8', newline='\n')
+
+          ui_path = Path('src/RobloxPriceTracker.Gui/MainWindow.TerminalUi.cs')
+          ui = ui_path.read_text(encoding='utf-8')
+
+          old_success = '''            var snapshot = await _services.UgcHunterService.RefreshAsync();
+              _hunterRows.Clear();
+              foreach (var item in snapshot.Items) _hunterRows.Add(item);
+              _hunterView?.Refresh();
+              _hunterLastRefreshUtc = snapshot.ObservedAtUtc;'''
+          new_success = '''            var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
+              var snapshot = await _services.UgcHunterService.RefreshAsync();
+              _hunterRows.Clear();
+              foreach (var item in snapshot.Items) _hunterRows.Add(item);
+              _hunterView?.Refresh();
+              _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
+              if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;'''
+          if old_success not in ui:
+              raise SystemExit('Expected Hunter refresh success block was not found.')
+          ui = ui.replace(old_success, new_success, 1)
+
+          old_selection = '''            if (_hunterGrid is not null && _hunterGrid.SelectedItem is null && _hunterRows.Count > 0)
+                  _hunterGrid.SelectedIndex = 0;
+              UpdateHunterInspector();'''
+          new_selection = '''            if (_hunterGrid is not null)
+              {
+                  var previous = selectedAssetId is { } id ? _hunterRows.FirstOrDefault(x => x.AssetId == id) : null;
+                  if (previous is not null) _hunterGrid.SelectedItem = previous;
+                  else if (_hunterRows.Count > 0) _hunterGrid.SelectedIndex = 0;
+              }
+              UpdateHunterInspector();'''
+          if old_selection not in ui:
+              raise SystemExit('Expected Hunter selection block was not found.')
+          ui = ui.replace(old_selection, new_selection, 1)
+
+          old_catch = '''        catch (Exception ex)
+              {
+                  _services.Logger.Error($"UGC Hunter refresh failed: {ex}");
+                  if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = "Scan failed";
+                  if (_hunterErrorText is not null)
+                  {
+                      _hunterErrorText.Text = $"UGC Hunter could not refresh: {ex.Message}";
+                      _hunterErrorText.Visibility = Visibility.Visible;
+                  }
+              }'''
+          new_catch = '''        catch (Exception ex)
+              {
+                  _services.Logger.Error($"UGC Hunter refresh failed: {ex}");
+                  var hasCachedRows = _hunterRows.Count > 0;
+                  if (_hunterUpdatedText is not null)
+                      _hunterUpdatedText.Text = hasCachedRows ? "Refresh failed · showing last scan" : "Scan failed";
+
+                  if (!hasCachedRows)
+                  {
+                      if (_hunterRegimeText is not null)
+                      {
+                          _hunterRegimeText.Text = "OFFLINE";
+                          _hunterRegimeText.Foreground = TerminalRed;
+                      }
+                      if (_hunterRegimeDetailText is not null)
+                          _hunterRegimeDetailText.Text = "Roblox catalog search is temporarily unavailable";
+                  }
+
+                  if (_hunterErrorText is not null)
+                  {
+                      if (silent && hasCachedRows)
+                      {
+                          _hunterErrorText.Visibility = Visibility.Collapsed;
+                      }
+                      else
+                      {
+                          _hunterErrorText.Text = hasCachedRows
+                              ? $"Live refresh failed. Showing the last successful scan. {ex.Message}"
+                              : $"UGC Hunter could not refresh: {ex.Message}";
+                          _hunterErrorText.Visibility = Visibility.Visible;
+                      }
+                  }
+              }'''
+          if old_catch not in ui:
+              raise SystemExit('Expected Hunter refresh catch block was not found.')
+          ui = ui.replace(old_catch, new_catch, 1)
+          ui_path.write_text(ui, encoding='utf-8', newline='\n')
+
+          project_path = Path('src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj')
+          project = project_path.read_text(encoding='utf-8')
+          project = project.replace('<Version>0.7.0</Version>', '<Version>0.7.1</Version>', 1)
+          project = project.replace('<AssemblyVersion>0.7.0.0</AssemblyVersion>', '<AssemblyVersion>0.7.1.0</AssemblyVersion>', 1)
+          project = project.replace('<FileVersion>0.7.0.0</FileVersion>', '<FileVersion>0.7.1.0</FileVersion>', 1)
+          if '<Version>0.7.1</Version>' not in project:
+              raise SystemExit('Version bump to 0.7.1 failed.')
+          project_path.write_text(project, encoding='utf-8', newline='\n')
+
+          changelog_path = Path('docs/CHANGELOG.md')
+          changelog = changelog_path.read_text(encoding='utf-8')
+          marker = '# Roblox Price Tracker changelog\n\n'
+          entry = '''## v0.7.1
+          - Fixed the UGC Hunter startup/live-scan HTTP 400 by removing the incompatible Updated + SortAggregation query combination.
+          - Added supported Roblox catalog fallback routes for Collectibles, Accessories, and broad Marketplace searches; fallbacks are used only when the preferred route fails or finds no qualifying live Limited UGC.
+          - Added response-detail logging for failed Hunter catalog routes so future Roblox API changes are diagnosable without exposing credentials.
+          - Preserved the last successful Hunter rows and selected asset across refreshes instead of degrading the workspace when a later live request fails.
+          - Background Hunter refresh failures are now non-blocking when cached market data exists; first-load failures show an explicit OFFLINE state.
+          - Bumped the verified Windows release to v0.7.1 so the existing in-app updater can deliver the fix.
+
+          '''
+          entry = '\n'.join(line[10:] if line.startswith('          ') else line for line in entry.splitlines()) + '\n'
+          if marker not in changelog:
+              raise SystemExit('Changelog header not found.')
+          if '## v0.7.1' not in changelog:
+              changelog = changelog.replace(marker, marker + entry, 1)
+          changelog_path.write_text(changelog, encoding='utf-8', newline='\n')
+
+      - name: Verify hotfix source invariants
+        shell: powershell
+        run: |
+          $hunter = Get-Content 'src/RobloxPriceTracker.Gui/UgcHunterService.cs' -Raw
+          if ($hunter -match 'SortType=3&SortAggregation=1') { throw 'Invalid Updated + SortAggregation query still exists.' }
+          if ($hunter -notmatch 'SearchEndpoints') { throw 'Hunter fallback routes were not installed.' }
+          $ui = Get-Content 'src/RobloxPriceTracker.Gui/MainWindow.TerminalUi.cs' -Raw
+          if ($ui -notmatch 'showing last scan') { throw 'Hunter stale-data failure state was not installed.' }
+          [xml]$project = Get-Content 'src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj'
+          if ([string]$project.Project.PropertyGroup.Version -ne '0.7.1') { throw 'Application version is not 0.7.1.' }
+
+      - name: Build, run regression tests, and publish single EXE
+        shell: powershell
+        run: ./tools/Build-Windows.ps1
+
+      - name: Probe Roblox Hunter catalog routes
+        shell: powershell
+        continue-on-error: true
+        run: |
+          $urls = @(
+            'https://catalog.roblox.com/v1/search/items/details?Category=2&Subcategory=2&SortType=3&Limit=30',
+            'https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&SortType=3&Limit=30',
+            'https://catalog.roblox.com/v1/search/items/details?Category=1&SortType=3&Limit=30'
+          )
+          foreach ($url in $urls) {
+            try {
+              $response = Invoke-WebRequest -Uri $url -Method Get -Headers @{ 'User-Agent' = 'RobloxPriceTracker/0.7.1'; 'Accept' = 'application/json' } -TimeoutSec 20 -UseBasicParsing
+              Write-Host "$($response.StatusCode) $url"
+            } catch {
+              Write-Warning "$url -> $($_.Exception.Message)"
+            }
+          }
+
+      - name: Commit verified hotfix
+        shell: powershell
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/RobloxPriceTracker.Gui/UgcHunterService.cs src/RobloxPriceTracker.Gui/MainWindow.TerminalUi.cs src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj docs/CHANGELOG.md
+          git diff --cached --check
+          if (-not (git diff --cached --quiet)) {
+            git commit -m 'Fix UGC Hunter catalog refresh and resilience'
+            git push origin HEAD:main
+          } else {
+            Write-Host 'No hotfix changes remained to commit.'
+          }
