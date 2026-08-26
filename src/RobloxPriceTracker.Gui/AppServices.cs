@@ -24,7 +24,8 @@ public sealed class AppServices : IDisposable
         GitHubUpdateService updateService,
         RobloxResaleDataService resaleDataService,
         PriceForecastEngine forecastEngine,
-        ForecastHistoryStore forecastHistoryStore)
+        ForecastHistoryStore forecastHistoryStore,
+        UgcHunterService ugcHunterService)
     {
         DataDirectory = dataDirectory;
         Repository = repository;
@@ -43,6 +44,7 @@ public sealed class AppServices : IDisposable
         ResaleDataService = resaleDataService;
         ForecastEngine = forecastEngine;
         ForecastHistoryStore = forecastHistoryStore;
+        UgcHunterService = ugcHunterService;
     }
 
     public string DataDirectory { get; }
@@ -62,6 +64,7 @@ public sealed class AppServices : IDisposable
     public RobloxResaleDataService ResaleDataService { get; }
     public PriceForecastEngine ForecastEngine { get; }
     public ForecastHistoryStore ForecastHistoryStore { get; }
+    public UgcHunterService UgcHunterService { get; }
 
     public PollPlanner CreatePollPlanner() => new(
         TimeSpan.FromSeconds(Math.Max(10, Settings.NormalPollSeconds)),
@@ -122,6 +125,8 @@ public sealed class AppServices : IDisposable
         var forecastEngine = new PriceForecastEngine();
         var forecastHistoryStore = new ForecastHistoryStore(Path.Combine(dataDir, "forecast-history.json"));
         await forecastHistoryStore.InitializeAsync(cancellationToken);
+        var ugcHunterService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir);
+        await ugcHunterService.InitializeAsync(cancellationToken);
 
         return new AppServices(
             dataDir,
@@ -140,7 +145,8 @@ public sealed class AppServices : IDisposable
             updateService,
             resaleDataService,
             forecastEngine,
-            forecastHistoryStore);
+            forecastHistoryStore,
+            ugcHunterService);
     }
 
     public void Dispose()
