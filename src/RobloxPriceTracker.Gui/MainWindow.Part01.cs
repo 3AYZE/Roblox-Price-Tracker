@@ -54,6 +54,7 @@ public partial class MainWindow : Window
         _startupLaunch = startupLaunch;
         InitializeComponent();
         ConfigureStockUi();
+        ConfigureTerminalUi();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -122,6 +123,7 @@ public partial class MainWindow : Window
         _startupDelayCts?.Cancel();
         _monitoringCts?.Cancel();
         _notificationTimer?.Stop();
+        _hunterTimer?.Stop();
         StopUpdateChecks();
         DisposeTrayIcon();
     }
@@ -144,14 +146,17 @@ public partial class MainWindow : Window
         AlertsPage.Visibility = page == "Alerts" ? Visibility.Visible : Visibility.Collapsed;
         ReportsPage.Visibility = page == "Reports" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
+        SetTerminalPageVisibility(page);
 
         (PageTitleText.Text, PageSubtitleText.Text) = page switch
         {
-            "Watchlist" => ("Watchlist", "Live quotes, forecast, sales velocity, target distance, and market signals."),
-            "Alerts" => ("Alerts", "Event tape for target crossings and new observed lows."),
-            "Reports" => ("Price History", "Interactive resale charts, range performance, forecast context, and recorded observations."),
+            "Hunter" => ("UGC Hunter", "Live buyable Limited UGC scanner with velocity, scarcity, entry timing, risk, and resale scenarios."),
+            "Portfolio" => ("Portfolio", "Paper-trade and validate Hunter opportunities before committing Robux."),
+            "Watchlist" => ("Price Tracker", "Live quotes, forecast, sales velocity, target distance, and market signals."),
+            "Alerts" => ("Alerts", "Event tape for target crossings, market signals, and observed lows."),
+            "Reports" => ("Research", "Interactive resale charts, range performance, forecast context, and recorded observations."),
             "Settings" => ("Settings", "Monitoring cadence, background behavior, updates, data, and diagnostics."),
-            _ => ("Market Overview", "Roblox resale quotes, forecast direction, liquidity, and target signals at a glance.")
+            _ => ("Market", "Roblox Limited market intelligence, tracked quotes, forecasts, and live monitoring at a glance.")
         };
     }
 
