@@ -5,6 +5,8 @@ on:
     branches: [ main ]
     paths:
       - '.github/workflows/release-linux-fallback.yml'
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -12,13 +14,16 @@ permissions:
 
 jobs:
   release:
+    if: github.event_name != 'pull_request' || github.head_ref == 'release-v080-trigger'
     name: Cross-build, test, and publish Windows x64
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
-      - name: Checkout repository
+      - name: Checkout release source
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Set up .NET 9
         uses: actions/setup-dotnet@v4
@@ -158,5 +163,3 @@ jobs:
             --target "$RELEASE_SHA" \
             --title "Roblox Price Tracker v$VERSION" \
             --notes "Verified Windows x64 cross-build from $RELEASE_SHA. Full regression suite passed and the single-file x64 PE output was validated. SHA-256: $EXE_SHA256. GitHub's Windows hosted runner pool was unavailable during release, so the packaged Windows startup smoke test is deferred; no release is created if build/tests/PE validation fail."
-
-# One-time v0.8.0 fallback trigger.
