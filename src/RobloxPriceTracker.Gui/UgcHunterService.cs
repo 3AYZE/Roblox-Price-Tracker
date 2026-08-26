@@ -1,6 +1,3 @@
-using System.Net;
-using System.Net.Http.Json;
-
 namespace RobloxPriceTracker.Gui;
 
 public sealed class UgcHunterService
@@ -155,7 +152,7 @@ public sealed class UgcHunterService
         if (!string.Equals(itemType, "Asset", StringComparison.OrdinalIgnoreCase)) return false;
 
         var creatorId = TryGetInt64(element, "creatorTargetId", out var parsedCreator) ? parsedCreator : 0;
-        if (creatorId == 1) return false; // Focus Hunter on UGC/community creators rather than Roblox-authored classics.
+        if (creatorId == 1) return false;
 
         var restrictions = GetStringArray(element, "itemRestrictions");
         if (!restrictions.Any(x => x.Equals("Limited", StringComparison.OrdinalIgnoreCase) || x.Equals("LimitedUnique", StringComparison.OrdinalIgnoreCase))) return false;
@@ -215,40 +212,40 @@ public sealed class UgcHunterService
         if (acceleration > 0) velocityScore = ClampScore(velocityScore + acceleration * 10);
         if (acceleration < -0.35) velocityScore = ClampScore(velocityScore + acceleration * 18);
 
-        var scarcityScore = totalSupply switch
+        double scarcityScore = totalSupply switch
         {
-            <= 500 => 98,
-            <= 1000 => 92,
-            <= 2500 => 82,
-            <= 5000 => 69,
-            <= 10000 => 54,
-            <= 20000 => 38,
-            null => 50,
-            _ => 24
+            <= 500 => 98d,
+            <= 1000 => 92d,
+            <= 2500 => 82d,
+            <= 5000 => 69d,
+            <= 10000 => 54d,
+            <= 20000 => 38d,
+            null => 50d,
+            _ => 24d
         };
         scarcityScore = ClampScore(scarcityScore + soldPct * 12);
 
-        var priceScore = item.Price switch
+        double priceScore = item.Price switch
         {
-            <= 50 => 96,
-            <= 75 => 93,
-            <= 100 => 89,
-            <= 150 => 80,
-            <= 250 => 67,
-            <= 500 => 48,
-            <= 1000 => 32,
-            _ => 18
+            <= 50 => 96d,
+            <= 75 => 93d,
+            <= 100 => 89d,
+            <= 150 => 80d,
+            <= 250 => 67d,
+            <= 500 => 48d,
+            <= 1000 => 32d,
+            _ => 18d
         };
 
         var favoritePerPurchase = item.PurchaseCount > 0 ? (double)item.FavoriteCount / item.PurchaseCount : 0;
         var engagementScore = ClampScore(38 + Math.Log10(1 + item.FavoriteCount) * 8 + Math.Min(25, favoritePerPurchase * 8));
 
-        var persistenceScore = history.Count switch
+        double persistenceScore = history.Count switch
         {
-            >= 10 => 82,
-            >= 6 => 70,
-            >= 3 => 58,
-            _ => 42
+            >= 10 => 82d,
+            >= 6 => 70d,
+            >= 3 => 58d,
+            _ => 42d
         };
         if (velocity5 > 0 && velocity15 > 0)
         {
@@ -263,21 +260,22 @@ public sealed class UgcHunterService
             engagementScore * 0.14 +
             persistenceScore * 0.13);
 
-        var entryTiming = remainingPct switch
+        double entryTiming = remainingPct switch
         {
-            >= 0.75 => 84,
-            >= 0.50 => 96,
-            >= 0.30 => 91,
-            >= 0.18 => 76,
-            >= 0.10 => 55,
-            >= 0.04 => 34,
-            < 0.04 => 18,
-            null => 62
+            >= 0.75 => 84d,
+            >= 0.50 => 96d,
+            >= 0.30 => 91d,
+            >= 0.18 => 76d,
+            >= 0.10 => 55d,
+            >= 0.04 => 34d,
+            < 0.04 => 18d,
+            null => 62d,
+            _ => 62d
         };
         var entry = ClampScore(entryTiming * 0.55 + priceScore * 0.25 + velocityScore * 0.20);
         if (acceleration < -0.45) entry = ClampScore(entry - 18);
 
-        var dataConfidence = Math.Min(100, 22 + history.Count * 8);
+        double dataConfidence = Math.Min(100d, 22d + history.Count * 8d);
         if (totalSupply is not null) dataConfidence += 8;
         if (bestVelocity > 0) dataConfidence += 8;
         dataConfidence = ClampScore(dataConfidence);
@@ -303,7 +301,8 @@ public sealed class UgcHunterService
             >= 0.25 => acceleration < -0.2 ? "SLOWING" : "SUSTAINED DEMAND",
             > 0 => "SCARCITY PHASE",
             0 => "SOLD OUT",
-            null => history.Count < 3 ? "DISCOVERED" : "LIVE"
+            null => history.Count < 3 ? "DISCOVERED" : "LIVE",
+            _ => "LIVE"
         };
 
         TimeSpan? eta = item.UnitsAvailable is { } left && bestVelocity > 0.01
