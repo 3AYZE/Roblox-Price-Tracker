@@ -33,7 +33,12 @@ internal static partial class Program
             ("Forecast waits for minimum history", TestForecastRequiresMinimumHistoryAsync),
             ("Forecast follows a clean downtrend", TestForecastFollowsCleanDowntrendAsync),
             ("Liquidity raises forecast confidence", TestLiquidityRaisesForecastConfidenceAsync),
-            ("Forecast backtest store evaluates next quote", TestForecastBacktestStoreAsync)
+            ("Forecast backtest store evaluates next quote", TestForecastBacktestStoreAsync),
+            ("UGC resale break-even applies reseller share", TestUgcResaleBreakEvenAsync),
+            ("Fast expensive sellout is not automatic buy", TestUgcFastExpensiveSelloutIsNotAutomaticBuyAsync),
+            ("Profitable liquid UGC market ranks high", TestUgcProfitableLiquidMarketRanksHighAsync),
+            ("Unprofitable live UGC resale is hard-gated", TestUgcUnprofitableLiveResaleHardGateAsync),
+            ("UGC reseller book parser reads depth", TestUgcResellerBookParserAsync)
         };
 
         var failed = 0;
