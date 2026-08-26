@@ -25,7 +25,8 @@ public sealed class AppServices : IDisposable
         RobloxResaleDataService resaleDataService,
         PriceForecastEngine forecastEngine,
         ForecastHistoryStore forecastHistoryStore,
-        UgcHunterService ugcHunterService)
+        UgcHunterService ugcHunterService,
+        PaperPortfolioStore paperPortfolioStore)
     {
         DataDirectory = dataDirectory;
         Repository = repository;
@@ -45,6 +46,7 @@ public sealed class AppServices : IDisposable
         ForecastEngine = forecastEngine;
         ForecastHistoryStore = forecastHistoryStore;
         UgcHunterService = ugcHunterService;
+        PaperPortfolioStore = paperPortfolioStore;
     }
 
     public string DataDirectory { get; }
@@ -65,6 +67,7 @@ public sealed class AppServices : IDisposable
     public PriceForecastEngine ForecastEngine { get; }
     public ForecastHistoryStore ForecastHistoryStore { get; }
     public UgcHunterService UgcHunterService { get; }
+    public PaperPortfolioStore PaperPortfolioStore { get; }
 
     public PollPlanner CreatePollPlanner() => new(
         TimeSpan.FromSeconds(Math.Max(10, Settings.NormalPollSeconds)),
@@ -127,6 +130,8 @@ public sealed class AppServices : IDisposable
         await forecastHistoryStore.InitializeAsync(cancellationToken);
         var ugcHunterService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir);
         await ugcHunterService.InitializeAsync(cancellationToken);
+        var paperPortfolioStore = new PaperPortfolioStore(dataDir);
+        await paperPortfolioStore.InitializeAsync(cancellationToken);
 
         return new AppServices(
             dataDir,
@@ -146,7 +151,8 @@ public sealed class AppServices : IDisposable
             resaleDataService,
             forecastEngine,
             forecastHistoryStore,
-            ugcHunterService);
+            ugcHunterService,
+            paperPortfolioStore);
     }
 
     public void Dispose()
