@@ -435,9 +435,6 @@ public partial class MainWindow : Window
 
     private DataGridTemplateColumn CreateHunterAssetColumn()
     {
-        var root = new FrameworkElementFactory(typeof(Grid));
-        var columns = new ColumnDefinitionCollection();
-        // FrameworkElementFactory cannot directly own a ColumnDefinitionCollection; use a DockPanel-like horizontal stack instead.
         var panel = new FrameworkElementFactory(typeof(StackPanel));
         panel.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
         panel.SetValue(StackPanel.VerticalAlignmentProperty, VerticalAlignment.Center);
@@ -625,12 +622,8 @@ public partial class MainWindow : Window
 
     private async Task TrackSelectedHunterAsync()
     {
-        if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
-        var dialog = new AddItemWindow(_services)
-        {
-            Owner = this
-        };
-        // Hunter candidates are not necessarily resellable yet, so open the normal verify flow.
+        if (_hunterGrid?.SelectedItem is not UgcHunterItem) return;
+        var dialog = new AddItemWindow(_services) { Owner = this };
         if (dialog.ShowDialog() == true)
         {
             await RefreshAllAsync();
