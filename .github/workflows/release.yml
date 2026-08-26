@@ -3,6 +3,8 @@ name: Publish Release
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -10,13 +12,24 @@ permissions:
 
 jobs:
   release:
+    if: github.event_name != 'pull_request' || github.head_ref == 'release-v080-trigger'
     name: Build, verify, and publish versioned release
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 25
 
     steps:
-      - name: Checkout repository
+      - name: Checkout release source
         uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Capture release commit
+        id: source
+        shell: powershell
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          Write-Host "Release source: $sha"
 
       - name: Set up .NET 9
         uses: actions/setup-dotnet@v4
@@ -72,11 +85,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_SHA: ${{ steps.source.outputs.sha }}
         run: |
           gh release create $env:TAG `
             'dist/RobloxPriceTracker.exe#RobloxPriceTracker.exe' `
             'dist/RobloxPriceTracker.exe.sha256#RobloxPriceTracker.exe.sha256' `
             --repo $env:GITHUB_REPOSITORY `
-            --target $env:GITHUB_SHA `
+            --target $env:RELEASE_SHA `
             --title "Roblox Price Tracker v$env:VERSION" `
-            --notes "Verified Windows x64 release. Built from $env:GITHUB_SHA after the regression suite passed. Includes SHA-256 verification for the in-app updater."
+            --notes "Verified Windows x64 release. Built from $env:RELEASE_SHA after the regression suite passed. Includes SHA-256 verification for the in-app updater."
