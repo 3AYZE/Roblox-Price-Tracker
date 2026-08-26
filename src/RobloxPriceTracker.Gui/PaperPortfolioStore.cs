@@ -165,14 +165,16 @@ public sealed class PaperPositionRow
     public string Quantity => Position.Quantity.ToString("N0");
     public string Entry => $"{Position.EntryPrice:N0} R$";
     public string Floor => Position.CurrentFloor is > 0 ? $"{Position.CurrentFloor:N0} R$" : "WAITING";
-    public string Value => Position.CurrentFloor is > 0 ? $"{Position.CurrentFloor.Value * Position.Quantity:N0} R$" : "—";
+    public string Value => Position.CurrentFloor is > 0
+        ? $"{Position.CurrentFloor.Value * UgcResaleScoring.CommunityLimitedResellerShare * Position.Quantity:N0} R$"
+        : "—";
     public string Cost => $"{Position.EntryPrice * Position.Quantity:N0} R$";
     public string ProfitLoss
     {
         get
         {
             if (Position.CurrentFloor is not > 0) return "—";
-            var delta = (Position.CurrentFloor.Value - Position.EntryPrice) * Position.Quantity;
+            var delta = (Position.CurrentFloor.Value * UgcResaleScoring.CommunityLimitedResellerShare - Position.EntryPrice) * Position.Quantity;
             return $"{delta:+#,##0;-#,##0;0} R$";
         }
     }
@@ -181,7 +183,7 @@ public sealed class PaperPositionRow
         get
         {
             if (Position.CurrentFloor is not > 0 || Position.EntryPrice <= 0) return "—";
-            var roi = (double)(Position.CurrentFloor.Value - Position.EntryPrice) / Position.EntryPrice;
+            var roi = (Position.CurrentFloor.Value * UgcResaleScoring.CommunityLimitedResellerShare - Position.EntryPrice) / Position.EntryPrice;
             return $"{roi:+0.0%;-0.0%;0.0%}";
         }
     }
@@ -189,7 +191,9 @@ public sealed class PaperPositionRow
     public string Scores => $"P{Position.OpportunityScore:0} · E{Position.EntryScore:0} · R{Position.RiskScore:0}";
     public string Entered => Position.EntryAtUtc.ToLocalTime().ToString("MMM d · h:mm tt");
     public Brush ProfitForeground => Position.CurrentFloor is not > 0 ? TerminalBrushes.Muted
-        : Position.CurrentFloor.Value >= Position.EntryPrice ? TerminalBrushes.Green : TerminalBrushes.Red;
+        : Position.CurrentFloor.Value * UgcResaleScoring.CommunityLimitedResellerShare >= Position.EntryPrice
+            ? TerminalBrushes.Green
+            : TerminalBrushes.Red;
 }
 
 internal static class TerminalBrushes
