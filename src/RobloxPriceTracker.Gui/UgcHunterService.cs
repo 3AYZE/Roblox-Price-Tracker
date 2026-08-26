@@ -3,6 +3,7 @@ namespace RobloxPriceTracker.Gui;
 public sealed class UgcHunterService
 {
     private const string SearchEndpoint = "https://catalog.roblox.com/v1/search/items/details?Category=2&Subcategory=2&SortType=3&SortAggregation=1&Limit=30";
+    private const int MaxPagesPerScan = 3;
     private readonly HttpClient _httpClient;
     private readonly RobloxThumbnailService _thumbnailService;
     private readonly AppLogger _logger;
@@ -54,30 +55,8 @@ public sealed class UgcHunterService
     public async Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, SearchEndpoint);
-        request.Headers.Accept.ParseAdd("application/json");
-        request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new HttpRequestException($"Roblox UGC search returned HTTP {(int)response.StatusCode} ({response.StatusCode}).", null, response.StatusCode);
-        }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-        {
-            throw new InvalidDataException("Roblox UGC search response did not contain a data array.");
-        }
-
         var now = DateTimeOffset.UtcNow;
-        var raw = new List<UgcRawCatalogItem>();
-        foreach (var element in data.EnumerateArray())
-        {
-            if (TryParseCandidate(element, now, out var candidate)) raw.Add(candidate);
-        }
+        var raw = await FetchCandidatesAsync(now, cancellationToken).ConfigureAwait(false);
 
         IReadOnlyDictionary<long, string> thumbnails;
         try
@@ -142,6 +121,51 @@ public sealed class UgcHunterService
         return new UgcHunterMarketSnapshot(analyzed, market, now);
     }
 
+    private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
+    {
+        var candidates = new Dictionary<long, UgcRawCatalogItem>();
+        string? cursor = null;
+
+        for (var page = 0; page < MaxPagesPerScan; page++)
+        {
+            var url = cursor is null ? SearchEndpoint : $"{SearchEndpoint}&Cursor={Uri.EscapeDataString(cursor)}";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Accept.ParseAdd("application/json");
+            request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (page == 0)
+                {
+                    throw new HttpRequestException($"Roblox UGC search returned HTTP {(int)response.StatusCode} ({response.StatusCode}).", null, response.StatusCode);
+                }
+                _logger.Error($"UGC Hunter stopped paging after HTTP {(int)response.StatusCode} on page {page + 1}.");
+                break;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            {
+                if (page == 0) throw new InvalidDataException("Roblox UGC search response did not contain a data array.");
+                break;
+            }
+
+            foreach (var element in data.EnumerateArray())
+            {
+                if (TryParseCandidate(element, observedAtUtc, out var candidate)) candidates[candidate.AssetId] = candidate;
+            }
+
+            cursor = document.RootElement.TryGetProperty("nextPageCursor", out var next) && next.ValueKind == JsonValueKind.String
+                ? next.GetString()
+                : null;
+            if (string.IsNullOrWhiteSpace(cursor)) break;
+        }
+
+        return candidates.Values.ToList();
+    }
+
     private static bool TryParseCandidate(JsonElement element, DateTimeOffset observedAtUtc, out UgcRawCatalogItem item)
     {
         item = default!;
@@ -170,13 +194,18 @@ public sealed class UgcHunterService
              priceStatus.Equals("Off Sale", StringComparison.OrdinalIgnoreCase) ||
              priceStatus.Equals("Free", StringComparison.OrdinalIgnoreCase))) return false;
 
+        // Challenge/experience-only collectibles are intentionally excluded. Hunter is for items a user can
+        // purchase directly through the catalog shop without completing an experience-specific requirement.
+        var saleLocationType = GetString(element, "saleLocationType");
+        if (!string.IsNullOrWhiteSpace(saleLocationType) && !saleLocationType.StartsWith("Shop", StringComparison.OrdinalIgnoreCase)) return false;
+
+        if (element.TryGetProperty("timedOptions", out var timedOptions) && timedOptions.ValueKind == JsonValueKind.Array && timedOptions.GetArrayLength() > 0) return false;
+
         long? unitsAvailable = TryGetInt64(element, "unitsAvailableForConsumption", out var units) ? Math.Max(0, units) : null;
         long? totalQuantity = TryGetInt64(element, "totalQuantity", out var total) && total > 0 ? total : null;
         var statuses = GetStringArray(element, "itemStatus");
         var hasSaleFlag = statuses.Any(x => x.Equals("Sale", StringComparison.OrdinalIgnoreCase) || x.Equals("SaleTimer", StringComparison.OrdinalIgnoreCase));
 
-        // For Limited UGC, positive remaining collectible supply is the strongest buyability signal.
-        // Keep Sale/SaleTimer as a fallback because older catalog payloads don't always include total supply fields.
         if (unitsAvailable is not > 0 && !hasSaleFlag) return false;
 
         var purchaseCount = TryGetInt64(element, "purchaseCount", out var purchases) ? Math.Max(0, purchases) : 0;
