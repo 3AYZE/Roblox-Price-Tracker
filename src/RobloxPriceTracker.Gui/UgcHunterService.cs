@@ -3,11 +3,11 @@ namespace RobloxPriceTracker.Gui;
 public sealed class UgcHunterService
 {
     private static readonly string[] SearchEndpoints =
-    [
-        "https://catalog.roblox.com/v1/search/items/details?Category=2&Subcategory=2&SortType=3&Limit=30",
-        "https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&SortType=3&Limit=30",
-        "https://catalog.roblox.com/v1/search/items/details?Category=1&SortType=3&Limit=30"
-    ];
+[
+    "https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&SortType=3&Limit=30",
+    "https://catalog.roblox.com/v1/search/items/details?Category=11&SortType=3&Limit=30",
+    "https://catalog.roblox.com/v1/search/items/details?Category=1&SortType=3&Limit=30"
+];
     private const int MaxPagesPerScan = 3;
     private readonly HttpClient _httpClient;
     private readonly RobloxThumbnailService _thumbnailService;
@@ -140,14 +140,10 @@ public sealed class UgcHunterService
             for (var page = 0; page < MaxPagesPerScan; page++)
             {
                 var url = cursor is null ? endpoint : $"{endpoint}&Cursor={Uri.EscapeDataString(cursor)}";
-                using var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Accept.ParseAdd("application/json");
-                request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-
                 HttpResponseMessage response;
                 try
                 {
-                    response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    response = await SendSearchRequestWithRetryAsync(url, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -213,10 +209,11 @@ public sealed class UgcHunterService
                 }
 
                 if (string.IsNullOrWhiteSpace(cursor)) break;
+                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
             }
 
-            // Fallback routes are only used when the preferred collectible route fails
-            // or returns no qualifying catalog-buyable Limited UGC candidates.
+            // Broad fallbacks are used only when the Accessories-first route fails
+            // or yields no qualifying catalog-buyable Limited UGC candidates.
             if (sourceSucceeded && candidates.Count > 0) break;
         }
 
@@ -229,6 +226,29 @@ public sealed class UgcHunterService
         }
 
         return candidates.Values.ToList();
+    }
+
+    private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync(string url, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 2;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Accept.ParseAdd("application/json");
+            request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+
+            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests || attempt == maxAttempts - 1)
+                return response;
+
+            var retryAfter = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromMilliseconds(900);
+            var delay = TimeSpan.FromMilliseconds(Math.Clamp(retryAfter.TotalMilliseconds, 500, 5000));
+            response.Dispose();
+            _logger.Info($"UGC Hunter rate limited by Roblox; retrying after {delay.TotalMilliseconds:N0} ms.");
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException("UGC Hunter retry loop ended unexpectedly.");
     }
 
     private static async Task<string?> ReadResponseDetailAsync(HttpResponseMessage response, CancellationToken cancellationToken)

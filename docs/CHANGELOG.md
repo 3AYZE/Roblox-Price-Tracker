@@ -2,7 +2,7 @@
 
 ## v0.7.1
 - Fixed the UGC Hunter startup/live-scan HTTP 400 by removing the incompatible Updated + SortAggregation query combination.
-- Added supported Roblox catalog fallback routes for Collectibles, Accessories, and broad Marketplace searches; fallbacks are used only when the preferred route fails or finds no qualifying live Limited UGC.
+- Replaced the failing legacy Collectibles route with Accessories-first Marketplace discovery plus broader fallbacks, bounded 429 retry/backoff, and paced pagination.
 - Added response-detail logging for failed Hunter catalog routes so future Roblox API changes are diagnosable without exposing credentials.
 - Preserved the last successful Hunter rows and selected asset across refreshes instead of degrading the workspace when a later live request fails.
 - Background Hunter refresh failures are now non-blocking when cached market data exists; first-load failures show an explicit OFFLINE state.
