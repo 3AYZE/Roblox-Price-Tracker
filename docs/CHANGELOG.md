@@ -1,5 +1,20 @@
 # Roblox Price Tracker changelog
 
+## v0.8.2
+- Fixed UGC Hunter showing **QUIET / OFFLINE** even while Roblox had active Limited UGC listings.
+- Confirmed Roblox's current Limited search response can return placeholder `price: 0` and null purchase counts; Hunter now treats search rows as discovery IDs instead of final market data.
+- Added two-stage discovery: best-selling Limited IDs are hydrated through Roblox's catalog batch-details endpoint before paid/on-sale/supply filters and resale scoring run.
+- Added Roblox's anonymous CSRF challenge/retry flow to Hunter detail hydration without cookies or `.ROBLOSECURITY` credentials.
+- Replaced the six-route catalog fan-out with one bounded Limited discovery request plus one detail batch, reducing HTTP 429 exposure.
+- Added bounded Retry-After-aware throttling and a distinct **RATE LIMITED** state instead of mislabeling Roblox throttling as OFFLINE.
+- Expanded the Hunter category filter to every UGC wearable category already supported by the scanner.
+- Added four regression cases for placeholder search rows, hydrated Shop candidates, experience-only exclusion, and anonymous CSRF hydration; suite is now 33 tests.
+
+## v0.8.1
+- Expanded Hunter coverage beyond legacy accessories to layered clothing, shoes, dresses/skirts, dynamic heads, eyebrows/eyelashes, and makeup asset types.
+- Stopped treating `timedOptions` metadata as an automatic experience-only exclusion.
+- Added broader source diagnostics while investigating Roblox Marketplace catalog drift.
+
 ## v0.8.0
 - Rebuilt **UGC Hunter** around post-sellout resale economics instead of treating fast sellout as a buy signal by itself.
 - Added Roblox community-Limited reseller-share economics, including gross break-even, estimated net proceeds, net profit, and net ROI.

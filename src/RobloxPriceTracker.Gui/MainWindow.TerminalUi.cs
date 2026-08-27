@@ -181,7 +181,7 @@ public partial class MainWindow : Window
         toolbar.Children.Add(_hunterSearchBox);
 
         _hunterCategoryCombo = new ComboBox { Width = 125, Margin = new Thickness(7, 0, 0, 0), SelectedIndex = 0 };
-        foreach (var category in new[] { "All categories", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist" })
+        foreach (var category in new[] { "All categories", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" })
             _hunterCategoryCombo.Items.Add(category);
         _hunterCategoryCombo.SelectionChanged += (_, _) => _hunterView?.Refresh();
         toolbar.Children.Add(_hunterCategoryCombo);
@@ -635,13 +635,37 @@ public partial class MainWindow : Window
 
             if (!hasCachedRows)
             {
+                var status = "OFFLINE";
+                var statusBrush = TerminalRed;
+                var detail = "Roblox catalog search is temporarily unavailable";
+
+                if (ex is RobloxUgcDiscoveryException discoveryFailure)
+                {
+                    switch (discoveryFailure.Kind)
+                    {
+                        case RobloxUgcDiscoveryFailureKind.RateLimited:
+                            status = "RATE LIMITED";
+                            statusBrush = TerminalAmber;
+                            detail = "Roblox is rate limiting Hunter · wait a few seconds and refresh";
+                            break;
+                        case RobloxUgcDiscoveryFailureKind.Protocol:
+                            status = "API ERROR";
+                            detail = "Roblox catalog returned data Hunter could not use";
+                            break;
+                        case RobloxUgcDiscoveryFailureKind.Offline:
+                            status = "OFFLINE";
+                            detail = "Roblox catalog search is temporarily unavailable";
+                            break;
+                    }
+                }
+
                 if (_hunterRegimeText is not null)
                 {
-                    _hunterRegimeText.Text = "OFFLINE";
-                    _hunterRegimeText.Foreground = TerminalRed;
+                    _hunterRegimeText.Text = status;
+                    _hunterRegimeText.Foreground = statusBrush;
                 }
                 if (_hunterRegimeDetailText is not null)
-                    _hunterRegimeDetailText.Text = "Roblox catalog search is temporarily unavailable";
+                    _hunterRegimeDetailText.Text = detail;
             }
 
             if (_hunterErrorText is not null)
