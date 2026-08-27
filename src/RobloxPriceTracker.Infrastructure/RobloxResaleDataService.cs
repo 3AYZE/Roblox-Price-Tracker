@@ -60,6 +60,7 @@ public sealed class RobloxResaleDataService
     private readonly AppLogger _logger;
     private readonly SemaphoreSlim _requestGate = new(3, 3);
     private readonly ConcurrentDictionary<long, CacheEntry> _cache = new();
+    private readonly ConcurrentDictionary<string, CacheEntry> _modernCache = new(StringComparer.OrdinalIgnoreCase);
     private string? _anonymousCsrfToken;
 
     public RobloxResaleDataService(HttpClient httpClient, AppLogger logger)
@@ -152,6 +153,56 @@ public sealed class RobloxResaleDataService
 
             var ttl = result.IsAvailable ? TimeSpan.FromMinutes(15) : TimeSpan.FromMinutes(5);
             _cache[assetId] = new CacheEntry(result, DateTimeOffset.UtcNow + ttl);
+            return result;
+        }
+        finally
+        {
+            _requestGate.Release();
+        }
+    }
+
+    public async Task<RobloxResaleMarketData> GetModernAsync(
+        long assetId,
+        string collectibleItemId,
+        CancellationToken cancellationToken = default)
+    {
+        if (assetId <= 0 || string.IsNullOrWhiteSpace(collectibleItemId))
+            return Unavailable(assetId, "Collectible item ID is unavailable.", collectibleItemId: collectibleItemId);
+
+        var key = collectibleItemId.Trim();
+        var now = DateTimeOffset.UtcNow;
+        if (_modernCache.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > now)
+            return cached.Data;
+
+        await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            now = DateTimeOffset.UtcNow;
+            if (_modernCache.TryGetValue(key, out cached) && cached.ExpiresAtUtc > now)
+                return cached.Data;
+
+            RobloxResaleMarketData result;
+            try
+            {
+                var encoded = Uri.EscapeDataString(key);
+                result = await FetchResaleDataAsync(
+                    new Uri($"https://apis.roblox.com/marketplace-sales/v1/item/{encoded}/resale-data"),
+                    assetId,
+                    "Roblox Marketplace Sales",
+                    key,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Modern resale aggregate request failed for asset {assetId}: {ex.Message}");
+                result = Unavailable(assetId, ex.Message, "Roblox Marketplace Sales", key);
+            }
+
+            _modernCache[key] = new CacheEntry(result, DateTimeOffset.UtcNow + (result.IsAvailable ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(2)));
             return result;
         }
         finally

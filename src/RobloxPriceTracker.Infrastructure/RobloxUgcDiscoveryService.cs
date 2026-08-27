@@ -43,7 +43,11 @@ public sealed record RobloxUgcCatalogCandidate(
     long PurchaseCount,
     long? UnitsAvailable,
     long? TotalQuantity,
-    long FavoriteCount);
+    long FavoriteCount,
+    string? CollectibleItemId = null,
+    long? LowestResalePrice = null,
+    bool HasResellers = false,
+    bool PrimaryMarketVerified = false);
 
 public sealed record RobloxUgcDiscoveryResult(
     IReadOnlyList<RobloxUgcCatalogCandidate> Items,
@@ -67,12 +71,14 @@ public sealed class RobloxUgcDiscoveryService
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
+    private readonly RobloxMarketplaceItemService _marketplaceItems;
     private string? _anonymousCsrfToken;
 
     public RobloxUgcDiscoveryService(HttpClient httpClient, AppLogger logger)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _marketplaceItems = new RobloxMarketplaceItemService(httpClient, logger);
     }
 
     public async Task<RobloxUgcDiscoveryResult> DiscoverAsync(CancellationToken cancellationToken = default)
@@ -97,9 +103,57 @@ public sealed class RobloxUgcDiscoveryService
         var hydratedRows = detailDocument.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
             ? data.GetArrayLength()
             : 0;
-        var candidates = RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(detailDocument.RootElement);
+        var catalogCandidates = RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(detailDocument.RootElement);
 
-        _logger.Info($"UGC Hunter two-stage discovery: {ids.Length} Collectible IDs, {hydratedRows} hydrated rows, {candidates.Count} paid catalog-buyable UGC Limiteds.");
+        var collectibleIds = catalogCandidates
+            .Select(x => x.CollectibleItemId)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var marketplace = collectibleIds.Length == 0
+            ? new Dictionary<string, RobloxMarketplaceItemData>(StringComparer.OrdinalIgnoreCase)
+            : await _marketplaceItems.GetManyAsync(collectibleIds, cancellationToken).ConfigureAwait(false);
+
+        var candidates = new List<RobloxUgcCatalogCandidate>(catalogCandidates.Count);
+        var verified = 0;
+        var rejectedUnavailable = 0;
+        foreach (var candidate in catalogCandidates)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate.CollectibleItemId) &&
+                marketplace.TryGetValue(candidate.CollectibleItemId, out var authoritative) &&
+                authoritative.IsAvailable)
+            {
+                verified++;
+                if (!authoritative.IsPrimaryPurchasable)
+                {
+                    rejectedUnavailable++;
+                    continue;
+                }
+
+                candidates.Add(candidate with
+                {
+                    Price = authoritative.Price ?? candidate.Price,
+                    PurchaseCount = authoritative.PrimarySales ?? candidate.PurchaseCount,
+                    UnitsAvailable = authoritative.UnitsAvailable ?? candidate.UnitsAvailable,
+                    TotalQuantity = authoritative.TotalStock ?? candidate.TotalQuantity,
+                    LowestResalePrice = authoritative.LowestResalePrice,
+                    HasResellers = authoritative.HasResellers,
+                    PrimaryMarketVerified = true,
+                    CollectibleItemId = authoritative.CollectibleItemId
+                });
+                continue;
+            }
+
+            // Never surface a sold-out row just because Marketplace Items is temporarily unavailable.
+            // Catalog fallback is allowed only when catalog details still report purchasable stock.
+            if (candidate.UnitsAvailable is > 0)
+                candidates.Add(candidate);
+            else
+                rejectedUnavailable++;
+        }
+
+        _logger.Info($"UGC Hunter authoritative discovery: {ids.Length} IDs, {hydratedRows} catalog rows, {verified} marketplace-verified, {rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
         return new RobloxUgcDiscoveryResult(candidates, ids.Length, hydratedRows);
     }
 
@@ -376,10 +430,6 @@ public static class RobloxUgcCatalogDiscoveryParser
 
         long? unitsAvailable = TryGetInt64(row, "unitsAvailableForConsumption", out var units) ? Math.Max(0, units) : null;
         long? totalQuantity = TryGetInt64(row, "totalQuantity", out var total) && total > 0 ? total : null;
-        var statuses = GetStringArray(row, "itemStatus");
-        var hasSaleFlag = statuses.Any(x => x.Equals("Sale", StringComparison.OrdinalIgnoreCase) || x.Equals("SaleTimer", StringComparison.OrdinalIgnoreCase));
-        if (unitsAvailable is not > 0 && !hasSaleFlag) return false;
-
         var purchaseCount = TryGetInt64(row, "purchaseCount", out var purchases) ? Math.Max(0, purchases) : 0;
         if (totalQuantity is { } knownTotal && unitsAvailable is { } remaining)
             purchaseCount = Math.Max(purchaseCount, Math.Max(0, knownTotal - remaining));
@@ -396,7 +446,8 @@ public static class RobloxUgcCatalogDiscoveryParser
             purchaseCount,
             unitsAvailable,
             totalQuantity,
-            favorites);
+            favorites,
+            GetString(row, "collectibleItemId"));
         return true;
     }
 

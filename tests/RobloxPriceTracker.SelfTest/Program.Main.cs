@@ -44,7 +44,9 @@ internal static partial class Program
             ("UGC hydrated zero-price Limited is excluded", TestUgcHydratedZeroPriceLimitedIsExcludedAsync),
             ("UGC unavailable Limited is excluded", TestUgcHydratedUnavailableLimitedIsExcludedAsync),
             ("UGC hydrated experience-only Limited is excluded", TestUgcHydratedExperienceOnlyLimitedIsExcludedAsync),
-            ("UGC discovery completes anonymous CSRF hydration", TestUgcDiscoveryRetriesAnonymousCsrfAndHydratesAsync)
+            ("UGC discovery completes anonymous CSRF hydration", TestUgcDiscoveryRetriesAnonymousCsrfAndHydratesAsync),
+            ("Marketplace item parser matches White Heart Aura reference", TestMarketplaceItemParserUsesWhiteHeartAuraReferenceAsync),
+            ("White Heart Aura reference is unprofitable", TestWhiteHeartAuraReferenceIsUnprofitableAsync)
         };
 
         var failed = 0;
