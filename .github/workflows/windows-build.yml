@@ -25,14 +25,7 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Restore, build, and run regression tests
-        shell: powershell
-        run: |
-          dotnet restore RobloxPriceTracker.sln --ignore-failed-sources
-          dotnet build RobloxPriceTracker.sln -c Release --no-restore
-          dotnet run --project tests/RobloxPriceTracker.SelfTest/RobloxPriceTracker.SelfTest.csproj -c Release --no-build
-
-      - name: Build and smoke-test Lite EXE
+      - name: Build, test, and smoke-test Lite EXE
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
 
