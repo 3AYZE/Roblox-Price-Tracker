@@ -1,4 +1,192 @@
-name: Windows Build
+name: Integrate UGC Hunter v0.8.2
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/windows-build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    name: Patch and verify v0.8.2 feature branch
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout v0.8.2 feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ugc-hunter-hydration-v082
+          fetch-depth: 0
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Integrate two-stage UGC discovery and UI diagnostics
+        shell: powershell
+        run: |
+          @'
+          from pathlib import Path
+          import re
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              return text.replace(old, new, 1)
+
+          # 1) Use the live-verified best-selling Limited feed for discovery.
+          p = Path('src/RobloxPriceTracker.Infrastructure/RobloxUgcDiscoveryService.cs')
+          text = p.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              'https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30',
+              'https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30',
+              'discovery endpoint')
+          p.write_text(text, encoding='utf-8')
+
+          # 2) Make Hunter use discovery -> detail hydration instead of parsing placeholder search rows.
+          p = Path('src/RobloxPriceTracker.Gui/UgcHunterServiceV080.cs')
+          text = p.read_text(encoding='utf-8')
+          if 'private readonly RobloxUgcDiscoveryService _discoveryService;' not in text:
+              text = replace_once(
+                  text,
+                  '    private readonly HttpClient _httpClient;\n    private readonly RobloxThumbnailService _thumbnailService;',
+                  '    private readonly HttpClient _httpClient;\n    private readonly RobloxUgcDiscoveryService _discoveryService;\n    private readonly RobloxThumbnailService _thumbnailService;',
+                  'Hunter discovery field')
+          if '_discoveryService = new RobloxUgcDiscoveryService(httpClient, logger);' not in text:
+              text = replace_once(
+                  text,
+                  '        _httpClient = httpClient;\n        _thumbnailService = thumbnailService;',
+                  '        _httpClient = httpClient;\n        _discoveryService = new RobloxUgcDiscoveryService(httpClient, logger);\n        _thumbnailService = thumbnailService;',
+                  'Hunter discovery initialization')
+
+          pattern = re.compile(
+              r'    private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync\(DateTimeOffset observedAtUtc, CancellationToken cancellationToken\)\n    \{.*?\n    \}\n\n(?=    private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync)',
+              re.S)
+          replacement = '''    private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
+    {
+        // Search is discovery-only. Roblox currently returns placeholder price/sales values for
+        // many Collectible search rows, so the IDs are hydrated through the batch-details API
+        // before Hunter applies paid/on-sale/supply filters or any resale math.
+        var discovery = await _discoveryService.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+        return discovery.Items.Select(item => new UgcRawCatalogItem(
+            item.AssetId,
+            item.Name,
+            item.CreatorName,
+            item.CreatorId,
+            item.AssetType,
+            item.Category,
+            item.Price,
+            item.PurchaseCount,
+            item.UnitsAvailable,
+            item.TotalQuantity,
+            item.FavoriteCount,
+            observedAtUtc)).ToList();
+    }
+
+'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Hunter FetchCandidates replacement: expected 1 match, found {count}')
+          p.write_text(text, encoding='utf-8')
+
+          # 3) Expose all currently supported UGC wearable categories and distinguish rate-limit/API failures.
+          p = Path('src/RobloxPriceTracker.Gui/MainWindow.TerminalUi.cs')
+          text = p.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              'new[] { "All categories", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist" }',
+              'new[] { "All categories", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" }',
+              'Hunter category filter')
+
+          old_failure = '''            if (!hasCachedRows)
+            {
+                if (_hunterRegimeText is not null)
+                {
+                    _hunterRegimeText.Text = "OFFLINE";
+                    _hunterRegimeText.Foreground = TerminalRed;
+                }
+                if (_hunterRegimeDetailText is not null)
+                    _hunterRegimeDetailText.Text = "Roblox catalog search is temporarily unavailable";
+            }
+'''
+          new_failure = '''            if (!hasCachedRows)
+            {
+                var status = "OFFLINE";
+                var statusBrush = TerminalRed;
+                var detail = "Roblox catalog search is temporarily unavailable";
+
+                if (ex is RobloxUgcDiscoveryException discoveryFailure)
+                {
+                    switch (discoveryFailure.Kind)
+                    {
+                        case RobloxUgcDiscoveryFailureKind.RateLimited:
+                            status = "RATE LIMITED";
+                            statusBrush = TerminalAmber;
+                            detail = "Roblox is rate limiting Hunter · wait a few seconds and refresh";
+                            break;
+                        case RobloxUgcDiscoveryFailureKind.Protocol:
+                            status = "API ERROR";
+                            detail = "Roblox catalog returned data Hunter could not use";
+                            break;
+                        case RobloxUgcDiscoveryFailureKind.Offline:
+                            status = "OFFLINE";
+                            detail = "Roblox catalog search is temporarily unavailable";
+                            break;
+                    }
+                }
+
+                if (_hunterRegimeText is not null)
+                {
+                    _hunterRegimeText.Text = status;
+                    _hunterRegimeText.Foreground = statusBrush;
+                }
+                if (_hunterRegimeDetailText is not null)
+                    _hunterRegimeDetailText.Text = detail;
+            }
+'''
+          text = replace_once(text, old_failure, new_failure, 'Hunter failure state')
+          p.write_text(text, encoding='utf-8')
+
+          # 4) Bump the application to 0.8.2.
+          p = Path('src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj')
+          text = p.read_text(encoding='utf-8')
+          text = replace_once(text, '<Version>0.8.1</Version>', '<Version>0.8.2</Version>', 'Version')
+          text = replace_once(text, '<AssemblyVersion>0.8.1.0</AssemblyVersion>', '<AssemblyVersion>0.8.2.0</AssemblyVersion>', 'AssemblyVersion')
+          text = replace_once(text, '<FileVersion>0.8.1.0</FileVersion>', '<FileVersion>0.8.2.0</FileVersion>', 'FileVersion')
+          p.write_text(text, encoding='utf-8')
+
+          # 5) Record the root cause and fix in the changelog.
+          p = Path('docs/CHANGELOG.md')
+          text = p.read_text(encoding='utf-8')
+          if '## v0.8.2' not in text:
+              entry = '''## v0.8.2
+- Fixed UGC Hunter showing **QUIET / OFFLINE** even while Roblox had active Limited UGC listings.
+- Confirmed Roblox's current Limited search response can return placeholder `price: 0` and null purchase counts; Hunter now treats search results as discovery IDs instead of final market data.
+- Added two-stage UGC discovery: best-selling Limited IDs are hydrated through Roblox's catalog batch-details endpoint before paid/on-sale/supply filters and resale scoring run.
+- Added the anonymous Roblox CSRF challenge/retry flow to Hunter detail hydration without cookies or `.ROBLOSECURITY` credentials.
+- Replaced the six-route catalog fan-out with one bounded Limited discovery request plus one detail batch, substantially reducing HTTP 429 exposure.
+- Added bounded Retry-After-aware rate-limit handling and a distinct **RATE LIMITED** Hunter state instead of mislabeling throttling as OFFLINE.
+- Expanded the Hunter category filter to all UGC wearable categories already supported by the scanner.
+- Added four regression cases for zero-price discovery rows, hydrated paid Shop candidates, experience-only exclusion, and anonymous CSRF detail hydration; suite is now 33 tests.
+
+## v0.8.1
+- Expanded Hunter coverage beyond legacy accessories to layered clothing, shoes, dresses/skirts, dynamic heads, eyebrows/eyelashes, and makeup asset types.
+- Stopped treating `timedOptions` metadata as an automatic experience-only exclusion.
+- Added broader source diagnostics while investigating Roblox Marketplace catalog drift.
+
+'''
+              text = replace_once(text, '# Roblox Price Tracker changelog\n\n', '# Roblox Price Tracker changelog\n\n' + entry, 'changelog header')
+              p.write_text(text, encoding='utf-8')
+
+          # 6) Keep the feature branch free of one-off diagnostic/release-fallback workflows.
+          standard_windows = '''name: Windows Build
 
 on:
   push:
@@ -25,46 +213,6 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Probe best-selling UGC discovery and CSRF batch details
-        shell: powershell
-        run: |
-          $searchUrl = 'https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30'
-          $headers = @{ 'User-Agent' = 'RobloxPriceTracker/0.8.2'; Accept = 'application/json' }
-          try {
-            $search = Invoke-WebRequest -Uri $searchUrl -Headers $headers -TimeoutSec 20 -UseBasicParsing
-            Write-Host "SEARCH HTTP $($search.StatusCode)"
-            $searchJson = $search.Content | ConvertFrom-Json
-            $rows = @($searchJson.data)
-            Write-Host "SEARCH Rows=$($rows.Count)"
-            $ids = @($rows | Select-Object -First 28 -ExpandProperty id)
-            Start-Sleep -Seconds 2
-            $payload = @{ items = @($ids | ForEach-Object { @{ itemType = 'Asset'; id = [long]$_ } }) } | ConvertTo-Json -Depth 5 -Compress
-            $uri = 'https://catalog.roblox.com/v1/catalog/items/details'
-            $detailHeaders = @{ 'User-Agent' = 'RobloxPriceTracker/0.8.2'; Accept = 'application/json'; 'Content-Type' = 'application/json'; 'X-Requested-With' = 'XMLHttpRequest' }
-            try {
-              $detail = Invoke-WebRequest -Uri $uri -Method Post -Headers $detailHeaders -Body $payload -TimeoutSec 20 -UseBasicParsing
-            }
-            catch {
-              if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
-                $csrf = $_.Exception.Response.Headers['x-csrf-token']
-                if ([string]::IsNullOrWhiteSpace($csrf)) { throw }
-                Write-Host 'DETAIL first request HTTP 403 with CSRF challenge; retrying.'
-                $detailHeaders['x-csrf-token'] = $csrf
-                $detail = Invoke-WebRequest -Uri $uri -Method Post -Headers $detailHeaders -Body $payload -TimeoutSec 20 -UseBasicParsing
-              } else { throw }
-            }
-            Write-Host "DETAIL HTTP $($detail.StatusCode)"
-            $detailJson = $detail.Content | ConvertFrom-Json
-            $detailRows = @($detailJson.data)
-            $buyable = @($detailRows | Where-Object { $_.price -gt 0 -and $_.saleLocationType -like 'Shop*' -and (@($_.itemRestrictions) -contains 'Collectible') })
-            Write-Host "DETAIL Rows=$($detailRows.Count) BuyablePaid=$($buyable.Count)"
-            $buyable | Select-Object -First 12 id,name,assetType,price,priceStatus,unitsAvailableForConsumption,totalQuantity,purchaseCount,saleLocationType,itemRestrictions,itemStatus | ConvertTo-Json -Depth 6 -Compress | Write-Host
-          }
-          catch {
-            $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 'n/a' }
-            Write-Host "PROBE FAILED HTTP $status :: $($_.Exception.Message)"
-          }
-
       - name: Build, run regression tests, and publish single EXE
         shell: powershell
         run: ./tools/Build-Windows.ps1
@@ -86,3 +234,29 @@ jobs:
           path: logs/build.log
           if-no-files-found: ignore
           retention-days: 14
+'''
+          Path('.github/workflows/windows-build.yml').write_text(standard_windows, encoding='utf-8')
+          for stale in ('.github/workflows/probe-ugc-api.yml', '.github/workflows/release-linux-fallback.yml'):
+              q = Path(stale)
+              if q.exists():
+                  q.unlink()
+
+          print('v0.8.2 integration patch applied.')
+          '@ | python -
+
+      - name: Build, run all regressions, and smoke-test packaged EXE
+        shell: powershell
+        run: ./tools/Build-Windows.ps1
+
+      - name: Commit verified feature branch
+        shell: powershell
+        run: |
+          git config user.name 'Azy'
+          git config user.email '126979239+3AYZE@users.noreply.github.com'
+          git add -A
+          if (git diff --cached --quiet) {
+            Write-Host 'No changes to commit.'
+            exit 0
+          }
+          git commit -m 'Fix UGC Hunter discovery hydration and rate limits'
+          git push origin HEAD:ugc-hunter-hydration-v082
