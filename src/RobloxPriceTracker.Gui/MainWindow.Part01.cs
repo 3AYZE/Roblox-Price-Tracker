@@ -52,6 +52,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         ConfigureStockUi();
         ConfigureTerminalUi();
+        ConfigureIntelligenceUi();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -121,6 +122,7 @@ public partial class MainWindow : Window
         _monitoringCts?.Cancel();
         _notificationTimer?.Stop();
         _hunterTimer?.Stop();
+        _analyzerCts?.Cancel();
         StopUpdateChecks();
         DisposeTrayIcon();
     }
@@ -144,10 +146,12 @@ public partial class MainWindow : Window
         ReportsPage.Visibility = page == "Reports" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         SetTerminalPageVisibility(page);
+        SetIntelligencePageVisibility(page);
 
         (PageTitleText.Text, PageSubtitleText.Text) = page switch
         {
-            "Hunter" => ("UGC Hunter", "Live buyable Limited UGC scanner with velocity, scarcity, entry timing, risk, and resale scenarios."),
+            "Hunter" => ("UGC Hunter", "Live Limited UGC scanner with verified market evidence, resale economics, data quality, and entry timing."),
+            "Analyzer" => ("Analyzer", "Deep-dive any Roblox catalog item with direct market evidence, break-even economics, and creator track record."),
             "Portfolio" => ("Portfolio", "Paper-trade and validate Hunter opportunities before committing Robux."),
             "Watchlist" => ("Price Tracker", "Live quotes, forecast, sales velocity, target distance, and market signals."),
             "Alerts" => ("Alerts", "Event tape for target crossings, market signals, and observed lows."),

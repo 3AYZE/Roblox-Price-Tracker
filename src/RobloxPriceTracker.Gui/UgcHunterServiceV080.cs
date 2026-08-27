@@ -749,6 +749,60 @@ public sealed record UgcHunterItem(
     public int ObservationCount { get; init; }
     public bool PrimaryMarketVerified { get; init; }
 
+    public int DataQualityScore
+    {
+        get
+        {
+            var score = 0;
+            if (PrimaryMarketVerified) score += 25;
+            if (Price > 0) score += 10;
+            if (TotalSupply is > 0) score += 10;
+            if (UnitsAvailable is not null) score += 10;
+            if (CurrentResaleFloor is > 0) score += 15;
+            if (RecentAveragePrice is > 0) score += 10;
+            if (ObservedResellers > 0) score += 10;
+            if (SalesLast7d > 0 || SalesLast30d > 0) score += 10;
+            return Math.Clamp(score, 0, 100);
+        }
+    }
+    public string DataQualityLabel => DataQualityScore switch
+    {
+        >= 85 => "VERIFIED",
+        >= 70 => "STRONG",
+        >= 50 => "PARTIAL",
+        _ => "LOW"
+    };
+    public string DataQualityText => $"{DataQualityScore}% {DataQualityLabel}";
+    public string FreshnessText
+    {
+        get
+        {
+            var age = DateTimeOffset.UtcNow - ObservedAtUtc;
+            if (age < TimeSpan.Zero) age = TimeSpan.Zero;
+            return age switch
+            {
+                { TotalMinutes: < 2 } => "LIVE",
+                { TotalMinutes: < 10 } => $"{Math.Max(1, age.TotalMinutes):0}m old",
+                { TotalMinutes: < 60 } => $"{age.TotalMinutes:0}m old",
+                _ => $"{age.TotalHours:0.0}h old"
+            };
+        }
+    }
+    public string EvidenceText
+    {
+        get
+        {
+            var evidence = new List<string>();
+            evidence.Add(PrimaryMarketVerified ? "✓ Roblox primary market" : "— catalog fallback");
+            evidence.Add(TotalSupply is > 0 && UnitsAvailable is not null ? "✓ supply" : "— supply missing");
+            evidence.Add(CurrentResaleFloor is > 0 ? "✓ floor" : "— floor unavailable");
+            evidence.Add(RecentAveragePrice is > 0 ? "✓ RAP" : "— RAP unavailable");
+            evidence.Add(ObservedResellers > 0 ? "✓ reseller book" : "— reseller book unavailable");
+            evidence.Add(SalesLast7d > 0 || SalesLast30d > 0 ? "✓ resale volume" : "— resale volume unavailable");
+            return string.Join(" · ", evidence);
+        }
+    }
+
     public double VelocityPerMinute => Velocity1m > 0 ? Velocity1m : Velocity5m > 0 ? Velocity5m : Velocity15m;
     public string PriceText => $"{Price:N0} R$";
     public string RemainingText => UnitsAvailable is { } left && TotalSupply is { } total
