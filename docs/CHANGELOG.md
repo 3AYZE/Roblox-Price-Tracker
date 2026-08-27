@@ -1,5 +1,13 @@
 # Roblox Price Tracker changelog
 
+## v0.8.4
+- Reworked UGC Hunter market data around Roblox's authoritative collectible Marketplace Items API instead of relying on incomplete catalog fields.
+- Primary price, sold count, remaining stock, total stock, current resale floor, reseller availability, and collectible IDs now come from verified Roblox marketplace data when available.
+- Sold-out/unpurchasable items are rejected after authoritative verification and are also blocked from catalog fallback when remaining stock is zero.
+- Hunter uses the modern collectible resale endpoint directly when the collectible ID is already known, reducing stale legacy lookups and unnecessary requests.
+- Reworked Hunter columns and inspector to prioritize real sold/remaining/floor/RAP/resale-volume/break-even data, with model estimates clearly separated.
+- Added frozen regression references from `[ANIMATED] White Heart Aura` (asset `129868485129975`): 1,000 R$ original price, 3,000 sold, 0 remaining, 999 R$ live floor, and a 2,000 R$ reseller break-even.
+
 ## v0.8.2
 - Fixed UGC Hunter showing **QUIET / OFFLINE** even while Roblox had active Limited UGC listings.
 - Confirmed Roblox's current Limited search response can return placeholder `price: 0` and null purchase counts; Hunter now treats search rows as discovery IDs instead of final market data.

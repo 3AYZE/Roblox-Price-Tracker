@@ -145,9 +145,12 @@ public sealed class RobloxUgcDiscoveryService
                 continue;
             }
 
-            // Preserve the catalog-hydrated candidate if Marketplace Items is temporarily unavailable.
-            // The UI marks this as a catalog fallback instead of pretending it is fully verified.
-            candidates.Add(candidate);
+            // Never surface a sold-out row just because Marketplace Items is temporarily unavailable.
+            // Catalog fallback is allowed only when catalog details still report purchasable stock.
+            if (candidate.UnitsAvailable is > 0)
+                candidates.Add(candidate);
+            else
+                rejectedUnavailable++;
         }
 
         _logger.Info($"UGC Hunter authoritative discovery: {ids.Length} IDs, {hydratedRows} catalog rows, {verified} marketplace-verified, {rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
