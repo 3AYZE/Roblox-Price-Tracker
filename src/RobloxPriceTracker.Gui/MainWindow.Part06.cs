@@ -26,88 +26,46 @@ public partial class MainWindow : Window
     {
         if (_trayIcon is not null) return;
 
-        try
-        {
-            var processPath = Environment.ProcessPath;
-            _trayDrawingIcon = !string.IsNullOrWhiteSpace(processPath)
-                ? System.Drawing.Icon.ExtractAssociatedIcon(processPath)
-                : null;
-        }
-        catch
-        {
-            _trayDrawingIcon = null;
-        }
-
-        _trayIcon = new System.Windows.Forms.NotifyIcon
-        {
-            Text = "Roblox Price Tracker",
-            Visible = true,
-            Icon = _trayDrawingIcon ?? System.Drawing.SystemIcons.Application
-        };
-
-        var menu = new System.Windows.Forms.ContextMenuStrip();
-        var openItem = new System.Windows.Forms.ToolStripMenuItem("Open Roblox Price Tracker");
-        openItem.Click += (_, _) => Dispatcher.BeginInvoke(new Action(ShowFromTray));
-
-        var checkItem = new System.Windows.Forms.ToolStripMenuItem("Check Now");
-        checkItem.Click += (_, _) => Dispatcher.BeginInvoke(new Action(() => _ = RunCheckAsync(true, CancellationToken.None)));
-
-        _trayMonitoringMenuItem = new System.Windows.Forms.ToolStripMenuItem(_monitoringCts is null ? "Resume Monitoring" : "Pause Monitoring");
-        _trayMonitoringMenuItem.Click += (_, _) => Dispatcher.BeginInvoke(new Action(async () =>
-        {
-            if (_startupDelayCts is not null)
+        _trayIcon = new NativeTrayIcon(
+            openAction: ShowFromTray,
+            checkNowAction: () => _ = RunCheckAsync(true, CancellationToken.None),
+            toggleMonitoringAction: async () =>
             {
-                CancelDelayedStartupMonitoring();
-                return;
-            }
-            if (_monitoringCts is null) StartMonitoring();
-            else await StopMonitoringAsync();
-        }));
-
-        _trayStartupMenuItem = new System.Windows.Forms.ToolStripMenuItem("Start with Windows")
-        {
-            CheckOnClick = true,
-            Checked = _services.Settings.StartWithWindows
-        };
-        _trayStartupMenuItem.Click += (_, _) => Dispatcher.BeginInvoke(new Action(async () =>
-        {
-            if (_trayStartupMenuItem is null) return;
-            var requested = _trayStartupMenuItem.Checked;
-            var previous = _services.Settings.StartWithWindows;
-            _services.Settings.StartWithWindows = requested;
-            try
+                if (_startupDelayCts is not null)
+                {
+                    CancelDelayedStartupMonitoring();
+                    return;
+                }
+                if (_monitoringCts is null) StartMonitoring();
+                else await StopMonitoringAsync();
+            },
+            setStartupAction: async requested =>
             {
-                WindowsStartupRegistration.Apply(_services.Settings);
-                await _services.SettingsStore.SaveAsync(_services.Settings);
-                StartWithWindowsCheckBox.IsChecked = requested;
-                DiagnosticsStartupText.Text = FormatStartupStatus();
-                ShowTrayBalloon("Windows startup updated", requested ? "Roblox Price Tracker will start with Windows." : "Automatic Windows startup is disabled.");
-            }
-            catch (Exception ex)
+                var previous = _services.Settings.StartWithWindows;
+                _services.Settings.StartWithWindows = requested;
+                try
+                {
+                    WindowsStartupRegistration.Apply(_services.Settings);
+                    await _services.SettingsStore.SaveAsync(_services.Settings);
+                    StartWithWindowsCheckBox.IsChecked = requested;
+                    DiagnosticsStartupText.Text = FormatStartupStatus();
+                    ShowTrayBalloon("Windows startup updated", requested ? "RPT Markets will start with Windows." : "Automatic Windows startup is disabled.");
+                }
+                catch (Exception ex)
+                {
+                    _services.Settings.StartWithWindows = previous;
+                    _trayIcon?.SetStartupChecked(previous);
+                    _services.Logger.Error($"Tray startup toggle failed: {ex}");
+                    ShowTrayBalloon("Startup setting could not be changed", ex.Message);
+                }
+            },
+            exitAction: () =>
             {
-                _services.Settings.StartWithWindows = previous;
-                _trayStartupMenuItem.Checked = previous;
-                _services.Logger.Error($"Tray startup toggle failed: {ex}");
-                ShowTrayBalloon("Startup setting could not be changed", ex.Message);
-            }
-        }));
-
-        var exitItem = new System.Windows.Forms.ToolStripMenuItem("Exit");
-        exitItem.Click += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
-        {
-            _allowExit = true;
-            Close();
-        }));
-
-        menu.Items.Add(openItem);
-        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add(checkItem);
-        menu.Items.Add(_trayMonitoringMenuItem);
-        menu.Items.Add(_trayStartupMenuItem);
-        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
-        menu.Items.Add(exitItem);
-        _trayIcon.ContextMenuStrip = menu;
-        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(new Action(ShowFromTray));
+                _allowExit = true;
+                Close();
+            },
+            monitoring: _monitoringCts is not null,
+            startWithWindows: _services.Settings.StartWithWindows);
     }
 
     internal void ShowFromExternalLaunch() => ShowFromTray();
@@ -124,17 +82,9 @@ public partial class MainWindow : Window
 
     private void ShowTrayBalloon(string title, string body)
     {
-        if (_trayIcon is null || !_trayIcon.Visible) return;
-        var safeTitle = string.IsNullOrWhiteSpace(title) ? "Roblox Price Tracker" : title.Trim();
-        var safeBody = string.IsNullOrWhiteSpace(body) ? "Marketplace update available." : body.Trim();
-        if (safeTitle.Length > 63) safeTitle = safeTitle[..63];
-        if (safeBody.Length > 240) safeBody = safeBody[..240] + "…";
         try
         {
-            _trayIcon.BalloonTipTitle = safeTitle;
-            _trayIcon.BalloonTipText = safeBody;
-            _trayIcon.BalloonTipIcon = System.Windows.Forms.ToolTipIcon.Info;
-            _trayIcon.ShowBalloonTip(5000);
+            _trayIcon?.ShowBalloon(title, body);
         }
         catch
         {
@@ -144,17 +94,8 @@ public partial class MainWindow : Window
 
     private void DisposeTrayIcon()
     {
-        if (_trayIcon is not null)
-        {
-            _trayIcon.Visible = false;
-            _trayIcon.ContextMenuStrip?.Dispose();
-            _trayIcon.Dispose();
-            _trayIcon = null;
-        }
-        _trayMonitoringMenuItem = null;
-        _trayStartupMenuItem = null;
-        _trayDrawingIcon?.Dispose();
-        _trayDrawingIcon = null;
+        _trayIcon?.Dispose();
+        _trayIcon = null;
     }
 
     private void NotificationSink_NotificationRaised(object? sender, GuiNotificationEventArgs e)
