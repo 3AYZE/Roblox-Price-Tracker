@@ -25,46 +25,6 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Probe UGC discovery and CSRF batch details
-        shell: powershell
-        run: |
-          $searchUrl = 'https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30'
-          $headers = @{ 'User-Agent' = 'RobloxPriceTracker/0.8.2'; Accept = 'application/json' }
-          try {
-            $search = Invoke-WebRequest -Uri $searchUrl -Headers $headers -TimeoutSec 20 -UseBasicParsing
-            Write-Host "SEARCH HTTP $($search.StatusCode)"
-            $searchJson = $search.Content | ConvertFrom-Json
-            $rows = @($searchJson.data)
-            Write-Host "SEARCH Rows=$($rows.Count)"
-            $ids = @($rows | Select-Object -First 28 -ExpandProperty id)
-            Start-Sleep -Seconds 2
-            $payload = @{ items = @($ids | ForEach-Object { @{ itemType = 'Asset'; id = [long]$_ } }) } | ConvertTo-Json -Depth 5 -Compress
-            $uri = 'https://catalog.roblox.com/v1/catalog/items/details'
-            $detailHeaders = @{ 'User-Agent' = 'RobloxPriceTracker/0.8.2'; Accept = 'application/json'; 'Content-Type' = 'application/json'; 'X-Requested-With' = 'XMLHttpRequest' }
-            try {
-              $detail = Invoke-WebRequest -Uri $uri -Method Post -Headers $detailHeaders -Body $payload -TimeoutSec 20 -UseBasicParsing
-            }
-            catch {
-              if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
-                $csrf = $_.Exception.Response.Headers['x-csrf-token']
-                if ([string]::IsNullOrWhiteSpace($csrf)) { throw }
-                Write-Host 'DETAIL first request HTTP 403 with CSRF challenge; retrying.'
-                $detailHeaders['x-csrf-token'] = $csrf
-                $detail = Invoke-WebRequest -Uri $uri -Method Post -Headers $detailHeaders -Body $payload -TimeoutSec 20 -UseBasicParsing
-              } else { throw }
-            }
-            Write-Host "DETAIL HTTP $($detail.StatusCode)"
-            $detailJson = $detail.Content | ConvertFrom-Json
-            $detailRows = @($detailJson.data)
-            $buyable = @($detailRows | Where-Object { $_.price -gt 0 -and $_.saleLocationType -like 'Shop*' -and (@($_.itemRestrictions) -contains 'Collectible') })
-            Write-Host "DETAIL Rows=$($detailRows.Count) BuyablePaid=$($buyable.Count)"
-            $detailRows | Select-Object -First 12 id,name,assetType,price,priceStatus,unitsAvailableForConsumption,totalQuantity,purchaseCount,saleLocationType,itemRestrictions,itemStatus | ConvertTo-Json -Depth 6 -Compress | Write-Host
-          }
-          catch {
-            $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 'n/a' }
-            Write-Host "PROBE FAILED HTTP $status :: $($_.Exception.Message)"
-          }
-
       - name: Build, run regression tests, and publish single EXE
         shell: powershell
         run: ./tools/Build-Windows.ps1
