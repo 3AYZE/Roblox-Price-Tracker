@@ -25,6 +25,7 @@ public sealed class UgcHunterService
     private const int ResaleEnrichmentLimit = 8;
     private const int PreferredCandidateCount = 8;
     private readonly HttpClient _httpClient;
+    private readonly RobloxUgcDiscoveryService _discoveryService;
     private readonly RobloxThumbnailService _thumbnailService;
     private readonly RobloxResaleDataService _resaleDataService;
     private readonly RobloxResellerDataService _resellerDataService;
@@ -37,6 +38,7 @@ public sealed class UgcHunterService
     public UgcHunterService(HttpClient httpClient, RobloxThumbnailService thumbnailService, AppLogger logger, string dataDirectory)
     {
         _httpClient = httpClient;
+        _discoveryService = new RobloxUgcDiscoveryService(httpClient, logger);
         _thumbnailService = thumbnailService;
         _resaleDataService = new RobloxResaleDataService(httpClient, logger);
         _resellerDataService = new RobloxResellerDataService(httpClient, logger);
@@ -180,117 +182,23 @@ public sealed class UgcHunterService
 
     private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
     {
-        var candidates = new Dictionary<long, UgcRawCatalogItem>();
-        var failures = new List<string>();
-        var anySourceSucceeded = false;
-
-        foreach (var endpoint in SearchEndpoints)
-        {
-            string? cursor = null;
-            var sourceSucceeded = false;
-            var sourceRows = 0;
-            var sourceAccepted = 0;
-
-            for (var page = 0; page < MaxPagesPerScan; page++)
-            {
-                var url = cursor is null ? endpoint : $"{endpoint}&Cursor={Uri.EscapeDataString(cursor)}";
-                HttpResponseMessage response;
-                try
-                {
-                    response = await SendSearchRequestWithRetryAsync(url, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    var failure = $"UGC Hunter source request failed on page {page + 1}: {ex.Message}";
-                    failures.Add(failure);
-                    _logger.Error(failure);
-                    break;
-                }
-
-                using (response)
-                {
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        var detail = await ReadResponseDetailAsync(response, cancellationToken).ConfigureAwait(false);
-                        var suffix = string.IsNullOrWhiteSpace(detail) ? string.Empty : $" · {detail}";
-                        var failure = $"UGC Hunter source returned HTTP {(int)response.StatusCode} ({response.StatusCode}) on page {page + 1}{suffix}";
-                        failures.Add(failure);
-                        _logger.Error(failure);
-                        break;
-                    }
-
-                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                    JsonDocument document;
-                    try
-                    {
-                        document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (JsonException ex)
-                    {
-                        var failure = $"UGC Hunter source returned invalid JSON on page {page + 1}: {ex.Message}";
-                        failures.Add(failure);
-                        _logger.Error(failure);
-                        break;
-                    }
-
-                    using (document)
-                    {
-                        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-                        {
-                            var failure = $"UGC Hunter source response did not contain a data array on page {page + 1}.";
-                            failures.Add(failure);
-                            _logger.Error(failure);
-                            break;
-                        }
-
-                        sourceSucceeded = true;
-                        anySourceSucceeded = true;
-                        sourceRows += data.GetArrayLength();
-                        foreach (var element in data.EnumerateArray())
-                        {
-                            if (TryParseCandidate(element, observedAtUtc, out var candidate))
-                            {
-                                candidates[candidate.AssetId] = candidate;
-                                sourceAccepted++;
-                            }
-                        }
-
-                        cursor = document.RootElement.TryGetProperty("nextPageCursor", out var next) && next.ValueKind == JsonValueKind.String
-                            ? next.GetString()
-                            : null;
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(cursor)) break;
-                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
-            }
-
-            if (sourceSucceeded)
-                _logger.Info($"UGC Hunter source scan: {sourceRows} catalog rows, {sourceAccepted} qualifying live UGC Limited rows, {candidates.Count} unique candidates total.");
-
-            // Stop once the Collectibles-first/fallback ladder has produced enough rows for the
-            // terminal. Sparse results keep probing broader supported routes instead of showing an empty board.
-            if (sourceSucceeded && candidates.Count >= PreferredCandidateCount) break;
-        }
-
-        if (!anySourceSucceeded)
-        {
-            var detail = failures.Count == 0
-                ? "No Roblox catalog source returned a usable response."
-                : string.Join(" | ", failures.Take(3));
-            throw new HttpRequestException($"Roblox UGC search failed across all supported catalog routes. {detail}");
-        }
-
-        if (candidates.Count == 0)
-            _logger.Info("UGC Hunter catalog sources responded successfully, but no paid catalog-buyable UGC Limiteds matched the live-drop filters.");
-
-        return candidates.Values.ToList();
+        // Roblox search is discovery-only: current Collectible rows can contain placeholder
+        // price/sales fields. Hydrate IDs through batch details before filtering/scoring.
+        var discovery = await _discoveryService.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+        return discovery.Items.Select(item => new UgcRawCatalogItem(
+            item.AssetId,
+            item.Name,
+            item.CreatorName,
+            item.CreatorId,
+            item.AssetType,
+            item.Category,
+            item.Price,
+            item.PurchaseCount,
+            item.UnitsAvailable,
+            item.TotalQuantity,
+            item.FavoriteCount,
+            observedAtUtc)).ToList();
     }
-
     private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync(string url, CancellationToken cancellationToken)
     {
         const int maxAttempts = 2;

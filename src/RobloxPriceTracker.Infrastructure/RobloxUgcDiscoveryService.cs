@@ -59,7 +59,7 @@ public sealed record RobloxUgcDiscoveryResult(
 public sealed class RobloxUgcDiscoveryService
 {
     private static readonly Uri DiscoveryEndpoint = new(
-        "https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30");
+        "https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30");
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
     private const int MaxDiscoveryIds = 40;
