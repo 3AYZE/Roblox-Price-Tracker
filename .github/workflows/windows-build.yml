@@ -14,7 +14,7 @@ jobs:
   build:
     name: Build, test, and publish
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repository
@@ -25,24 +25,32 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Build, run regression tests, and publish single EXE
+      - name: Build, test, and publish standalone EXE
         shell: powershell
         run: ./tools/Build-Windows.ps1
 
-      - name: Upload RobloxPriceTracker.exe
+      - name: Build and smoke-test Lite EXE
+        shell: powershell
+        run: ./tools/Build-Windows-Lite.ps1
+
+      - name: Upload Windows builds
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: RobloxPriceTracker-win-x64
-          path: dist/RobloxPriceTracker.exe
+          path: |
+            dist/RobloxPriceTracker.exe
+            dist/RobloxPriceTracker-Lite.exe
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload build log on failure
+      - name: Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: RobloxPriceTracker-build-log
-          path: logs/build.log
+          path: |
+            logs/build.log
+            logs/build-lite.log
           if-no-files-found: ignore
           retention-days: 14

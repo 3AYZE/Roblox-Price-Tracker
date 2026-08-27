@@ -130,7 +130,7 @@ public partial class MainWindow : Window
         {
             WindowsStartupRegistration.Apply(_services.Settings);
             DiagnosticsStartupText.Text = FormatStartupStatus();
-            if (_trayStartupMenuItem is not null) _trayStartupMenuItem.Checked = _services.Settings.StartWithWindows;
+            _trayIcon?.SetStartupChecked(_services.Settings.StartWithWindows);
             SettingsSavedText.Text = "Settings saved.";
         }
         catch (Exception ex)

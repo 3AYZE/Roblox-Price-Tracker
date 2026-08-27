@@ -12,7 +12,7 @@ jobs:
   release:
     name: Build, verify, and publish versioned release
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -48,22 +48,32 @@ jobs:
             Write-Host "Release $env:TAG already exists; publishing is skipped."
           } else {
             'exists=false' >> $env:GITHUB_OUTPUT
-            Write-Host "Release $env:TAG does not exist; a verified build will be published."
+            Write-Host "Release $env:TAG does not exist; verified standalone and Lite builds will be published."
           }
 
-      - name: Build, run regression tests, and publish single EXE
+      - name: Build, test, and publish standalone EXE
         if: steps.existing.outputs.exists != 'true'
         shell: powershell
         run: ./tools/Build-Windows.ps1
 
-      - name: Generate SHA-256 checksum
+      - name: Build and smoke-test Lite EXE
+        if: steps.existing.outputs.exists != 'true'
+        shell: powershell
+        run: ./tools/Build-Windows-Lite.ps1
+
+      - name: Generate SHA-256 checksums
         if: steps.existing.outputs.exists != 'true'
         shell: powershell
         run: |
-          $exe = Resolve-Path 'dist/RobloxPriceTracker.exe'
-          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  RobloxPriceTracker.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker.exe.sha256' -Encoding ascii -NoNewline
-          Write-Host "SHA-256: $hash"
+          $standalone = Resolve-Path 'dist/RobloxPriceTracker.exe'
+          $standaloneHash = (Get-FileHash -LiteralPath $standalone -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$standaloneHash  RobloxPriceTracker.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker.exe.sha256' -Encoding ascii -NoNewline
+          Write-Host "Standalone SHA-256: $standaloneHash"
+
+          $lite = Resolve-Path 'dist/RobloxPriceTracker-Lite.exe'
+          $liteHash = (Get-FileHash -LiteralPath $lite -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$liteHash  RobloxPriceTracker-Lite.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker-Lite.exe.sha256' -Encoding ascii -NoNewline
+          Write-Host "Lite SHA-256: $liteHash"
 
       - name: Publish GitHub Release
         if: steps.existing.outputs.exists != 'true'
@@ -76,7 +86,9 @@ jobs:
           gh release create $env:TAG `
             'dist/RobloxPriceTracker.exe#RobloxPriceTracker.exe' `
             'dist/RobloxPriceTracker.exe.sha256#RobloxPriceTracker.exe.sha256' `
+            'dist/RobloxPriceTracker-Lite.exe#RobloxPriceTracker-Lite.exe' `
+            'dist/RobloxPriceTracker-Lite.exe.sha256#RobloxPriceTracker-Lite.exe.sha256' `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
             --title "Roblox Price Tracker v$env:VERSION" `
-            --notes "Verified Windows x64 release. Built from $env:GITHUB_SHA after the regression suite passed. Includes SHA-256 verification for the in-app updater."
+            --notes "Verified Windows x64 release. RobloxPriceTracker.exe is the self-contained build used by the in-app updater. RobloxPriceTracker-Lite.exe is the much smaller framework-dependent option and requires the .NET 9 Windows Desktop Runtime. Both builds passed startup smoke tests; SHA-256 files are included."

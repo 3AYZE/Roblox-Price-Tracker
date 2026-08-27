@@ -205,10 +205,7 @@ public partial class MainWindow : Window
         SidebarMonitorText.Text = secondsRemaining > 0 ? $"Starting in {secondsRemaining}s" : "Starting";
         FooterMonitorText.Text = secondsRemaining > 0 ? $"STARTING IN {secondsRemaining}s" : "STARTING";
         MonitoringButton.Content = "Pause Startup";
-        if (_trayMonitoringMenuItem is not null) _trayMonitoringMenuItem.Text = "Pause Startup";
-        if (_trayIcon is not null) _trayIcon.Text = secondsRemaining > 0
-            ? $"Roblox Price Tracker - starting in {secondsRemaining}s"
-            : "Roblox Price Tracker - starting";
+        _trayIcon?.UpdateMonitoring(monitoring: false, startupDelay: true, secondsRemaining);
     }
 
     private void CancelDelayedStartupMonitoring()

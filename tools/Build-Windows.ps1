@@ -6,8 +6,11 @@ $logPath = Join-Path $logDir 'build.log'
 $solution = Join-Path $repoRoot 'RobloxPriceTracker.sln'
 $guiProject = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\RobloxPriceTracker.Gui.csproj'
 $testProject = Join-Path $repoRoot 'tests\RobloxPriceTracker.SelfTest\RobloxPriceTracker.SelfTest.csproj'
-$iconPath = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets\mouse_app.ico'
-$iconSourcePath = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets\mouse_window.png'
+$assetsDir = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets'
+$iconPath = Join-Path $assetsDir 'mouse_app.ico'
+$logoPath = Join-Path $assetsDir 'mouse_logo.png'
+$menuPath = Join-Path $assetsDir 'mouse_menu.png'
+$windowPath = Join-Path $assetsDir 'mouse_window.png'
 $dist = Join-Path $repoRoot 'dist'
 $publishDir = Join-Path $dist 'publish-temp'
 $finalExe = Join-Path $dist 'RobloxPriceTracker.exe'
@@ -28,9 +31,22 @@ function Invoke-DotNet([string]$Description, [string[]]$ArgsList) {
     if ($LASTEXITCODE -ne 0) { throw "dotnet $($ArgsList -join ' ') failed with exit code $LASTEXITCODE." }
 }
 
+function Assert-LightweightGui {
+    Write-Step 'Checking GUI dependency invariants...'
+    $projectText = Get-Content -LiteralPath $guiProject -Raw
+    if ($projectText -match '<UseWindowsForms>\s*true\s*</UseWindowsForms>') {
+        throw 'Size invariant failed: GUI still enables Windows Forms.'
+    }
+
+    $formsRefs = @(Get-ChildItem -Path (Split-Path $guiProject -Parent) -Filter '*.cs' -File |
+        Select-String -Pattern 'System\.Windows\.Forms')
+    if ($formsRefs.Count -ne 0) {
+        throw "Size invariant failed: found $($formsRefs.Count) System.Windows.Forms source reference(s)."
+    }
+}
+
 function Restore-AppIcon {
-    Write-Step 'Generating Windows/WPF-compatible application icon from PNG...'
-    if (-not (Test-Path $iconSourcePath)) { throw "Icon source was not found: $iconSourcePath" }
+    Write-Step 'Generating original RPT Markets branding and application icon...'
 
     Add-Type -AssemblyName System.Drawing
     if (-not ('RPTNativeIconMethods' -as [type])) {
@@ -44,33 +60,65 @@ public static class RPTNativeIconMethods {
 "@
     }
 
-    $source = $null
     $bitmap = $null
     $graphics = $null
+    $backgroundBrush = $null
+    $borderPen = $null
+    $gridPen = $null
+    $cyanPen = $null
+    $greenPen = $null
+    $barBrush = $null
     $icon = $null
     $stream = $null
     $hIcon = [IntPtr]::Zero
 
     try {
-        $source = [System.Drawing.Image]::FromFile($iconSourcePath)
         $bitmap = New-Object System.Drawing.Bitmap 64, 64, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
         $graphics.Clear([System.Drawing.Color]::Transparent)
-        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
         $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
         $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 
-        $maxSize = 58.0
-        $scale = [Math]::Min($maxSize / $source.Width, $maxSize / $source.Height)
-        $drawWidth = [int][Math]::Round($source.Width * $scale)
-        $drawHeight = [int][Math]::Round($source.Height * $scale)
-        $drawX = [int][Math]::Floor((64 - $drawWidth) / 2.0)
-        $drawY = [int][Math]::Floor((64 - $drawHeight) / 2.0)
-        $graphics.DrawImage($source, $drawX, $drawY, $drawWidth, $drawHeight)
+        # RPT Markets brand mark: dark market-terminal tile with a compact rising price chart.
+        $backgroundBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 11, 18, 32))
+        $borderPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 47, 65, 87)), 2
+        $graphics.FillEllipse($backgroundBrush, 3, 3, 58, 58)
+        $graphics.DrawEllipse($borderPen, 4, 4, 56, 56)
+
+        $gridPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(90, 79, 98, 121)), 1
+        $graphics.DrawLine($gridPen, 13, 46, 52, 46)
+        $graphics.DrawLine($gridPen, 13, 35, 52, 35)
+
+        $barBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 39, 196, 214))
+        $graphics.FillRectangle($barBrush, 16, 36, 5, 10)
+        $graphics.FillRectangle($barBrush, 27, 29, 5, 12)
+        $graphics.FillRectangle($barBrush, 38, 31, 5, 8)
+
+        $cyanPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 93, 224, 230)), 3
+        $cyanPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $cyanPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $points = [System.Drawing.Point[]]@(
+            (New-Object System.Drawing.Point 14, 43),
+            (New-Object System.Drawing.Point 26, 34),
+            (New-Object System.Drawing.Point 36, 37),
+            (New-Object System.Drawing.Point 50, 21)
+        )
+        $graphics.DrawLines($cyanPen, $points)
+
+        $greenPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 45, 216, 129)), 3
+        $greenPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $greenPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $graphics.DrawLine($greenPen, 50, 21, 49, 29)
+        $graphics.DrawLine($greenPen, 50, 21, 42, 22)
+
+        # Keep legacy resource filenames for compatibility, but replace their content with the new brand.
+        $bitmap.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bitmap.Save($menuPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bitmap.Save($windowPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
         $hIcon = $bitmap.GetHicon()
-        if ($hIcon -eq [IntPtr]::Zero) { throw 'Windows failed to create an HICON from the application artwork.' }
+        if ($hIcon -eq [IntPtr]::Zero) { throw 'Windows failed to create an HICON from the RPT artwork.' }
         $icon = [System.Drawing.Icon]::FromHandle($hIcon)
         $stream = [IO.File]::Create($iconPath)
         $icon.Save($stream)
@@ -79,16 +127,20 @@ public static class RPTNativeIconMethods {
         if ($null -ne $stream) { $stream.Dispose() }
         if ($null -ne $icon) { $icon.Dispose() }
         if ($hIcon -ne [IntPtr]::Zero) { [RPTNativeIconMethods]::DestroyIcon($hIcon) | Out-Null }
+        if ($null -ne $greenPen) { $greenPen.Dispose() }
+        if ($null -ne $cyanPen) { $cyanPen.Dispose() }
+        if ($null -ne $barBrush) { $barBrush.Dispose() }
+        if ($null -ne $gridPen) { $gridPen.Dispose() }
+        if ($null -ne $borderPen) { $borderPen.Dispose() }
+        if ($null -ne $backgroundBrush) { $backgroundBrush.Dispose() }
         if ($null -ne $graphics) { $graphics.Dispose() }
         if ($null -ne $bitmap) { $bitmap.Dispose() }
-        if ($null -ne $source) { $source.Dispose() }
     }
 
     $iconBytes = (Get-Item $iconPath).Length
     if ($iconBytes -lt 512) { throw "Generated icon is unexpectedly small ($iconBytes bytes)." }
 
-    # Verify both the Win32 icon decoder and WPF's BitmapFrame decoder. The latter
-    # catches the exact XAML TypeConverter failure that caused the v0.6.1 regression.
+    # Verify both Win32 and WPF decoders so the XAML icon remains startup-safe.
     $verifyIcon = New-Object System.Drawing.Icon $iconPath
     try {
         if ($verifyIcon.Width -lt 16 -or $verifyIcon.Height -lt 16) {
@@ -110,7 +162,7 @@ public static class RPTNativeIconMethods {
     }
     finally { $iconStream.Dispose() }
 
-    Write-Step "Windows/WPF icon generated and decoded successfully: $iconBytes bytes."
+    Write-Step "RPT Markets icon generated and decoded successfully: $iconBytes bytes."
 }
 
 function Assert-PublishedIcon([string]$ExePath) {
@@ -129,7 +181,7 @@ function Assert-PublishedIcon([string]$ExePath) {
 }
 
 function Assert-PublishedStartup([string]$ExePath) {
-    Write-Step 'Smoke-testing packaged WPF startup...'
+    Write-Step 'Smoke-testing packaged WPF startup and native tray host...'
     $process = Start-Process -FilePath $ExePath -ArgumentList '--background' -PassThru
     try {
         Start-Sleep -Seconds 10
@@ -137,7 +189,7 @@ function Assert-PublishedStartup([string]$ExePath) {
         if ($process.HasExited) {
             throw "Packaged app exited during startup smoke test with code $($process.ExitCode)."
         }
-        Write-Step 'Packaged WPF startup smoke test passed.'
+        Write-Step 'Packaged WPF/native-tray startup smoke test passed.'
     }
     finally {
         try {
@@ -166,6 +218,7 @@ try {
     $packageRefs = @(Get-ChildItem -Path $repoRoot -Recurse -Filter *.csproj | Select-String -Pattern '<PackageReference')
     if ($packageRefs.Count -ne 0) { throw "Dependency invariant failed: found $($packageRefs.Count) PackageReference entries." }
 
+    Assert-LightweightGui
     Restore-AppIcon
 
     Invoke-DotNet 'Restoring projects...' @('restore', $solution, '--ignore-failed-sources')
