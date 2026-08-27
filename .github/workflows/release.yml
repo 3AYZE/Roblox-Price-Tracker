@@ -53,8 +53,14 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release delete-asset $env:TAG 'RobloxPriceTracker.exe' --repo $env:GITHUB_REPOSITORY --yes 2>$null
-          gh release delete-asset $env:TAG 'RobloxPriceTracker.exe.sha256' --repo $env:GITHUB_REPOSITORY --yes 2>$null
+          $release = gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json
+          $assetNames = @($release.assets | ForEach-Object { $_.name })
+          foreach ($name in @('RobloxPriceTracker.exe', 'RobloxPriceTracker.exe.sha256')) {
+            if ($assetNames -contains $name) {
+              gh release delete-asset $env:TAG $name --repo $env:GITHUB_REPOSITORY --yes
+              if ($LASTEXITCODE -ne 0) { throw "Failed to delete release asset $name." }
+            }
+          }
           gh release edit $env:TAG `
             --repo $env:GITHUB_REPOSITORY `
             --title "Roblox Price Tracker v$env:VERSION" `
