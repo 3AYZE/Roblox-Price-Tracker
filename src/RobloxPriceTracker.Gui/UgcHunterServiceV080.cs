@@ -10,13 +10,20 @@ public sealed class UgcHunterService
 {
     private static readonly string[] SearchEndpoints =
     [
+        // Collectibles is the authoritative marketplace bucket for Limited / collectible items.
+        // Starting here avoids losing current UGC Limiteds behind the much broader Accessories feed.
+        "https://catalog.roblox.com/v1/search/items/details?Category=2&SortType=3&Limit=30",
+        "https://catalog.roblox.com/v1/search/items/details?Category=2&SortType=2&SortAggregation=1&Limit=30",
+        // Broader community/accessory/clothing routes are fallbacks for Roblox catalog drift.
+        "https://catalog.roblox.com/v1/search/items/details?Category=13&SortType=3&Limit=30",
         "https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&SortType=3&Limit=30",
-        "https://catalog.roblox.com/v1/search/items/details?Category=11&SortType=3&Limit=30",
+        "https://catalog.roblox.com/v1/search/items/details?Category=3&SortType=3&Limit=30",
         "https://catalog.roblox.com/v1/search/items/details?Category=1&SortType=3&Limit=30"
     ];
 
     private const int MaxPagesPerScan = 3;
     private const int ResaleEnrichmentLimit = 8;
+    private const int PreferredCandidateCount = 8;
     private readonly HttpClient _httpClient;
     private readonly RobloxThumbnailService _thumbnailService;
     private readonly RobloxResaleDataService _resaleDataService;
@@ -181,6 +188,8 @@ public sealed class UgcHunterService
         {
             string? cursor = null;
             var sourceSucceeded = false;
+            var sourceRows = 0;
+            var sourceAccepted = 0;
 
             for (var page = 0; page < MaxPagesPerScan; page++)
             {
@@ -240,10 +249,14 @@ public sealed class UgcHunterService
 
                         sourceSucceeded = true;
                         anySourceSucceeded = true;
+                        sourceRows += data.GetArrayLength();
                         foreach (var element in data.EnumerateArray())
                         {
                             if (TryParseCandidate(element, observedAtUtc, out var candidate))
+                            {
                                 candidates[candidate.AssetId] = candidate;
+                                sourceAccepted++;
+                            }
                         }
 
                         cursor = document.RootElement.TryGetProperty("nextPageCursor", out var next) && next.ValueKind == JsonValueKind.String
@@ -256,7 +269,12 @@ public sealed class UgcHunterService
                 await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
             }
 
-            if (sourceSucceeded && candidates.Count > 0) break;
+            if (sourceSucceeded)
+                _logger.Info($"UGC Hunter source scan: {sourceRows} catalog rows, {sourceAccepted} qualifying live UGC Limited rows, {candidates.Count} unique candidates total.");
+
+            // Stop once the Collectibles-first/fallback ladder has produced enough rows for the
+            // terminal. Sparse results keep probing broader supported routes instead of showing an empty board.
+            if (sourceSucceeded && candidates.Count >= PreferredCandidateCount) break;
         }
 
         if (!anySourceSucceeded)
@@ -266,6 +284,9 @@ public sealed class UgcHunterService
                 : string.Join(" | ", failures.Take(3));
             throw new HttpRequestException($"Roblox UGC search failed across all supported catalog routes. {detail}");
         }
+
+        if (candidates.Count == 0)
+            _logger.Info("UGC Hunter catalog sources responded successfully, but no paid catalog-buyable UGC Limiteds matched the live-drop filters.");
 
         return candidates.Values.ToList();
     }
@@ -338,7 +359,9 @@ public sealed class UgcHunterService
 
         var saleLocationType = GetString(element, "saleLocationType");
         if (!string.IsNullOrWhiteSpace(saleLocationType) && !saleLocationType.StartsWith("Shop", StringComparison.OrdinalIgnoreCase)) return false;
-        if (element.TryGetProperty("timedOptions", out var timedOptions) && timedOptions.ValueKind == JsonValueKind.Array && timedOptions.GetArrayLength() > 0) return false;
+
+        // TimedOptions describes rental-duration purchase choices for supported avatar items.
+        // It is not an experience-only acquisition signal, so it must not suppress a valid Limited.
 
         long? unitsAvailable = TryGetInt64(element, "unitsAvailableForConsumption", out var units) ? Math.Max(0, units) : null;
         long? totalQuantity = TryGetInt64(element, "totalQuantity", out var total) && total > 0 ? total : null;
@@ -611,7 +634,7 @@ public sealed class UgcHunterService
     private static UgcMarketState BuildMarketState(IReadOnlyList<UgcHunterItem> items)
     {
         if (items.Count == 0)
-            return new UgcMarketState("QUIET", 0, 0, 0, "No qualifying buyable UGC Limiteds found in the current scan.");
+            return new UgcMarketState("QUIET", 0, 0, 0, "No qualifying paid catalog-buyable UGC Limiteds found in the current scan.");
 
         var average = items.Average(x => x.ResalePotentialScore);
         var averageVelocity = items.Average(x => x.VelocityPerMinute);
@@ -642,7 +665,12 @@ public sealed class UgcHunterService
         }
     }
 
-    private static bool IsAvatarAccessory(int assetType) => assetType == 8 || assetType is >= 41 and <= 47;
+    private static bool IsAvatarAccessory(int assetType) =>
+        assetType == 8 ||
+        assetType is >= 41 and <= 47 ||
+        assetType is >= 64 and <= 72 ||
+        assetType is 76 or 77 or 79 ||
+        assetType is >= 88 and <= 90;
 
     private static string CategoryName(int assetType) => assetType switch
     {
@@ -654,6 +682,20 @@ public sealed class UgcHunterService
         45 => "Front",
         46 => "Back",
         47 => "Waist",
+        64 => "T-Shirt",
+        65 => "Shirt",
+        66 => "Pants",
+        67 => "Jacket",
+        68 => "Sweater",
+        69 => "Shorts",
+        70 or 71 => "Shoes",
+        72 => "Dress / Skirt",
+        76 => "Eyebrow",
+        77 => "Eyelash",
+        79 => "Dynamic Head",
+        88 => "Face Makeup",
+        89 => "Lip Makeup",
+        90 => "Eye Makeup",
         _ => "Accessory"
     };
 
