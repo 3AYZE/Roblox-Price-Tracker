@@ -220,11 +220,38 @@ public partial class MainWindow : Window
     }
 
     private async void ViewItemButton_Click(object sender, RoutedEventArgs e) => await OpenSelectedItemDetailsAsync();
-    private async void WatchlistGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e) => await OpenSelectedItemDetailsAsync();
+
+    private async void WatchlistGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (GetDoubleClickedWatchlistRow(WatchlistGrid, e) is { } row)
+            await OpenItemDetailsAsync(row);
+    }
+
+    private async void DashboardWatchlistList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (GetDoubleClickedWatchlistRow(DashboardWatchlistList, e) is { } row)
+            await OpenItemDetailsAsync(row);
+    }
+
+    private static WatchlistRow? GetDoubleClickedWatchlistRow(DataGrid grid, MouseButtonEventArgs e)
+    {
+        var current = e.OriginalSource as DependencyObject;
+        while (current is not null && current is not DataGridRow)
+            current = VisualTreeHelper.GetParent(current);
+
+        return current is DataGridRow dataGridRow && dataGridRow.Item is WatchlistRow row && dataGridRow.DataGridOwner == grid
+            ? row
+            : null;
+    }
 
     private async Task OpenSelectedItemDetailsAsync()
     {
         if (WatchlistGrid.SelectedItem is not WatchlistRow row) return;
+        await OpenItemDetailsAsync(row);
+    }
+
+    private async Task OpenItemDetailsAsync(WatchlistRow row)
+    {
         var window = new ItemDetailsWindow(_services, row.ItemKey) { Owner = this };
         window.ShowDialog();
         await RefreshAllAsync();
