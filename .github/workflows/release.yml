@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    name: Build, verify, and publish versioned release
+    name: Build, verify, and publish Lite release
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -43,15 +43,9 @@ jobs:
         run: |
           $releases = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json
           $exists = @($releases | Where-Object { $_.tagName -eq $env:TAG }).Count -gt 0
-          if ($exists) {
-            'exists=true' >> $env:GITHUB_OUTPUT
-            Write-Host "Release $env:TAG already exists; build/publish is skipped and its download instructions will be refreshed."
-          } else {
-            'exists=false' >> $env:GITHUB_OUTPUT
-            Write-Host "Release $env:TAG does not exist; verified standalone and Lite builds will be published."
-          }
+          "exists=$($exists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      - name: Refresh existing release download instructions
+      - name: Keep existing release Lite-only
         if: steps.existing.outputs.exists == 'true'
         shell: powershell
         env:
@@ -59,43 +53,33 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $notes = @"
-          ## Downloads
-
-          - **RobloxPriceTracker.exe** — recommended; no setup required.
-          - **RobloxPriceTracker-Lite.exe** — smaller; requires **.NET 9 Desktop Runtime (Windows x64)**: https://dotnet.microsoft.com/en-us/download/dotnet/9.0
-
-          SHA-256 checksums are included.
-          "@
-
+          gh release delete-asset $env:TAG 'RobloxPriceTracker.exe' --repo $env:GITHUB_REPOSITORY --yes 2>$null
+          gh release delete-asset $env:TAG 'RobloxPriceTracker.exe.sha256' --repo $env:GITHUB_REPOSITORY --yes 2>$null
           gh release edit $env:TAG `
             --repo $env:GITHUB_REPOSITORY `
             --title "Roblox Price Tracker v$env:VERSION" `
-            --notes $notes
+            --notes "Requires .NET 9 Desktop Runtime (Windows x64): https://dotnet.microsoft.com/en-us/download/dotnet/9.0"
 
-      - name: Build, test, and publish standalone EXE
+      - name: Restore and build
         if: steps.existing.outputs.exists != 'true'
         shell: powershell
-        run: ./tools/Build-Windows.ps1
+        run: |
+          dotnet restore RobloxPriceTracker.sln --ignore-failed-sources
+          dotnet build RobloxPriceTracker.sln -c Release --no-restore
+          dotnet run --project tests/RobloxPriceTracker.SelfTest/RobloxPriceTracker.SelfTest.csproj -c Release --no-build
 
       - name: Build and smoke-test Lite EXE
         if: steps.existing.outputs.exists != 'true'
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
 
-      - name: Generate SHA-256 checksums
+      - name: Generate Lite checksum
         if: steps.existing.outputs.exists != 'true'
         shell: powershell
         run: |
-          $standalone = Resolve-Path 'dist/RobloxPriceTracker.exe'
-          $standaloneHash = (Get-FileHash -LiteralPath $standalone -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$standaloneHash  RobloxPriceTracker.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker.exe.sha256' -Encoding ascii -NoNewline
-          Write-Host "Standalone SHA-256: $standaloneHash"
-
           $lite = Resolve-Path 'dist/RobloxPriceTracker-Lite.exe'
-          $liteHash = (Get-FileHash -LiteralPath $lite -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$liteHash  RobloxPriceTracker-Lite.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker-Lite.exe.sha256' -Encoding ascii -NoNewline
-          Write-Host "Lite SHA-256: $liteHash"
+          $hash = (Get-FileHash -LiteralPath $lite -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  RobloxPriceTracker-Lite.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker-Lite.exe.sha256' -Encoding ascii -NoNewline
 
       - name: Publish GitHub Release
         if: steps.existing.outputs.exists != 'true'
@@ -105,21 +89,10 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $notes = @"
-          ## Downloads
-
-          - **RobloxPriceTracker.exe** — recommended; no setup required.
-          - **RobloxPriceTracker-Lite.exe** — smaller; requires **.NET 9 Desktop Runtime (Windows x64)**: https://dotnet.microsoft.com/en-us/download/dotnet/9.0
-
-          SHA-256 checksums are included.
-          "@
-
           gh release create $env:TAG `
-            'dist/RobloxPriceTracker.exe#RobloxPriceTracker.exe' `
-            'dist/RobloxPriceTracker.exe.sha256#RobloxPriceTracker.exe.sha256' `
             'dist/RobloxPriceTracker-Lite.exe#RobloxPriceTracker-Lite.exe' `
             'dist/RobloxPriceTracker-Lite.exe.sha256#RobloxPriceTracker-Lite.exe.sha256' `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
             --title "Roblox Price Tracker v$env:VERSION" `
-            --notes $notes
+            --notes "Requires .NET 9 Desktop Runtime (Windows x64): https://dotnet.microsoft.com/en-us/download/dotnet/9.0"
