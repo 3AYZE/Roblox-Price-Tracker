@@ -60,23 +60,12 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           $notes = @"
-          ## Which file should I download?
+          ## Downloads
 
-          **Recommended / no setup required:** `RobloxPriceTracker.exe`
-          - Fully self-contained Windows x64 build.
-          - No separate .NET installation is required.
-          - This is also the build used by the in-app updater.
+          - **RobloxPriceTracker.exe** — recommended; no setup required.
+          - **RobloxPriceTracker-Lite.exe** — smaller; requires **.NET 9 Desktop Runtime (Windows x64)**: https://dotnet.microsoft.com/en-us/download/dotnet/9.0
 
-          **Smallest download:** `RobloxPriceTracker-Lite.exe`
-          - Much smaller framework-dependent build.
-          - Before running it, install the **Microsoft .NET 9 Desktop Runtime for Windows x64**.
-          - Official Microsoft download page: https://dotnet.microsoft.com/en-us/download/dotnet/9.0
-          - On that page, find **.NET Desktop Runtime** and choose the **Windows x64** installer.
-          - You do **not** need the .NET SDK.
-
-          If you do not want to install anything first, use `RobloxPriceTracker.exe` instead.
-
-          Both builds are verified Windows x64 releases and pass startup smoke tests. SHA-256 checksum files are included for verification.
+          SHA-256 checksums are included.
           "@
 
           gh release edit $env:TAG `
@@ -117,23 +106,12 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           $notes = @"
-          ## Which file should I download?
+          ## Downloads
 
-          **Recommended / no setup required:** `RobloxPriceTracker.exe`
-          - Fully self-contained Windows x64 build.
-          - No separate .NET installation is required.
-          - This is also the build used by the in-app updater.
+          - **RobloxPriceTracker.exe** — recommended; no setup required.
+          - **RobloxPriceTracker-Lite.exe** — smaller; requires **.NET 9 Desktop Runtime (Windows x64)**: https://dotnet.microsoft.com/en-us/download/dotnet/9.0
 
-          **Smallest download:** `RobloxPriceTracker-Lite.exe`
-          - Much smaller framework-dependent build.
-          - Before running it, install the **Microsoft .NET 9 Desktop Runtime for Windows x64**.
-          - Official Microsoft download page: https://dotnet.microsoft.com/en-us/download/dotnet/9.0
-          - On that page, find **.NET Desktop Runtime** and choose the **Windows x64** installer.
-          - You do **not** need the .NET SDK.
-
-          If you do not want to install anything first, use `RobloxPriceTracker.exe` instead.
-
-          Both builds are verified Windows x64 releases and pass startup smoke tests. SHA-256 checksum files are included for verification.
+          SHA-256 checksums are included.
           "@
 
           gh release create $env:TAG `
