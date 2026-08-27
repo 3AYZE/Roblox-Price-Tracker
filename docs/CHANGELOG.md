@@ -1,5 +1,15 @@
 # Roblox Price Tracker changelog
 
+## v0.9.0
+- Added a dedicated **Analyzer** workspace: paste any Roblox catalog URL or asset ID for a direct market deep-dive.
+- Analyzer separates Roblox-observed primary price, sold/remaining supply, resale floor, RAP, seller depth, and resale volume from modeled economics.
+- Added a weighted **Data Quality** grade with explicit verified/missing evidence and observation freshness instead of hiding incomplete inputs behind a score.
+- Added Hunter DATA grades and evidence tooltips; the selected-drop inspector now shows freshness and source quality alongside supply.
+- Added one-click **ANALYZE** from a Hunter row so scanner candidates can be promoted into deeper research without copying IDs manually.
+- Added **Creator Intelligence** using a bounded sample of recent Limiteds: verified count, active/sold-out mix, average sell-through, profitable-floor rate after Roblox reseller proceeds, and median floor/cost multiple.
+- Creator history is on-demand only and capped to a small sample so normal Hunter refreshes remain lightweight and avoid unnecessary Roblox requests.
+- Added analyzer/catalog/data-quality/creator-track-record regressions and bumped the Lite Windows app to v0.9.0.
+
 ## v0.8.4
 - Reworked UGC Hunter market data around Roblox's authoritative collectible Marketplace Items API instead of relying on incomplete catalog fields.
 - Primary price, sold count, remaining stock, total stock, current resale floor, reseller availability, and collectible IDs now come from verified Roblox marketplace data when available.
