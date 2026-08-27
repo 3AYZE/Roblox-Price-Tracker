@@ -6,7 +6,11 @@ $logPath = Join-Path $logDir 'build.log'
 $solution = Join-Path $repoRoot 'RobloxPriceTracker.sln'
 $guiProject = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\RobloxPriceTracker.Gui.csproj'
 $testProject = Join-Path $repoRoot 'tests\RobloxPriceTracker.SelfTest\RobloxPriceTracker.SelfTest.csproj'
-$iconPath = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets\mouse_app.ico'
+$assetsDir = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\Assets'
+$iconPath = Join-Path $assetsDir 'mouse_app.ico'
+$logoPath = Join-Path $assetsDir 'mouse_logo.png'
+$menuPath = Join-Path $assetsDir 'mouse_menu.png'
+$windowPath = Join-Path $assetsDir 'mouse_window.png'
 $dist = Join-Path $repoRoot 'dist'
 $publishDir = Join-Path $dist 'publish-temp'
 $finalExe = Join-Path $dist 'RobloxPriceTracker.exe'
@@ -42,7 +46,7 @@ function Assert-LightweightGui {
 }
 
 function Restore-AppIcon {
-    Write-Step 'Generating original RPT Markets application icon...'
+    Write-Step 'Generating original RPT Markets branding and application icon...'
 
     Add-Type -AssemblyName System.Drawing
     if (-not ('RPTNativeIconMethods' -as [type])) {
@@ -76,7 +80,7 @@ public static class RPTNativeIconMethods {
         $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
         $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 
-        # RPT Markets brand mark: dark market-terminal tile with a compact price chart.
+        # RPT Markets brand mark: dark market-terminal tile with a compact rising price chart.
         $backgroundBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 11, 18, 32))
         $borderPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 47, 65, 87)), 2
         $graphics.FillEllipse($backgroundBrush, 3, 3, 58, 58)
@@ -107,6 +111,11 @@ public static class RPTNativeIconMethods {
         $greenPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
         $graphics.DrawLine($greenPen, 50, 21, 49, 29)
         $graphics.DrawLine($greenPen, 50, 21, 42, 22)
+
+        # Keep legacy resource filenames for compatibility, but replace their content with the new brand.
+        $bitmap.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bitmap.Save($menuPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bitmap.Save($windowPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
         $hIcon = $bitmap.GetHicon()
         if ($hIcon -eq [IntPtr]::Zero) { throw 'Windows failed to create an HICON from the RPT artwork.' }
