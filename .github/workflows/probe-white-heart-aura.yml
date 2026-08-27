@@ -47,9 +47,18 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($collectibleId)) { throw 'collectibleItemId missing' }
 
           Start-Sleep -Seconds 2
+          try {
+            $legacy = Invoke-RestMethod -Uri "https://economy.roblox.com/v1/assets/$assetId/resale-data" -Headers $headers -TimeoutSec 20
+            Write-Host '=== LEGACY ECONOMY RESALE DATA ==='
+            [pscustomobject]@{ recentAveragePrice=$legacy.recentAveragePrice; sales=$legacy.sales; pricePoints=@($legacy.priceDataPoints | Select-Object -First 10); volumePoints=@($legacy.volumeDataPoints | Select-Object -First 10) } | ConvertTo-Json -Depth 8 | Write-Host
+          } catch {
+            Write-Host "LEGACY ECONOMY FAILED: $($_.Exception.Message)"
+          }
+
+          Start-Sleep -Seconds 2
           $resaleUrl = "https://apis.roblox.com/marketplace-sales/v1/item/$collectibleId/resale-data"
           $resale = Invoke-RestMethod -Uri $resaleUrl -Headers $headers -TimeoutSec 20
-          Write-Host '=== RESALE DATA ==='
+          Write-Host '=== MODERN RESALE DATA ==='
           $latestPrices = @($resale.priceDataPoints | Sort-Object date -Descending | Select-Object -First 10)
           $latestVolumes = @($resale.volumeDataPoints | Sort-Object date -Descending | Select-Object -First 35)
           $sales7 = ($latestVolumes | Where-Object { [datetime]$_.date -ge (Get-Date).ToUniversalTime().AddDays(-7.25) } | Measure-Object value -Sum).Sum
