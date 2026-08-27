@@ -1,0 +1,57 @@
+name: Probe UGC Catalog API
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/probe-ugc-api.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe Roblox catalog routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          urls=(
+            'https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30'
+            'https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&salesTypeFilter=2&SortType=3&Limit=30'
+            'https://catalog.roblox.com/v1/search/items/details?Category=2&SortType=3&Limit=30'
+            'https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30'
+          )
+          i=0
+          for url in "${urls[@]}"; do
+            i=$((i+1))
+            echo "=== PROBE $i ==="
+            echo "$url"
+            code=$(curl -L --retry 0 -A 'RobloxPriceTracker/0.8.1' -sS -o /tmp/body.json -w '%{http_code}' "$url" || true)
+            echo "HTTP $code"
+            python - <<'PY'
+import json
+from pathlib import Path
+p=Path('/tmp/body.json')
+text=p.read_text(errors='replace') if p.exists() else ''
+print('body-prefix:', text[:500].replace('\n',' '))
+try:
+    obj=json.loads(text)
+    data=obj.get('data') if isinstance(obj,dict) else None
+    print('data-count:', len(data) if isinstance(data,list) else 'n/a')
+    if isinstance(data,list):
+        limited=[]
+        for x in data:
+            if not isinstance(x,dict): continue
+            r=x.get('itemRestrictions') or []
+            if any(v in ('Collectible','Limited','LimitedUnique') for v in r):
+                limited.append({k:x.get(k) for k in ('id','name','assetType','price','unitsAvailableForConsumption','purchaseCount','saleLocationType','itemRestrictions')})
+        print('limited-count:', len(limited))
+        print('sample-limited:', limited[:5])
+except Exception as e:
+    print('json-error:', e)
+PY
+            sleep 2
+          done
