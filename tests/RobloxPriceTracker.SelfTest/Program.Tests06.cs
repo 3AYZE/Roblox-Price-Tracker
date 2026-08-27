@@ -64,6 +64,64 @@ internal static partial class Program
         return Task.CompletedTask;
     }
 
+    static Task TestUgcHydratedZeroPriceLimitedIsExcludedAsync()
+    {
+        const string json = """
+        {
+          "data": [
+            {
+              "id": 126389144425806,
+              "itemType": "Asset",
+              "name": "Zero Price Limited",
+              "creatorName": "UGC Creator",
+              "creatorTargetId": 12345,
+              "assetType": 8,
+              "price": 0,
+              "unitsAvailableForConsumption": 50,
+              "totalQuantity": 100,
+              "saleLocationType": "ShopOnly",
+              "itemRestrictions": ["Collectible"],
+              "itemStatus": ["Sale"]
+            }
+          ]
+        }
+        """;
+        using var doc = JsonDocument.Parse(json);
+        var rows = RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(doc.RootElement);
+        AssertEqual(0, rows.Count);
+        return Task.CompletedTask;
+    }
+
+    static Task TestUgcHydratedUnavailableLimitedIsExcludedAsync()
+    {
+        const string json = """
+        {
+          "data": [
+            {
+              "id": 126389144425807,
+              "itemType": "Asset",
+              "name": "Unavailable Limited",
+              "creatorName": "UGC Creator",
+              "creatorTargetId": 12345,
+              "assetType": 8,
+              "price": 95,
+              "priceStatus": "OffSale",
+              "isOffSale": true,
+              "unitsAvailableForConsumption": 0,
+              "totalQuantity": 100,
+              "saleLocationType": "ShopOnly",
+              "itemRestrictions": ["Collectible"],
+              "itemStatus": []
+            }
+          ]
+        }
+        """;
+        using var doc = JsonDocument.Parse(json);
+        var rows = RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(doc.RootElement);
+        AssertEqual(0, rows.Count);
+        return Task.CompletedTask;
+    }
+
     static Task TestUgcHydratedExperienceOnlyLimitedIsExcludedAsync()
     {
         const string json = """
