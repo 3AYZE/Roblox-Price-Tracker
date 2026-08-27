@@ -10,7 +10,7 @@
     <Version>0.8.3</Version>
     <AssemblyVersion>0.8.3.0</AssemblyVersion>
     <FileVersion>0.8.3.0</FileVersion>
-    <ApplicationIcon>Assets\mouse_app.ico</ApplicationIcon>
+    <ApplicationIcon Condition="'$(RPTEmbedIcon)' == 'true'">Assets\mouse_app.ico</ApplicationIcon>
     <Authors>3AYZE</Authors>
     <Company>3AYZE</Company>
     <Description>RPT Markets: a professional Windows Roblox Limited market terminal with live UGC Hunter scanning, resale tracking, statistical forecasts, paper portfolio analytics, alerts, automatic updates, and background monitoring.</Description>
