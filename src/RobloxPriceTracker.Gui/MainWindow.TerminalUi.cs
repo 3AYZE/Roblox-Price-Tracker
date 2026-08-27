@@ -187,7 +187,7 @@ public partial class MainWindow : Window
         toolbar.Children.Add(_hunterCategoryCombo);
 
         _hunterOpportunityCombo = new ComboBox { Width = 122, Margin = new Thickness(7, 0, 0, 0), SelectedIndex = 0 };
-        foreach (var item in new[] { "All scores", "70+ potential", "80+ potential", "90+ potential" })
+        foreach (var item in new[] { "All scores", "70+ resale", "80+ resale", "90+ resale" })
             _hunterOpportunityCombo.Items.Add(item);
         _hunterOpportunityCombo.SelectionChanged += (_, _) => _hunterView?.Refresh();
         toolbar.Children.Add(_hunterOpportunityCombo);
@@ -317,22 +317,22 @@ public partial class MainWindow : Window
         var scoreGrid = new Grid { Margin = new Thickness(0, 12, 0, 0) };
         for (var i = 0; i < 4; i++) scoreGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         stack.Children.Add(scoreGrid);
-        _hunterInspectorOpportunity = AddScore(scoreGrid, 0, "OPPORTUNITY", "—", TerminalGreen);
+        _hunterInspectorOpportunity = AddScore(scoreGrid, 0, "RESALE", "—", TerminalGreen);
         _hunterInspectorEntry = AddScore(scoreGrid, 1, "ENTRY", "—", TerminalBlue);
         _hunterInspectorRisk = AddScore(scoreGrid, 2, "RISK", "—", TerminalRed);
         _hunterInspectorConfidence = AddScore(scoreGrid, 3, "CONF", "—", TerminalAmber);
 
         stack.Children.Add(MakeSeparator(15, 13));
-        stack.Children.Add(MakeSmallLabel("LIVE MARKET"));
-        _hunterInspectorVelocity = AddInspectorMetric(stack, "Velocity", "—");
-        _hunterInspectorEta = AddInspectorMetric(stack, "Sellout ETA", "—");
-        _hunterInspectorSupply = AddInspectorMetric(stack, "Supply", "—");
+        stack.Children.Add(MakeSmallLabel("REAL DROP DATA"));
+        _hunterInspectorVelocity = AddInspectorMetric(stack, "Primary sales", "—");
+        _hunterInspectorEta = AddInspectorMetric(stack, "Demand / ETA", "—");
+        _hunterInspectorSupply = AddInspectorMetric(stack, "Supply / source", "—");
 
         stack.Children.Add(MakeSeparator(15, 13));
-        stack.Children.Add(MakeSmallLabel("RESALE OUTLOOK"));
+        stack.Children.Add(MakeSmallLabel("RESALE MARKET + MODEL"));
         _hunterInspectorForecast = new TextBlock { Text = "—", Foreground = TerminalText, FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 0) };
         stack.Children.Add(_hunterInspectorForecast);
-        stack.Children.Add(new TextBlock { Text = "Statistical scenario range, not a guaranteed resale price.", Foreground = TerminalMuted, FontSize = 8, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
+        stack.Children.Add(new TextBlock { Text = "Floor, RAP, sellers and resale volume are Roblox data. Model range and ROI are estimates.", Foreground = TerminalMuted, FontSize = 8, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
 
         stack.Children.Add(MakeSeparator(15, 13));
         stack.Children.Add(MakeSmallLabel("WHY IT SCORES"));
@@ -443,15 +443,15 @@ public partial class MainWindow : Window
     private void AddHunterColumns(DataGrid grid)
     {
         grid.Columns.Add(CreateHunterAssetColumn());
-        grid.Columns.Add(HunterTextColumn("PRICE", nameof(UgcHunterItem.PriceText), 0.70, TerminalText, true));
-        grid.Columns.Add(HunterTextColumn("LEFT", nameof(UgcHunterItem.RemainingText), 0.92, TerminalMuted));
-        grid.Columns.Add(HunterTextColumn("VEL", nameof(UgcHunterItem.VelocityText), 0.72, TerminalGreen, true));
-        grid.Columns.Add(HunterTextColumn("ETA", nameof(UgcHunterItem.EtaText), 0.62, TerminalAmber));
-        grid.Columns.Add(HunterTextColumn("POT", nameof(UgcHunterItem.OpportunityText), 0.55, TerminalGreen, true));
-        grid.Columns.Add(HunterTextColumn("ENTRY", nameof(UgcHunterItem.EntryText), 0.58, TerminalBlue, true));
-        grid.Columns.Add(HunterTextColumn("RISK", nameof(UgcHunterItem.RiskText), 0.55, TerminalRed, true));
-        grid.Columns.Add(HunterTextColumn("CONF", nameof(UgcHunterItem.ConfidenceText), 0.64, TerminalAmber));
-        grid.Columns.Add(HunterTextColumn("PHASE", nameof(UgcHunterItem.Phase), 1.08, TerminalMuted));
+        grid.Columns.Add(HunterTextColumn("PRICE", nameof(UgcHunterItem.PriceText), 0.68, TerminalText, true));
+        grid.Columns.Add(HunterTextColumn("SOLD", nameof(UgcHunterItem.PurchaseCountText), 0.62, TerminalMuted));
+        grid.Columns.Add(HunterTextColumn("LEFT", nameof(UgcHunterItem.RemainingText), 0.88, TerminalMuted));
+        grid.Columns.Add(HunterTextColumn("FLOOR", nameof(UgcHunterItem.CurrentResaleText), 0.70, TerminalGreen, true));
+        grid.Columns.Add(HunterTextColumn("RAP", nameof(UgcHunterItem.RapText), 0.66, TerminalText));
+        grid.Columns.Add(HunterTextColumn("RESALES", nameof(UgcHunterItem.SalesText), 1.00, TerminalMuted));
+        grid.Columns.Add(HunterTextColumn("NET ROI", nameof(UgcHunterItem.NetRoiText), 0.66, TerminalAmber, true));
+        grid.Columns.Add(HunterTextColumn("RESALE", nameof(UgcHunterItem.ResalePotentialText), 0.60, TerminalGreen, true));
+        grid.Columns.Add(HunterTextColumn("REC", nameof(UgcHunterItem.Recommendation), 0.82, TerminalBlue, true));
     }
 
     private void AddPortfolioColumns(DataGrid grid)
@@ -773,10 +773,10 @@ public partial class MainWindow : Window
         if (_hunterInspectorEntry is not null) _hunterInspectorEntry.Text = item.EntryText;
         if (_hunterInspectorRisk is not null) _hunterInspectorRisk.Text = item.RiskText;
         if (_hunterInspectorConfidence is not null) _hunterInspectorConfidence.Text = item.ConfidenceText;
-        if (_hunterInspectorVelocity is not null) _hunterInspectorVelocity.Text = $"{item.VelocityText} · {item.VelocityLabel} · {item.AccelerationText}";
-        if (_hunterInspectorEta is not null) _hunterInspectorEta.Text = item.EtaText;
-        if (_hunterInspectorSupply is not null) _hunterInspectorSupply.Text = $"{item.RemainingText} remaining / {item.SupplyText} total";
-        if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"{item.ForecastText}  ·  BASE {item.BaseValueText}";
+        if (_hunterInspectorVelocity is not null) _hunterInspectorVelocity.Text = $"{item.PurchaseCountText} sold · {item.FavoriteCountText} favorites";
+        if (_hunterInspectorEta is not null) _hunterInspectorEta.Text = $"{item.VelocityText} · {item.VelocityLabel} · ETA {item.EtaText}";
+        if (_hunterInspectorSupply is not null) _hunterInspectorSupply.Text = $"{item.RemainingText} remaining / {item.SupplyText} total · {item.VerificationText}";
+        if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"FLOOR {item.CurrentResaleText} · RAP {item.RapText} · SELLERS {item.ResellersText}\nSALES {item.SalesText} · BREAK-EVEN {item.BreakEvenText}\nMODEL {item.ForecastText} · BASE {item.BaseValueText} · NET ROI {item.NetRoiText}";
         if (_hunterInspectorReasons is not null) _hunterInspectorReasons.Text = string.Join("\n", item.Reasons.Select(x => $"+ {x}"));
         if (_hunterInspectorRisks is not null) _hunterInspectorRisks.Text = string.Join("\n", item.Risks.Select(x => $"• {x}"));
 

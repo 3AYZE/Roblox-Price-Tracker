@@ -158,10 +158,13 @@ public sealed class UgcHunterService
         {
             try
             {
-                var market = await _resaleDataService.GetAsync(item.AssetId, cancellationToken).ConfigureAwait(false);
+                var market = !string.IsNullOrWhiteSpace(item.CollectibleItemId)
+                    ? await _resaleDataService.GetModernAsync(item.AssetId, item.CollectibleItemId, cancellationToken).ConfigureAwait(false)
+                    : await _resaleDataService.GetAsync(item.AssetId, cancellationToken).ConfigureAwait(false);
                 RobloxResellerMarketData? book = null;
-                if (!string.IsNullOrWhiteSpace(market.CollectibleItemId))
-                    book = await _resellerDataService.GetAsync(item.AssetId, market.CollectibleItemId, cancellationToken).ConfigureAwait(false);
+                var collectibleId = market.CollectibleItemId ?? item.CollectibleItemId;
+                if (!string.IsNullOrWhiteSpace(collectibleId))
+                    book = await _resellerDataService.GetAsync(item.AssetId, collectibleId, cancellationToken).ConfigureAwait(false);
                 return ApplyResaleEvidence(item, market, book);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -197,7 +200,11 @@ public sealed class UgcHunterService
             item.UnitsAvailable,
             item.TotalQuantity,
             item.FavoriteCount,
-            observedAtUtc)).ToList();
+            observedAtUtc,
+            item.CollectibleItemId,
+            item.LowestResalePrice,
+            item.HasResellers,
+            item.PrimaryMarketVerified)).ToList();
     }
     private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync(string url, CancellationToken cancellationToken)
     {
@@ -351,13 +358,21 @@ public sealed class UgcHunterService
             : null;
         if (eta > TimeSpan.FromDays(7)) eta = null;
 
-        return CreateHunterItem(item, thumbnail, velocity1, velocity5, velocity15, acceleration, absorptionPerHour,
+        var analyzed = CreateHunterItem(item, thumbnail, velocity1, velocity5, velocity15, acceleration, absorptionPerHour,
             totalSupply, score, entry, phase, velocityLabel, eta, history.Count, null, null);
+        return analyzed with
+        {
+            CollectibleItemId = item.CollectibleItemId,
+            CurrentResaleFloor = item.CurrentResaleFloor,
+            HasLiveResaleMarket = item.HasResellers && item.CurrentResaleFloor is > 0,
+            PrimaryMarketVerified = item.PrimaryMarketVerified
+        };
     }
 
     private static UgcHunterItem ApplyResaleEvidence(UgcHunterItem item, RobloxResaleMarketData market, RobloxResellerMarketData? book)
     {
-        var hasMarket = market.IsAvailable || book is { IsAvailable: true };
+        var currentFloor = book?.LowestPrice ?? item.CurrentResaleFloor;
+        var hasMarket = market.IsAvailable || book is { IsAvailable: true } || currentFloor is > 0;
         var sales30 = SalesLast30d(market);
         var score = UgcResaleScoring.Evaluate(new UgcResaleScoringInput(
             item.Price,
@@ -369,7 +384,7 @@ public sealed class UgcHunterService
             item.FavoriteCount,
             item.ObservationCount,
             market.RecentAveragePrice,
-            book?.LowestPrice,
+            currentFloor,
             book?.ObservedListings ?? 0,
             book?.HasMoreListings ?? false,
             book?.ListingsWithin10Pct ?? 0,
@@ -397,13 +412,13 @@ public sealed class UgcHunterService
             BullValue = ToIntPrice(score.BullResale),
             Reasons = score.Reasons,
             Risks = score.Risks,
-            CollectibleItemId = market.CollectibleItemId,
+            CollectibleItemId = market.CollectibleItemId ?? item.CollectibleItemId,
             ResalePotentialScore = score.ResalePotential,
             LiquidityScore = score.LiquidityScore,
             ProfitabilityScore = score.ProfitabilityScore,
             ProjectedNetRoi = score.BaseNetRoi,
             BreakEvenResalePrice = score.BreakEvenResale,
-            CurrentResaleFloor = book?.LowestPrice,
+            CurrentResaleFloor = currentFloor,
             RecentAveragePrice = market.RecentAveragePrice,
             ObservedResellers = book?.ObservedListings ?? 0,
             ResellerBookTruncated = book?.HasMoreListings ?? false,
@@ -411,7 +426,8 @@ public sealed class UgcHunterService
             SalesLast30d = sales30,
             LiquidityLabel = score.LiquidityLabel,
             Recommendation = score.Recommendation,
-            HasLiveResaleMarket = hasMarket
+            HasLiveResaleMarket = hasMarket,
+            PrimaryMarketVerified = item.PrimaryMarketVerified
         };
     }
 
@@ -656,7 +672,11 @@ public sealed class UgcHunterService
         long? UnitsAvailable,
         long? TotalQuantity,
         long FavoriteCount,
-        DateTimeOffset ObservedAtUtc);
+        DateTimeOffset ObservedAtUtc,
+        string? CollectibleItemId = null,
+        long? CurrentResaleFloor = null,
+        bool HasResellers = false,
+        bool PrimaryMarketVerified = false);
 }
 
 public readonly record struct UgcHunterObservation(
@@ -727,6 +747,7 @@ public sealed record UgcHunterItem(
     public string Recommendation { get; init; } = "WATCH";
     public bool HasLiveResaleMarket { get; init; }
     public int ObservationCount { get; init; }
+    public bool PrimaryMarketVerified { get; init; }
 
     public double VelocityPerMinute => Velocity1m > 0 ? Velocity1m : Velocity5m > 0 ? Velocity5m : Velocity15m;
     public string PriceText => $"{Price:N0} R$";
@@ -753,5 +774,6 @@ public sealed record UgcHunterItem(
     public string ResellersText => ObservedResellers <= 0 ? "—" : ResellerBookTruncated ? $"{ObservedResellers:N0}+" : ObservedResellers.ToString("N0");
     public string SalesText => HasLiveResaleMarket ? $"{SalesLast7d:0.#}/7d · {SalesLast30d:0.#}/30d" : "MODELED";
     public string LiquidityText => $"{LiquidityLabel} · {LiquidityScore:0}";
+    public string VerificationText => PrimaryMarketVerified ? "ROBLOX VERIFIED" : "CATALOG FALLBACK";
     public string RobloxUrl => $"https://www.roblox.com/catalog/{AssetId}";
 }
