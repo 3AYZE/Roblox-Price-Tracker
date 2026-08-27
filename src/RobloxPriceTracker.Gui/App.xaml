@@ -155,16 +155,40 @@
             </Setter>
         </Style>
 
+        <!-- Own the complete textbox chrome so Windows theme focus transitions cannot flash white. -->
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="#0E141C" />
             <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
             <Setter Property="CaretBrush" Value="#8AB8FF" />
+            <Setter Property="SelectionBrush" Value="#315F97" />
             <Setter Property="BorderBrush" Value="#293545" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="10,7" />
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Chrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
+                                          VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#405269" /></Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="#4C8DDF" /></Trigger>
+                            <Trigger Property="IsReadOnly" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#0D1219" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.45" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- Full custom template prevents Windows' light ComboBox chrome from leaking into dark mode. -->
@@ -280,11 +304,16 @@
         </Style>
 
         <Style TargetType="DataGridCell">
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="#D9E2EC" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="11,6" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Style.Triggers>
+                <!-- Explicit cell selection colors override WPF's inactive-selection system brush. -->
+                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#14243A" /><Setter Property="Foreground" Value="#F4F7FA" /></Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style TargetType="DataGridRow">
