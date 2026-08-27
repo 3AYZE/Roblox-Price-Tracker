@@ -56,7 +56,7 @@ try {
     if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-    Write-Step 'Publishing framework-dependent compressed single-file Windows x64 Lite EXE...'
+    Write-Step 'Publishing framework-dependent single-file Windows x64 Lite EXE...'
     & dotnet publish $guiProject `
         -c Release `
         -r win-x64 `
@@ -64,7 +64,6 @@ try {
         --source https://api.nuget.org/v3/index.json `
         -p:PublishSingleFile=true `
         -p:PublishTrimmed=false `
-        -p:EnableCompressionInSingleFile=true `
         -p:PublishReadyToRun=false `
         -p:DebugType=None `
         -p:DebugSymbols=false `
