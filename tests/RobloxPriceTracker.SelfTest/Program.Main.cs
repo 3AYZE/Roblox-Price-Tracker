@@ -38,7 +38,11 @@ internal static partial class Program
             ("Fast expensive sellout is not automatic buy", TestUgcFastExpensiveSelloutIsNotAutomaticBuyAsync),
             ("Profitable liquid UGC market ranks high", TestUgcProfitableLiquidMarketRanksHighAsync),
             ("Unprofitable live UGC resale is hard-gated", TestUgcUnprofitableLiveResaleHardGateAsync),
-            ("UGC reseller book parser reads depth", TestUgcResellerBookParserAsync)
+            ("UGC reseller book parser reads depth", TestUgcResellerBookParserAsync),
+            ("UGC discovery accepts zero-price search rows", TestUgcDiscoveryAcceptsZeroPriceSearchRowAsync),
+            ("UGC hydrated paid Shop Limited becomes candidate", TestUgcHydratedPaidShopLimitedBecomesCandidateAsync),
+            ("UGC hydrated experience-only Limited is excluded", TestUgcHydratedExperienceOnlyLimitedIsExcludedAsync),
+            ("UGC discovery completes anonymous CSRF hydration", TestUgcDiscoveryRetriesAnonymousCsrfAndHydratesAsync)
         };
 
         var failed = 0;
