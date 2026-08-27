@@ -1,0 +1,44 @@
+name: Integrate Intelligence v0.9.0
+
+on:
+  push:
+    branches: [ ugc-intelligence-v090 ]
+    paths:
+      - '.github/workflows/integrate-v090.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ugc-intelligence-v090
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Apply v0.9.0 integration patch
+        shell: powershell
+        run: python tools/patch_v090.py
+
+      - name: Build, regressions, Lite publish, startup smoke
+        shell: powershell
+        run: ./tools/Build-Windows-Lite.ps1
+
+      - name: Commit verified product changes
+        shell: powershell
+        run: |
+          git checkout -- src/RobloxPriceTracker.Gui/Assets
+          Remove-Item tools/patch_v090.py -Force
+          Remove-Item .github/workflows/integrate-v090.yml -Force
+          git config user.name 'Azy'
+          git config user.email '126979239+3AYZE@users.noreply.github.com'
+          git add -A
+          git commit -m 'Add item analyzer and creator intelligence v0.9.0'
+          git push origin HEAD:ugc-intelligence-v090
