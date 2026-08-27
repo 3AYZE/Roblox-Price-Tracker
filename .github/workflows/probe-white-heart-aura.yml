@@ -1,0 +1,74 @@
+name: Probe White Heart Aura
+
+on:
+  push:
+    branches: [ probe-white-heart-aura ]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe official Roblox market data
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assetId = 129868485129975
+          $headers = @{ Accept = 'application/json'; 'User-Agent' = 'RPT-Market-Reference/1.0'; 'X-Requested-With' = 'XMLHttpRequest' }
+          $detailUrl = 'https://catalog.roblox.com/v1/catalog/items/details'
+          $payload = @{ items = @(@{ itemType='Asset'; id=$assetId }) } | ConvertTo-Json -Depth 5 -Compress
+
+          function Post-With-Csrf([string]$url, [string]$body) {
+            $h = @{} + $headers
+            $h['Content-Type'] = 'application/json'
+            try {
+              return Invoke-WebRequest -Uri $url -Method Post -Headers $h -Body $body -UseBasicParsing -TimeoutSec 20
+            } catch {
+              if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 403) {
+                $csrf = $_.Exception.Response.Headers['x-csrf-token']
+                if ([string]::IsNullOrWhiteSpace($csrf)) { throw }
+                $h['x-csrf-token'] = $csrf
+                return Invoke-WebRequest -Uri $url -Method Post -Headers $h -Body $body -UseBasicParsing -TimeoutSec 20
+              }
+              throw
+            }
+          }
+
+          $detailResponse = Post-With-Csrf $detailUrl $payload
+          $detailJson = $detailResponse.Content | ConvertFrom-Json
+          $item = @($detailJson.data)[0]
+          Write-Host '=== CATALOG DETAILS ==='
+          $item | Select-Object id,name,assetType,creatorName,creatorTargetId,price,priceStatus,unitsAvailableForConsumption,totalQuantity,purchaseCount,favoriteCount,saleLocationType,collectibleItemId,collectibleProductId,hasResellers,itemStatus,itemRestrictions,offSaleDeadline,quantityLimitPerUser | ConvertTo-Json -Depth 8 | Write-Host
+
+          $collectibleId = [string]$item.collectibleItemId
+          if ([string]::IsNullOrWhiteSpace($collectibleId)) { throw 'collectibleItemId missing' }
+
+          Start-Sleep -Seconds 2
+          $resaleUrl = "https://apis.roblox.com/marketplace-sales/v1/item/$collectibleId/resale-data"
+          $resale = Invoke-RestMethod -Uri $resaleUrl -Headers $headers -TimeoutSec 20
+          Write-Host '=== RESALE DATA ==='
+          $latestPrices = @($resale.priceDataPoints | Sort-Object date -Descending | Select-Object -First 10)
+          $latestVolumes = @($resale.volumeDataPoints | Sort-Object date -Descending | Select-Object -First 35)
+          $sales7 = ($latestVolumes | Where-Object { [datetime]$_.date -ge (Get-Date).ToUniversalTime().AddDays(-7.25) } | Measure-Object value -Sum).Sum
+          $sales30 = ($latestVolumes | Where-Object { [datetime]$_.date -ge (Get-Date).ToUniversalTime().AddDays(-30.25) } | Measure-Object value -Sum).Sum
+          [pscustomobject]@{ recentAveragePrice=$resale.recentAveragePrice; sales=$resale.sales; salesLast7d=$sales7; salesLast30d=$sales30; latestPricePoints=$latestPrices; latestVolumePoints=($latestVolumes | Select-Object -First 10) } | ConvertTo-Json -Depth 8 | Write-Host
+
+          Start-Sleep -Seconds 2
+          $resellersUrl = "https://apis.roblox.com/marketplace-sales/v1/item/$collectibleId/resellers?limit=100"
+          $resellers = Invoke-RestMethod -Uri $resellersUrl -Headers $headers -TimeoutSec 20
+          $prices = @($resellers.data | ForEach-Object { [long]$_.price } | Where-Object { $_ -gt 0 } | Sort-Object)
+          Write-Host '=== RESELLER BOOK ==='
+          [pscustomobject]@{ listings=$prices.Count; floor=($prices | Select-Object -First 1); top10=$prices | Select-Object -First 10; nextPage=[bool]$resellers.nextPageCursor } | ConvertTo-Json -Depth 8 | Write-Host
+
+          Start-Sleep -Seconds 2
+          try {
+            $marketItemsPayload = @{ itemIds = @($collectibleId) } | ConvertTo-Json -Depth 4 -Compress
+            $mi = Post-With-Csrf 'https://apis.roblox.com/marketplace-items/v1/items/details' $marketItemsPayload
+            Write-Host '=== MARKETPLACE ITEM DETAILS ==='
+            $mi.Content | Write-Host
+          } catch {
+            Write-Host "MARKETPLACE ITEM DETAILS FAILED: $($_.Exception.Message)"
+          }
