@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Build, test, and publish
+    name: Build, test, and publish Lite
     runs-on: windows-latest
     timeout-minutes: 25
 
@@ -25,32 +25,31 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Build, test, and publish standalone EXE
+      - name: Restore, build, and run regression tests
         shell: powershell
-        run: ./tools/Build-Windows.ps1
+        run: |
+          dotnet restore RobloxPriceTracker.sln --ignore-failed-sources
+          dotnet build RobloxPriceTracker.sln -c Release --no-restore
+          dotnet run --project tests/RobloxPriceTracker.SelfTest/RobloxPriceTracker.SelfTest.csproj -c Release --no-build
 
       - name: Build and smoke-test Lite EXE
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
 
-      - name: Upload Windows builds
+      - name: Upload Lite build
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: RobloxPriceTracker-win-x64
-          path: |
-            dist/RobloxPriceTracker.exe
-            dist/RobloxPriceTracker-Lite.exe
+          name: RobloxPriceTracker-Lite-win-x64
+          path: dist/RobloxPriceTracker-Lite.exe
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload build logs on failure
+      - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: RobloxPriceTracker-build-log
-          path: |
-            logs/build.log
-            logs/build-lite.log
+          path: logs/build-lite.log
           if-no-files-found: ignore
           retention-days: 14
