@@ -25,31 +25,32 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Probe live Roblox UGC catalog routes
+      - name: Probe UGC discovery and batch details
         shell: powershell
         run: |
-          $urls = @(
-            'https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30',
-            'https://catalog.roblox.com/v1/search/items/details?Category=11&Subcategory=19&salesTypeFilter=2&SortType=3&Limit=30',
-            'https://catalog.roblox.com/v1/search/items/details?Category=2&SortType=3&Limit=30',
-            'https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30'
-          )
-          foreach ($url in $urls) {
-            Write-Host "=== $url ==="
-            try {
-              $response = Invoke-WebRequest -Uri $url -Headers @{ 'User-Agent' = 'RobloxPriceTracker/0.8.1'; Accept = 'application/json' } -TimeoutSec 20 -UseBasicParsing
-              Write-Host "HTTP $($response.StatusCode)"
-              $json = $response.Content | ConvertFrom-Json
-              $rows = @($json.data)
-              $limited = @($rows | Where-Object { @($_.itemRestrictions) -contains 'Collectible' -or @($_.itemRestrictions) -contains 'Limited' -or @($_.itemRestrictions) -contains 'LimitedUnique' })
-              Write-Host "Rows=$($rows.Count) Limited=$($limited.Count)"
-              $limited | Select-Object -First 5 id,name,assetType,price,unitsAvailableForConsumption,purchaseCount,saleLocationType,itemRestrictions | ConvertTo-Json -Depth 5 -Compress | Write-Host
-            }
-            catch {
-              $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 'n/a' }
-              Write-Host "FAILED HTTP $status :: $($_.Exception.Message)"
-            }
-            Start-Sleep -Seconds 2
+          $searchUrl = 'https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30'
+          $headers = @{ 'User-Agent' = 'RobloxPriceTracker/0.8.1'; Accept = 'application/json' }
+          try {
+            $search = Invoke-WebRequest -Uri $searchUrl -Headers $headers -TimeoutSec 20 -UseBasicParsing
+            Write-Host "SEARCH HTTP $($search.StatusCode)"
+            $searchJson = $search.Content | ConvertFrom-Json
+            $rows = @($searchJson.data)
+            Write-Host "SEARCH Rows=$($rows.Count)"
+            $ids = @($rows | Select-Object -First 20 -ExpandProperty id)
+            Start-Sleep -Seconds 5
+            $payload = @{ items = @($ids | ForEach-Object { @{ itemType = 'Asset'; id = [long]$_ } }) } | ConvertTo-Json -Depth 5 -Compress
+            $detailHeaders = @{ 'User-Agent' = 'RobloxPriceTracker/0.8.1'; Accept = 'application/json'; 'Content-Type' = 'application/json' }
+            $detail = Invoke-WebRequest -Uri 'https://catalog.roblox.com/v1/catalog/items/details' -Method Post -Headers $detailHeaders -Body $payload -TimeoutSec 20 -UseBasicParsing
+            Write-Host "DETAIL HTTP $($detail.StatusCode)"
+            $detailJson = $detail.Content | ConvertFrom-Json
+            $detailRows = @($detailJson.data)
+            $buyable = @($detailRows | Where-Object { $_.price -gt 0 -and $_.saleLocationType -like 'Shop*' -and (@($_.itemRestrictions) -contains 'Collectible') })
+            Write-Host "DETAIL Rows=$($detailRows.Count) BuyablePaid=$($buyable.Count)"
+            $detailRows | Select-Object -First 10 id,name,assetType,price,priceStatus,unitsAvailableForConsumption,purchaseCount,saleLocationType,itemRestrictions,itemStatus | ConvertTo-Json -Depth 6 -Compress | Write-Host
+          }
+          catch {
+            $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 'n/a' }
+            Write-Host "PROBE FAILED HTTP $status :: $($_.Exception.Message)"
           }
 
       - name: Build, run regression tests, and publish single EXE
