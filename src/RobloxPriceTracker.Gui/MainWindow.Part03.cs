@@ -127,14 +127,7 @@ public partial class MainWindow : Window
         FooterMonitorText.Text = monitoring ? "Monitoring ON" : "Monitoring PAUSED";
         FooterMonitorText.Foreground = new SolidColorBrush(monitoring ? Color.FromRgb(6, 118, 71) : Color.FromRgb(102, 112, 133));
         HealthMonitoringText.Text = monitoring ? "Active" : "Paused";
-        if (_trayMonitoringMenuItem is not null)
-        {
-            _trayMonitoringMenuItem.Text = monitoring ? "Pause Monitoring" : "Resume Monitoring";
-        }
-        if (_trayIcon is not null)
-        {
-            _trayIcon.Text = monitoring ? "Roblox Price Tracker - Monitoring" : "Roblox Price Tracker - Paused";
-        }
+        _trayIcon?.UpdateMonitoring(monitoring);
     }
 
     private void UpdateScheduleText()
