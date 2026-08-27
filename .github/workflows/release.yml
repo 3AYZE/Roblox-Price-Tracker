@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   release:
-    name: Cross-build, test, and publish Windows x64
-    runs-on: ubuntu-latest
+    name: Build, verify, and publish versioned release
+    runs-on: windows-latest
     timeout-minutes: 25
 
     steps:
@@ -23,136 +23,60 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Read application version and source SHA
-        id: meta
-        shell: bash
+      - name: Read application version
+        id: version
+        shell: powershell
         run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import subprocess
-          import xml.etree.ElementTree as ET
-          root = ET.parse('src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj').getroot()
-          version = root.findtext('.//Version')
-          if not version or len(version.split('.')) != 3 or not all(p.isdigit() for p in version.split('.')):
-              raise SystemExit(f'Invalid application version: {version!r}')
-          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          print(f'version={version}')
-          print(f'tag=v{version}')
-          print(f'sha={sha}')
-          PY
+          [xml]$project = Get-Content 'src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj'
+          $version = [string]$project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Application Version is missing from the GUI project.' }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Application Version '$version' is not a three-part semantic version." }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
 
       - name: Check whether release already exists
         id: existing
-        shell: bash
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-            echo "Release $TAG already exists; publishing is skipped."
-          else
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
-          fi
+          $releases = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json
+          $exists = @($releases | Where-Object { $_.tagName -eq $env:TAG }).Count -gt 0
+          if ($exists) {
+            'exists=true' >> $env:GITHUB_OUTPUT
+            Write-Host "Release $env:TAG already exists; publishing is skipped."
+          } else {
+            'exists=false' >> $env:GITHUB_OUTPUT
+            Write-Host "Release $env:TAG does not exist; a verified build will be published."
+          }
 
-      - name: Verify dependency invariant
+      - name: Build, run regression tests, and publish single EXE
         if: steps.existing.outputs.exists != 'true'
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          refs=[]
-          for p in Path('.').rglob('*.csproj'):
-              if '<PackageReference' in p.read_text(encoding='utf-8'):
-                  refs.append(str(p))
-          if refs:
-              raise SystemExit('Unexpected PackageReference entries: ' + ', '.join(refs))
-          print('Dependency invariant passed: 0 PackageReference entries.')
-          PY
-
-      - name: Restore and build Release
-        if: steps.existing.outputs.exists != 'true'
-        shell: bash
-        run: |
-          dotnet restore RobloxPriceTracker.sln --ignore-failed-sources
-          dotnet build RobloxPriceTracker.sln -c Release --no-restore
-
-      - name: Run regression suite
-        if: steps.existing.outputs.exists != 'true'
-        shell: bash
-        run: dotnet run --project tests/RobloxPriceTracker.SelfTest/RobloxPriceTracker.SelfTest.csproj -c Release --no-build
-
-      - name: Publish compressed self-contained Windows x64 EXE
-        if: steps.existing.outputs.exists != 'true'
-        shell: bash
-        run: |
-          rm -rf dist/publish-temp
-          mkdir -p dist/publish-temp
-          dotnet publish src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj \
-            -c Release \
-            -r win-x64 \
-            --self-contained true \
-            --source https://api.nuget.org/v3/index.json \
-            -p:PublishSingleFile=true \
-            -p:PublishTrimmed=false \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:EnableCompressionInSingleFile=true \
-            -p:PublishReadyToRun=false \
-            -p:DebugType=None \
-            -p:DebugSymbols=false \
-            -o dist/publish-temp
-          test -f dist/publish-temp/RobloxPriceTracker.exe
-          if find dist/publish-temp -maxdepth 1 -type f -name '*.dll' | grep -q .; then
-            echo 'Single-file invariant failed: DLLs remain in publish output.' >&2
-            exit 1
-          fi
-          cp dist/publish-temp/RobloxPriceTracker.exe dist/RobloxPriceTracker.exe
-
-      - name: Validate Windows PE output
-        if: steps.existing.outputs.exists != 'true'
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import struct
-          p=Path('dist/RobloxPriceTracker.exe')
-          data=p.read_bytes()
-          if len(data) < 10_000_000:
-              raise SystemExit(f'Published EXE is unexpectedly small: {len(data)} bytes')
-          if data[:2] != b'MZ':
-              raise SystemExit('Published file is not a Windows MZ executable.')
-          peoff=struct.unpack_from('<I', data, 0x3c)[0]
-          if data[peoff:peoff+4] != b'PE\0\0':
-              raise SystemExit('Published file is missing the PE signature.')
-          machine=struct.unpack_from('<H', data, peoff+4)[0]
-          if machine != 0x8664:
-              raise SystemExit(f'Expected x64 PE machine 0x8664, got 0x{machine:04x}.')
-          print(f'Windows x64 PE validated: {len(data)} bytes.')
-          PY
+        shell: powershell
+        run: ./tools/Build-Windows.ps1
 
       - name: Generate SHA-256 checksum
         if: steps.existing.outputs.exists != 'true'
-        id: checksum
-        shell: bash
+        shell: powershell
         run: |
-          hash=$(sha256sum dist/RobloxPriceTracker.exe | awk '{print $1}')
-          printf '%s  RobloxPriceTracker.exe' "$hash" > dist/RobloxPriceTracker.exe.sha256
-          echo "sha256=$hash" >> "$GITHUB_OUTPUT"
-          echo "SHA-256: $hash"
+          $exe = Resolve-Path 'dist/RobloxPriceTracker.exe'
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  RobloxPriceTracker.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker.exe.sha256' -Encoding ascii -NoNewline
+          Write-Host "SHA-256: $hash"
 
       - name: Publish GitHub Release
         if: steps.existing.outputs.exists != 'true'
-        shell: bash
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          RELEASE_SHA: ${{ steps.meta.outputs.sha }}
-          EXE_SHA256: ${{ steps.checksum.outputs.sha256 }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          gh release create "$TAG" \
-            'dist/RobloxPriceTracker.exe#RobloxPriceTracker.exe' \
-            'dist/RobloxPriceTracker.exe.sha256#RobloxPriceTracker.exe.sha256' \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$RELEASE_SHA" \
-            --title "Roblox Price Tracker v$VERSION" \
-            --notes "Verified Windows x64 cross-build from $RELEASE_SHA. Full regression suite passed and the single-file x64 PE output was validated. SHA-256: $EXE_SHA256. GitHub's Windows hosted runner pool was unavailable during release, so the packaged Windows startup smoke test is deferred; no release is created if build/tests/PE validation fail."
+          gh release create $env:TAG `
+            'dist/RobloxPriceTracker.exe#RobloxPriceTracker.exe' `
+            'dist/RobloxPriceTracker.exe.sha256#RobloxPriceTracker.exe.sha256' `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "Roblox Price Tracker v$env:VERSION" `
+            --notes "Verified Windows x64 release. Built from $env:GITHUB_SHA after the regression suite passed. Includes SHA-256 verification for the in-app updater."
