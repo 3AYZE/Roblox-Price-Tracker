@@ -29,10 +29,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<HistoryRow> _historyRows = new();
     private readonly ObservableCollection<RecentActivityRow> _activityRows = new();
     private readonly SemaphoreSlim _checkGate = new(1, 1);
-    private System.Windows.Forms.NotifyIcon? _trayIcon;
-    private System.Windows.Forms.ToolStripMenuItem? _trayMonitoringMenuItem;
-    private System.Windows.Forms.ToolStripMenuItem? _trayStartupMenuItem;
-    private System.Drawing.Icon? _trayDrawingIcon;
+    private NativeTrayIcon? _trayIcon;
     private ICollectionView? _watchlistView;
     private CancellationTokenSource? _monitoringCts;
     private Task? _monitoringTask;
