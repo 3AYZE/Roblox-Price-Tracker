@@ -165,12 +165,14 @@ internal sealed class NativeTrayIcon : IDisposable
         uFlags = flags,
         uCallbackMessage = WmAppTray,
         hIcon = _iconHandle,
-        szTip = _toolTip
+        szTip = _toolTip,
+        szInfo = string.Empty,
+        szInfoTitle = string.Empty
     };
 
     private IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == _taskbarCreatedMessage)
+        if (unchecked((uint)msg) == _taskbarCreatedMessage)
         {
             _visible = false;
             AddIcon();
