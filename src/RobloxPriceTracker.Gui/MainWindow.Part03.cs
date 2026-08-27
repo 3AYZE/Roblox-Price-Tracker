@@ -239,7 +239,7 @@ public partial class MainWindow : Window
         while (current is not null && current is not DataGridRow)
             current = VisualTreeHelper.GetParent(current);
 
-        return current is DataGridRow dataGridRow && dataGridRow.Item is WatchlistRow row && dataGridRow.DataGridOwner == grid
+        return current is DataGridRow dataGridRow && dataGridRow.Item is WatchlistRow row
             ? row
             : null;
     }
