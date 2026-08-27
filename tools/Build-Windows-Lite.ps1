@@ -4,6 +4,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $guiProject = Join-Path $repoRoot 'src\RobloxPriceTracker.Gui\RobloxPriceTracker.Gui.csproj'
 $dist = Join-Path $repoRoot 'dist'
 $publishDir = Join-Path $dist 'publish-lite-temp'
+$isolatedDir = Join-Path $dist 'lite-smoke-temp'
 $finalExe = Join-Path $dist 'RobloxPriceTracker-Lite.exe'
 $logDir = Join-Path $repoRoot 'logs'
 $logPath = Join-Path $logDir 'build-lite.log'
@@ -19,7 +20,7 @@ function Write-Step([string]$Text) {
 }
 
 function Assert-LiteStartup([string]$ExePath) {
-    Write-Step 'Smoke-testing Lite WPF/native-tray startup...'
+    Write-Step 'Smoke-testing isolated Lite WPF/native-tray startup...'
     $desktopRuntime = & dotnet --list-runtimes | Select-String -Pattern '^Microsoft\.WindowsDesktop\.App 9\.'
     if (-not $desktopRuntime) {
         throw 'The build runner does not have a .NET 9 Windows Desktop Runtime for the Lite startup test.'
@@ -32,7 +33,7 @@ function Assert-LiteStartup([string]$ExePath) {
         if ($process.HasExited) {
             throw "Lite app exited during startup smoke test with code $($process.ExitCode)."
         }
-        Write-Step 'Lite WPF/native-tray startup smoke test passed.'
+        Write-Step 'Isolated Lite WPF/native-tray startup smoke test passed.'
     }
     finally {
         try {
@@ -53,8 +54,10 @@ try {
         throw '.NET SDK was not found.'
     }
 
-    if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
-    New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
+    foreach ($dir in @($publishDir, $isolatedDir)) {
+        if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
 
     Write-Step 'Publishing framework-dependent single-file Windows x64 Lite EXE...'
     & dotnet publish $guiProject `
@@ -72,10 +75,16 @@ try {
 
     $publishedExe = Join-Path $publishDir 'RobloxPriceTracker.exe'
     if (-not (Test-Path $publishedExe)) { throw 'Lite publish completed but RobloxPriceTracker.exe was not produced.' }
-    $dlls = @(Get-ChildItem $publishDir -Filter '*.dll' -File -ErrorAction SilentlyContinue)
-    if ($dlls.Count -gt 0) { throw "Lite single-file invariant failed: output contains $($dlls.Count) DLL(s)." }
 
-    Assert-LiteStartup $publishedExe
+    $publishedFiles = @(Get-ChildItem $publishDir -File)
+    if ($publishedFiles.Count -ne 1 -or $publishedFiles[0].Name -ne 'RobloxPriceTracker.exe') {
+        $names = ($publishedFiles | ForEach-Object Name) -join ', '
+        throw "Lite single-file invariant failed: expected only RobloxPriceTracker.exe, found: $names"
+    }
+
+    $isolatedExe = Join-Path $isolatedDir 'RobloxPriceTracker-Lite.exe'
+    Copy-Item $publishedExe $isolatedExe -Force
+    Assert-LiteStartup $isolatedExe
 
     $bytes = (Get-Item $publishedExe).Length
     $mib = [Math]::Round($bytes / 1MB, 1)
@@ -90,5 +99,7 @@ catch {
     exit 1
 }
 finally {
-    if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force -ErrorAction SilentlyContinue }
+    foreach ($dir in @($publishDir, $isolatedDir)) {
+        if (Test-Path $dir) { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
