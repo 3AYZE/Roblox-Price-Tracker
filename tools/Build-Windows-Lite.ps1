@@ -145,6 +145,7 @@ try {
         -p:PublishSingleFile=true `
         -p:PublishTrimmed=false `
         -p:PublishReadyToRun=false `
+        -p:RPTEmbedIcon=true `
         -p:DebugType=None `
         -p:DebugSymbols=false `
         -o $publishDir 2>&1 | Tee-Object -FilePath $logPath -Append
@@ -154,7 +155,7 @@ try {
     if (-not (Test-Path $publishedExe)) { throw 'Lite publish completed but RobloxPriceTracker.exe was not produced.' }
     $publishedFiles = @(Get-ChildItem $publishDir -File)
     if ($publishedFiles.Count -ne 1 -or $publishedFiles[0].Name -ne 'RobloxPriceTracker.exe') {
-        throw "Lite single-file invariant failed; publish output contained extra files."
+        throw 'Lite single-file invariant failed; publish output contained extra files.'
     }
 
     $isolatedExe = Join-Path $isolatedDir 'RobloxPriceTracker-Lite.exe'
