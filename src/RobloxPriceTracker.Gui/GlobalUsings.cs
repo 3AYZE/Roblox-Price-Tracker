@@ -1,6 +1,4 @@
-// Curated global usings for the mixed WPF + WinForms tray project.
-// Keep System.Drawing and System.Windows.Forms out of global scope to avoid
-// type-name collisions with WPF (Application, Brush, Color, Point, etc.).
+// Curated global usings for the WPF desktop application.
 global using System;
 global using System.Collections.Generic;
 global using System.Collections.ObjectModel;
