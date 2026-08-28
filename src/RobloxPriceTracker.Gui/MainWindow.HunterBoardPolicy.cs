@@ -75,15 +75,26 @@ public partial class MainWindow
         }
         _hunterPriceAnchors[item.AssetId] = anchor;
 
+        var localSpike = UgcHunterPrimaryPricePolicy.IsLargeIncrease(item.Price, anchor.LowestObservedPrice);
+        var marketSpike = UgcHunterPrimaryPricePolicy.IsMarketReferenceIncrease(
+            item.Price,
+            item.RecentAveragePrice,
+            item.CurrentResaleFloor);
+        var nonUgcPublisher = UgcHunterPrimaryPricePolicy.IsClearlyNonUgcPublisher(item.CreatorId, item.CreatorName);
+        var shouldHide = localSpike || marketSpike || nonUgcPublisher;
         var wasHidden = _hunterPriceSpikeHidden.Contains(item.AssetId);
-        var shouldHide = UgcHunterPrimaryPricePolicy.IsLargeIncrease(item.Price, anchor.LowestObservedPrice);
+
         if (shouldHide)
         {
             _hunterPriceSpikeHidden.Add(item.AssetId);
             if (!wasHidden)
             {
-                _services.Logger.Info(
-                    $"UGC Hunter hid asset {item.AssetId} after primary price rose from observed low {anchor.LowestObservedPrice:N0} R$ to {item.Price:N0} R$.");
+                var reason = nonUgcPublisher
+                    ? $"publisher {item.CreatorName} ({item.CreatorId}) is not UGC"
+                    : marketSpike
+                        ? $"current primary price {item.Price:N0} R$ is a large jump over Roblox market reference (RAP {item.RecentAveragePrice?.ToString("N0") ?? "—"} R$, floor {(item.CurrentResaleFloor is > 0 ? item.CurrentResaleFloor.Value.ToString("N0") : "—")} R$)"
+                        : $"primary price rose from observed low {anchor.LowestObservedPrice:N0} R$ to {item.Price:N0} R$";
+                _services.Logger.Info($"UGC Hunter hid asset {item.AssetId}: {reason}.");
             }
         }
         else
@@ -107,7 +118,7 @@ public partial class MainWindow
             }
 
             // Seed the new guard from Hunter's existing observation history so an already-observed
-            // 95 -> 300 style repricing is caught immediately after upgrading.
+            // repricing can be caught immediately after upgrading.
             var legacyHistoryPath = Path.Combine(_services.DataDirectory, "ugc-hunter-history.json");
             if (!File.Exists(legacyHistoryPath)) return;
             var history = JsonSerializer.Deserialize<List<UgcHunterObservation>>(File.ReadAllText(legacyHistoryPath))
