@@ -13,19 +13,22 @@ jobs:
       - name: Probe Roblox catalog feeds
         shell: python
         run: |
-          import json, urllib.request, urllib.parse
+          import json, time, urllib.request, urllib.error
 
           queries = [
-              "Category=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=3&Limit=30",
-              "Category=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=5&Limit=30",
-              "Category=1&salesTypeFilter=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=5&Limit=30",
-              "Category=1&salesTypeFilter=2&SortType=2&SortAggregation=5&Limit=30",
-              "Category=11&CreatorTargetId=1&CreatorType=User&SortType=1&SortAggregation=5&Limit=30",
+              "Category=2&CreatorTargetId=1&CreatorType=User&Limit=30",
+              "Category=2&CreatorTargetId=1&CreatorType=1&Limit=30",
+              "Category=1&salesTypeFilter=2&CreatorTargetId=1&CreatorType=User&Limit=30",
+              "Category=1&salesTypeFilter=2&CreatorName=Roblox&Limit=30",
+              "Category=2&CreatorName=Roblox&Limit=30",
+              "Category=11&CreatorTargetId=1&CreatorType=User&Limit=30",
           ]
 
           for i, q in enumerate(queries, 1):
+              if i > 1:
+                  time.sleep(2.5)
               url = "https://catalog.roblox.com/v1/search/items/details?" + q
-              req = urllib.request.Request(url, headers={"User-Agent": "RPT-Probe/1.0", "Accept": "application/json"})
+              req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 RPT-Probe/1.0", "Accept": "application/json"})
               print(f"\n=== FEED {i} ===")
               print(url)
               try:
@@ -33,8 +36,8 @@ jobs:
                       raw = resp.read().decode("utf-8")
                       data = json.loads(raw)
                   rows = data.get("data") or []
-                  official = []
                   limited = []
+                  official = []
                   for row in rows:
                       restrictions = row.get("itemRestrictions") or []
                       is_limited = any(x in ("Limited", "LimitedUnique", "Collectible") for x in restrictions)
@@ -43,7 +46,7 @@ jobs:
                       if row.get("creatorTargetId") == 1 and str(row.get("creatorType", "")).lower() == "user" and is_limited:
                           official.append(row)
                   print("http=200 rows=", len(rows), "limited=", len(limited), "official_limited=", len(official), "next=", bool(data.get("nextPageCursor")))
-                  for row in rows[:8]:
+                  for row in rows[:6]:
                       print(json.dumps({
                           "id": row.get("id"),
                           "name": row.get("name"),
@@ -54,5 +57,8 @@ jobs:
                           "lowestPrice": row.get("lowestPrice"),
                           "price": row.get("price"),
                       }, ensure_ascii=False))
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode("utf-8", errors="replace")
+                  print("HTTP", e.code, "retry-after=", e.headers.get("Retry-After"), "body=", body[:1000])
               except Exception as e:
                   print("ERROR", repr(e))
