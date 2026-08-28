@@ -53,7 +53,7 @@ public partial class MainWindow : Window
         ConfigureStockUi();
         ConfigureTerminalUi();
         ConfigureIntelligenceUi();
-        ConfigureOfficialLimitedUi();
+        InitializeOfficialLimitedUi();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -124,8 +124,6 @@ public partial class MainWindow : Window
         _notificationTimer?.Stop();
         _hunterTimer?.Stop();
         _analyzerCts?.Cancel();
-        _officialLimitedTimer?.Stop();
-        _officialCts?.Cancel();
         StopUpdateChecks();
         DisposeTrayIcon();
     }
@@ -150,7 +148,6 @@ public partial class MainWindow : Window
         SettingsPage.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         SetTerminalPageVisibility(page);
         SetIntelligencePageVisibility(page);
-        SetOfficialLimitedPageVisibility(page);
 
         (PageTitleText.Text, PageSubtitleText.Text) = page switch
         {
