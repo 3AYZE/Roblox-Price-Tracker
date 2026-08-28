@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -54,19 +55,21 @@ public sealed record RobloxOfficialLimitedScanResult(
 /// </summary>
 public sealed class RobloxOfficialLimitedMarketService
 {
+    // Live Roblox currently rejects Category=2 here with "Category subcategory selection not supported".
+    // Category=1 + salesTypeFilter=2 is the verified Limited feed; the parser still hard-requires
+    // creatorTargetId=1/User and a Limited/Collectible restriction before anything reaches the board.
     private static readonly string[] DiscoveryQueries =
     [
-        "Category=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=3&Limit=30",
-        "Category=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=5&Limit=30",
-        "Category=2&CreatorTargetId=1&CreatorType=User&SortType=1&SortAggregation=5&Limit=30",
-        "Category=2&CreatorTargetId=1&CreatorType=User&SortType=3&Limit=30",
-        "Category=2&CreatorTargetId=1&CreatorType=User&SortType=4&Limit=30"
+        "Category=1&salesTypeFilter=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=5&Limit=30",
+        "Category=1&salesTypeFilter=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=3&Limit=30",
+        "Category=1&salesTypeFilter=2&CreatorTargetId=1&CreatorType=User&SortType=2&SortAggregation=1&Limit=30"
     ];
 
-    private const int PagesPerFeed = 2;
-    private const int MaxDiscoveredItems = 220;
+    private const int PagesPerFeed = 3;
+    private const int MaxDiscoveredItems = 180;
     private const int MaxEnrichedItems = 36;
-    private static readonly TimeSpan InterRequestDelay = TimeSpan.FromMilliseconds(425);
+    private const int MaxCatalogAttempts = 3;
+    private static readonly TimeSpan InterRequestDelay = TimeSpan.FromMilliseconds(900);
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
@@ -115,7 +118,7 @@ public sealed class RobloxOfficialLimitedMarketService
                         foreach (var item in parsed.Items)
                         {
                             rank++;
-                            var strength = Math.Max(1, 40 - rank) + Math.Max(0, 5 - feedIndex) * 5;
+                            var strength = Math.Max(1, 40 - rank) + Math.Max(0, 3 - feedIndex) * 5;
                             if (discovered.TryGetValue(item.AssetId, out var existing))
                             {
                                 existing.DiscoveryStrength += strength;
@@ -140,13 +143,13 @@ public sealed class RobloxOfficialLimitedMarketService
                     }
                     catch (Exception ex)
                     {
-                        warning ??= "Some official Limited discovery feeds could not be refreshed.";
+                        warning ??= "Some official Limited discovery pages could not be refreshed.";
                         _logger.Info($"Official Limited discovery feed {feedIndex + 1} page {page + 1} stopped: {ex.Message}");
                         break;
                     }
                 }
 
-                if (feedIndex + 1 < DiscoveryQueries.Length)
+                if (feedIndex + 1 < DiscoveryQueries.Length && discovered.Count < MaxDiscoveredItems)
                     await Task.Delay(InterRequestDelay, cancellationToken).ConfigureAwait(false);
             }
 
@@ -155,6 +158,13 @@ public sealed class RobloxOfficialLimitedMarketService
                 .OrderByDescending(x => x.DiscoveryStrength)
                 .ThenByDescending(x => x.FavoriteCount)
                 .ToArray();
+
+            if (catalogItems.Length == 0)
+            {
+                warning = warning is null
+                    ? "Roblox returned no official Limited rows. Try Refresh again in a moment."
+                    : "Official Limited discovery is temporarily unavailable or rate-limited. Try Refresh again in a moment.";
+            }
 
             var enrichmentTargets = catalogItems
                 .Where(x => x.FloorPrice is > 0)
@@ -220,14 +230,53 @@ public sealed class RobloxOfficialLimitedMarketService
     private async Task<JsonDocument> FetchSearchAsync(string query, CancellationToken cancellationToken)
     {
         var uri = new Uri("https://catalog.roblox.com/v1/search/items/details?" + query);
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Roblox catalog search returned HTTP {(int)response.StatusCode}.");
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        for (var attempt = 0; attempt < MaxCatalogAttempts; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
+            if (response.IsSuccessStatusCode)
+            {
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+
+            if (response.StatusCode == HttpStatusCode.TooManyRequests && attempt + 1 < MaxCatalogAttempts)
+            {
+                var delay = GetRetryDelay(response.Headers.RetryAfter, attempt);
+                _logger.Info($"Official Limited catalog rate-limited; retrying in {delay.TotalSeconds:0.#}s (attempt {attempt + 2}/{MaxCatalogAttempts}).");
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            throw new HttpRequestException($"Roblox catalog search returned HTTP {(int)response.StatusCode}.");
+        }
+
+        throw new HttpRequestException("Roblox catalog search retry budget was exhausted.");
+    }
+
+    internal static TimeSpan GetRetryDelay(RetryConditionHeaderValue? retryAfter, int attempt)
+    {
+        TimeSpan delay;
+        if (retryAfter?.Delta is { } delta && delta > TimeSpan.Zero)
+        {
+            delay = delta;
+        }
+        else if (retryAfter?.Date is { } date)
+        {
+            delay = date - DateTimeOffset.UtcNow;
+            if (delay <= TimeSpan.Zero) delay = TimeSpan.FromSeconds(5);
+        }
+        else
+        {
+            delay = TimeSpan.FromSeconds(5);
+        }
+
+        // Add a small cushion and increase it on repeated throttles. Keep the UI bounded.
+        var seconds = Math.Clamp(delay.TotalSeconds + 1 + attempt * 3, 2, 15);
+        return TimeSpan.FromSeconds(seconds);
     }
 
     private void EnsureHistoryLoaded()
