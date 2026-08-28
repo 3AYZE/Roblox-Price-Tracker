@@ -3,31 +3,11 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Windows;
 using System.Windows.Threading;
 using RobloxPriceTracker.Infrastructure;
 
 namespace RobloxPriceTracker.Gui;
-
-internal static class HunterBoardPolicyBootstrap
-{
-    [ModuleInitializer]
-    internal static void Initialize()
-    {
-        EventManager.RegisterClassHandler(
-            typeof(MainWindow),
-            FrameworkElement.LoadedEvent,
-            new RoutedEventHandler(OnMainWindowLoaded));
-    }
-
-    private static void OnMainWindowLoaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is MainWindow window)
-            window.InitializeHunterBoardPolicy();
-    }
-}
 
 public partial class MainWindow
 {
