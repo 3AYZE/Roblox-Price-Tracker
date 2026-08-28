@@ -1,9 +1,17 @@
+using System.Text.Json;
+using RobloxPriceTracker.Infrastructure;
+
 namespace RobloxPriceTracker.Gui;
 
 public sealed class PaperPortfolioStore
 {
     private readonly string _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = false,
+        PropertyNameCaseInsensitive = true
+    };
     private List<PaperPosition> _positions = new();
     private bool _initialized;
 
@@ -19,19 +27,8 @@ public sealed class PaperPortfolioStore
         try
         {
             if (_initialized) return;
-            if (File.Exists(_path))
-            {
-                try
-                {
-                    await using var stream = File.OpenRead(_path);
-                    _positions = await JsonSerializer.DeserializeAsync<List<PaperPosition>>(stream, cancellationToken: cancellationToken).ConfigureAwait(false)
-                        ?? new List<PaperPosition>();
-                }
-                catch
-                {
-                    _positions = new List<PaperPosition>();
-                }
-            }
+            _positions = await SafeJsonStore.LoadWithRecoveryAsync<List<PaperPosition>>(_path, Options, cancellationToken: cancellationToken).ConfigureAwait(false)
+                         ?? new List<PaperPosition>();
             _initialized = true;
         }
         finally
@@ -128,14 +125,8 @@ public sealed class PaperPortfolioStore
         }
     }
 
-    private async Task PersistLockedAsync(CancellationToken cancellationToken)
-    {
-        var directory = Path.GetDirectoryName(_path);
-        if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-        var temp = _path + ".tmp";
-        await File.WriteAllTextAsync(temp, JsonSerializer.Serialize(_positions), cancellationToken).ConfigureAwait(false);
-        File.Move(temp, _path, true);
-    }
+    private Task PersistLockedAsync(CancellationToken cancellationToken) =>
+        SafeJsonStore.SaveWithBackupAsync(_path, _positions, Options, cancellationToken);
 }
 
 public sealed record PaperPosition(
