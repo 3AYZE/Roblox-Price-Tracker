@@ -87,8 +87,11 @@ public partial class MainWindow
 
         foreach (var text in FindVisualChildren<TextBlock>(this))
         {
-            if (text.Text.Contains("3AYZE", StringComparison.OrdinalIgnoreCase) && text.Text.TrimStart().StartsWith("v0.", StringComparison.OrdinalIgnoreCase))
+            if (text.Text.Contains("3AYZE", StringComparison.OrdinalIgnoreCase) &&
+                text.Text.TrimStart().StartsWith("v0.", StringComparison.OrdinalIgnoreCase))
+            {
                 text.Text = "v0.11.0 · 3AYZE";
+            }
         }
     }
 
@@ -163,7 +166,6 @@ public partial class MainWindow
 
         _cleanWorkspaceTabs = new StackPanel
         {
-            Grid.IsSharedSizeScopeProperty = true,
             Orientation = Orientation.Horizontal,
             VerticalAlignment = VerticalAlignment.Stretch
         };
@@ -195,27 +197,27 @@ public partial class MainWindow
             _ => "SETTINGS"
         };
 
-        var tabs = section switch
+        IReadOnlyList<(string Label, string Page)> tabs = section switch
         {
-            "Discover" => new[]
+            "Discover" => new (string, string)[]
             {
                 ("Overview", "Dashboard"),
                 ("Official Hunt", "Hunt"),
                 ("Official Market", "OfficialMarket"),
                 ("UGC Hunter", "Hunter")
             },
-            "MyItems" => new[]
+            "MyItems" => new (string, string)[]
             {
                 ("Tracker", "Watchlist"),
                 ("Portfolio", "Portfolio"),
                 ("Alerts", "Alerts")
             },
-            "Research" => new[]
+            "Research" => new (string, string)[]
             {
                 ("Analyzer", "Analyzer"),
                 ("History", "Reports")
             },
-            _ => Array.Empty<(string, string)>()
+            _ => Array.Empty<(string Label, string Page)>()
         };
 
         foreach (var (label, target) in tabs)
@@ -560,25 +562,26 @@ public partial class MainWindow
         _paperRows.CollectionChanged += (_, _) => UpdateCleanEmptyStates();
         _officialRows.CollectionChanged += (_, _) => UpdateCleanEmptyStates();
 
-        if (_hunterSearchBox is not null) _hunterSearchBox.TextChanged += (_, _) => Dispatcher.BeginInvoke(UpdateCleanEmptyStates);
-        if (_hunterCategoryCombo is not null) _hunterCategoryCombo.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(UpdateCleanEmptyStates);
-        if (_hunterOpportunityCombo is not null) _hunterOpportunityCombo.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(UpdateCleanEmptyStates);
-        if (_huntSearchBox is not null) _huntSearchBox.TextChanged += (_, _) => Dispatcher.BeginInvoke(UpdateCleanEmptyStates);
-        if (_huntStrategyCombo is not null) _huntStrategyCombo.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(UpdateCleanEmptyStates);
-        if (_officialSearchBox is not null) _officialSearchBox.TextChanged += (_, _) => Dispatcher.BeginInvoke(UpdateCleanEmptyStates);
-        if (_officialFilterCombo is not null) _officialFilterCombo.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(UpdateCleanEmptyStates);
+        if (_hunterSearchBox is not null) _hunterSearchBox.TextChanged += (_, _) => QueueCleanEmptyStateUpdate();
+        if (_hunterCategoryCombo is not null) _hunterCategoryCombo.SelectionChanged += (_, _) => QueueCleanEmptyStateUpdate();
+        if (_hunterOpportunityCombo is not null) _hunterOpportunityCombo.SelectionChanged += (_, _) => QueueCleanEmptyStateUpdate();
+        if (_huntSearchBox is not null) _huntSearchBox.TextChanged += (_, _) => QueueCleanEmptyStateUpdate();
+        if (_huntStrategyCombo is not null) _huntStrategyCombo.SelectionChanged += (_, _) => QueueCleanEmptyStateUpdate();
+        if (_officialSearchBox is not null) _officialSearchBox.TextChanged += (_, _) => QueueCleanEmptyStateUpdate();
+        if (_officialFilterCombo is not null) _officialFilterCombo.SelectionChanged += (_, _) => QueueCleanEmptyStateUpdate();
     }
+
+    private void QueueCleanEmptyStateUpdate() => Dispatcher.BeginInvoke(new Action(UpdateCleanEmptyStates));
 
     private Border? AddCleanEmptyState(DataGrid? grid, string title, string detail)
     {
         if (grid?.Parent is not Grid parent) return null;
-        var row = Grid.GetRow(grid);
         var border = new Border
         {
             Background = TerminalPanel,
             IsHitTestVisible = false
         };
-        Grid.SetRow(border, row);
+        Grid.SetRow(border, Grid.GetRow(grid));
         Panel.SetZIndex(border, 20);
         var stack = new StackPanel
         {
@@ -600,7 +603,9 @@ public partial class MainWindow
             FontSize = 8.8,
             Margin = new Thickness(0, 5, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Center,
-            TextAlignment = TextAlignment.Center
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 420
         });
         border.Child = stack;
         parent.Children.Add(border);
@@ -648,7 +653,6 @@ public partial class MainWindow
 
     private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
     {
-        if (root is null) yield break;
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {
             var child = VisualTreeHelper.GetChild(root, i);
