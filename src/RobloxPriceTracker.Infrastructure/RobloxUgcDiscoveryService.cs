@@ -55,51 +55,86 @@ public sealed record RobloxUgcDiscoveryResult(
     int HydratedCount);
 
 /// <summary>
-/// Finds current UGC Limiteds in two stages. Roblox's search endpoint is treated as discovery-only:
-/// it currently returns Collectible rows with price=0/purchaseCount=null for many assets. The IDs are
-/// therefore hydrated through the catalog batch-details endpoint before buyability, supply, and price
-/// filters are applied. This also keeps Hunter to one normal search request plus one bounded detail batch.
+/// Finds current UGC Limiteds in two stages. Roblox search is discovery-only because Limited
+/// search rows can contain placeholder price/sales fields. Hunter combines several bounded,
+/// paced Limited feeds, deduplicates IDs, then hydrates at most one 40-item detail batch before
+/// applying buyability, supply, and price filters.
 /// </summary>
 public sealed class RobloxUgcDiscoveryService
 {
-    private static readonly Uri DiscoveryEndpoint = new(
-        "https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30");
+    private static readonly Uri[] DiscoveryEndpoints =
+    [
+        new("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
+        new("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30"),
+        new("https://catalog.roblox.com/v1/search/items/details?Category=2&SortType=3&Limit=30"),
+        new("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30")
+    ];
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
     private const int MaxDiscoveryIds = 40;
     private const int MaxRateLimitAttempts = 2;
+    private static readonly TimeSpan InterFeedDelay = TimeSpan.FromMilliseconds(800);
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
     private readonly RobloxMarketplaceItemService _marketplaceItems;
+    private readonly bool _expandDiscovery;
     private string? _anonymousCsrfToken;
 
-    public RobloxUgcDiscoveryService(HttpClient httpClient, AppLogger logger)
+    public RobloxUgcDiscoveryService(HttpClient httpClient, AppLogger logger, bool expandDiscovery = true)
     {
         _httpClient = httpClient;
         _logger = logger;
         _marketplaceItems = new RobloxMarketplaceItemService(httpClient, logger);
+        _expandDiscovery = expandDiscovery;
     }
 
     public async Task<RobloxUgcDiscoveryResult> DiscoverAsync(CancellationToken cancellationToken = default)
     {
-        using var searchDocument = await FetchDiscoveryAsync(cancellationToken).ConfigureAwait(false);
-        var ids = RobloxUgcCatalogDiscoveryParser.ParseDiscoveryIds(searchDocument.RootElement)
-            .Distinct()
-            .Take(MaxDiscoveryIds)
-            .ToArray();
+        var ids = new List<long>(MaxDiscoveryIds);
+        var seen = new HashSet<long>();
+        var feedCount = _expandDiscovery ? DiscoveryEndpoints.Length : 1;
+        var feedsUsed = 0;
 
-        if (ids.Length == 0)
+        for (var i = 0; i < feedCount && ids.Count < MaxDiscoveryIds; i++)
+        {
+            JsonDocument searchDocument;
+            try
+            {
+                searchDocument = await FetchDiscoveryAsync(DiscoveryEndpoints[i], cancellationToken).ConfigureAwait(false);
+            }
+            catch (RobloxUgcDiscoveryException ex) when (i > 0 && ids.Count > 0)
+            {
+                _logger.Info($"UGC Hunter supplemental discovery stopped after feed {i + 1}: {ex.Message}");
+                break;
+            }
+
+            using (searchDocument)
+            {
+                feedsUsed++;
+                foreach (var id in RobloxUgcCatalogDiscoveryParser.ParseDiscoveryIds(searchDocument.RootElement))
+                {
+                    if (seen.Add(id)) ids.Add(id);
+                    if (ids.Count >= MaxDiscoveryIds) break;
+                }
+            }
+
+            if (ids.Count >= MaxDiscoveryIds) break;
+            if (i + 1 < feedCount)
+                await Task.Delay(InterFeedDelay, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (ids.Count == 0)
         {
             _logger.Info("UGC Hunter discovery returned no UGC Collectible asset IDs.");
             return new RobloxUgcDiscoveryResult(Array.Empty<RobloxUgcCatalogCandidate>(), 0, 0);
         }
 
-        // Avoid immediately issuing another catalog request in the same burst. Roblox's public
-        // catalog edge currently rate-limits rapid sequential search calls aggressively.
+        // Avoid issuing catalog hydration in the same burst as the last search request.
         await Task.Delay(TimeSpan.FromMilliseconds(650), cancellationToken).ConfigureAwait(false);
 
-        using var detailDocument = await FetchDetailsAsync(ids, cancellationToken).ConfigureAwait(false);
+        var idArray = ids.ToArray();
+        using var detailDocument = await FetchDetailsAsync(idArray, cancellationToken).ConfigureAwait(false);
         var hydratedRows = detailDocument.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
             ? data.GetArrayLength()
             : 0;
@@ -153,18 +188,18 @@ public sealed class RobloxUgcDiscoveryService
                 rejectedUnavailable++;
         }
 
-        _logger.Info($"UGC Hunter authoritative discovery: {ids.Length} IDs, {hydratedRows} catalog rows, {verified} marketplace-verified, {rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
-        return new RobloxUgcDiscoveryResult(candidates, ids.Length, hydratedRows);
+        _logger.Info($"UGC Hunter authoritative discovery: {feedsUsed} feed(s), {idArray.Length} IDs, {hydratedRows} catalog rows, {verified} marketplace-verified, {rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
+        return new RobloxUgcDiscoveryResult(candidates, idArray.Length, hydratedRows);
     }
 
-    private async Task<JsonDocument> FetchDiscoveryAsync(CancellationToken cancellationToken)
+    private async Task<JsonDocument> FetchDiscoveryAsync(Uri endpoint, CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < MaxRateLimitAttempts; attempt++)
         {
             HttpResponseMessage response;
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, DiscoveryEndpoint);
+                using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
                 response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);

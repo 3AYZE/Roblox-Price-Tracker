@@ -189,7 +189,7 @@ internal static partial class Program
         using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
         var logPath = Path.Combine(Path.GetTempPath(), "rpt-selftest", Guid.NewGuid().ToString("N"), "app.log");
         var logger = new AppLogger(logPath);
-        var service = new RobloxUgcDiscoveryService(http, logger);
+        var service = new RobloxUgcDiscoveryService(http, logger, expandDiscovery: false);
         var result = await service.DiscoverAsync();
 
         AssertEqual(3, call);
