@@ -51,7 +51,11 @@ internal static partial class Program
             ("White Heart Aura reference is unprofitable", TestWhiteHeartAuraReferenceIsUnprofitableAsync),
             ("UGC analyzer parses authoritative catalog detail", TestUgcAnalyzerCatalogParserAsync),
             ("UGC analyzer grades complete market evidence", TestUgcAnalyzerDataQualityAsync),
-            ("Creator intelligence summarizes profitable track record", TestCreatorIntelligenceTrackRecordAsync)
+            ("Creator intelligence summarizes profitable track record", TestCreatorIntelligenceTrackRecordAsync),
+            ("Official Limited parser keeps Roblox-published Limiteds", TestOfficialLimitedParserKeepsRobloxLimitedsAsync),
+            ("Official Hunt ranks liquid discounts", TestOfficialHuntRanksLiquidDiscountAsync),
+            ("Official Hunt rejects illiquid fake discounts", TestOfficialHuntRejectsFakeDeepDiscountWithoutLiquidityAsync),
+            ("Official Hunt detects price drops", TestOfficialHuntDetectsPriceDropAsync)
         };
 
         var failed = 0;
