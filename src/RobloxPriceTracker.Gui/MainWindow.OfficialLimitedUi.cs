@@ -1,14 +1,36 @@
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using RobloxPriceTracker.Infrastructure;
 
 namespace RobloxPriceTracker.Gui;
+
+internal static class OfficialLimitedUiBootstrap
+{
+    [ModuleInitializer]
+    internal static void Initialize()
+    {
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            FrameworkElement.LoadedEvent,
+            new RoutedEventHandler(OnMainWindowLoaded));
+    }
+
+    private static void OnMainWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is MainWindow window)
+            window.InitializeOfficialLimitedUi();
+    }
+}
 
 public partial class MainWindow
 {
@@ -25,7 +47,9 @@ public partial class MainWindow
     private TextBox? _officialSearchBox;
     private ComboBox? _huntStrategyCombo;
     private ComboBox? _officialFilterCombo;
-    private TextBlock? _officialScanStatus;
+    private TextBlock? _huntScanStatus;
+    private TextBlock? _officialMarketScanStatus;
+    private TextBlock? _huntScanCount;
     private TextBlock? _officialScanCount;
     private TextBlock? _officialEnrichedCount;
     private TextBlock? _officialDealCount;
@@ -44,10 +68,14 @@ public partial class MainWindow
     private DispatcherTimer? _officialLimitedTimer;
     private DateTimeOffset? _officialLastRefreshUtc;
     private bool _officialRefreshInProgress;
+    private bool _officialUiInitialized;
     private CancellationTokenSource? _officialCts;
 
-    private void ConfigureOfficialLimitedUi()
+    internal void InitializeOfficialLimitedUi()
     {
+        if (_officialUiInitialized) return;
+        _officialUiInitialized = true;
+
         _officialLimitedService = new RobloxOfficialLimitedMarketService(
             _services.HttpClient,
             _services.Logger,
@@ -62,6 +90,9 @@ public partial class MainWindow
             var insertAt = Math.Clamp(dashboardIndex + 1, 0, navStack.Children.Count);
             navStack.Children.Insert(insertAt, _huntNav);
             navStack.Children.Insert(Math.Min(insertAt + 1, navStack.Children.Count), _officialMarketNav);
+
+            foreach (var nav in navStack.Children.OfType<RadioButton>().Where(x => x != _huntNav && x != _officialMarketNav))
+                nav.Checked += (_, _) => HideOfficialLimitedPages();
         }
 
         if (DashboardPage.Parent is Grid contentHost)
@@ -91,12 +122,22 @@ public partial class MainWindow
                 await RefreshOfficialLimitedAsync(silent: true);
         };
         _officialLimitedTimer.Start();
+
+        Closed += (_, _) =>
+        {
+            _officialLimitedTimer?.Stop();
+            _officialCts?.Cancel();
+            _officialCts?.Dispose();
+            _officialCts = null;
+        };
     }
 
     private async void HuntNav_Checked(object sender, RoutedEventArgs e)
     {
         if (!IsLoaded) return;
         ShowPage("Hunt");
+        ShowOfficialLimitedPage(hunt: true);
+        SetOfficialPageHeader("Hunt", "Best evidence-backed Roblox official Limited opportunities ranked by value, liquidity, stability, and confidence.");
         if (_officialLastRefreshUtc is null || DateTimeOffset.UtcNow - _officialLastRefreshUtc > TimeSpan.FromMinutes(2))
             await RefreshOfficialLimitedAsync(silent: _officialRows.Count > 0);
     }
@@ -105,21 +146,34 @@ public partial class MainWindow
     {
         if (!IsLoaded) return;
         ShowPage("OfficialMarket");
+        ShowOfficialLimitedPage(hunt: false);
+        SetOfficialPageHeader("Official Market", "Browse Roblox-published Limiteds separately from UGC drops, with floor, RAP, volume, discounts, and Hunt evidence.");
         if (_officialLastRefreshUtc is null || DateTimeOffset.UtcNow - _officialLastRefreshUtc > TimeSpan.FromMinutes(2))
             await RefreshOfficialLimitedAsync(silent: _officialRows.Count > 0);
     }
 
-    private void SetOfficialLimitedPageVisibility(string page)
+    private void SetOfficialPageHeader(string title, string subtitle)
     {
-        if (_huntPage is not null) _huntPage.Visibility = page == "Hunt" ? Visibility.Visible : Visibility.Collapsed;
-        if (_officialMarketPage is not null) _officialMarketPage.Visibility = page == "OfficialMarket" ? Visibility.Visible : Visibility.Collapsed;
+        PageTitleText.Text = title;
+        PageSubtitleText.Text = subtitle;
+    }
+
+    private void ShowOfficialLimitedPage(bool hunt)
+    {
+        if (_huntPage is not null) _huntPage.Visibility = hunt ? Visibility.Visible : Visibility.Collapsed;
+        if (_officialMarketPage is not null) _officialMarketPage.Visibility = hunt ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void HideOfficialLimitedPages()
+    {
+        if (_huntPage is not null) _huntPage.Visibility = Visibility.Collapsed;
+        if (_officialMarketPage is not null) _officialMarketPage.Visibility = Visibility.Collapsed;
     }
 
     private Grid BuildOfficialHuntPage()
     {
         var root = MakeOfficialRoot();
-        var header = BuildOfficialHeader("OFFICIAL LIMITED HUNT", "Only evidence-backed Roblox Limited opportunities make this board.", true);
-        root.Children.Add(header);
+        root.Children.Add(BuildOfficialHeader("OFFICIAL LIMITED HUNT", "Only evidence-backed Roblox Limited opportunities make this board.", hunt: true));
 
         var body = new Grid();
         Grid.SetRow(body, 2);
@@ -155,8 +209,7 @@ public partial class MainWindow
         foreach (var value in new[] { "Best", "Fresh", "Value", "Fast Flip", "Stable", "High Upside" }) _huntStrategyCombo.Items.Add(value);
         _huntStrategyCombo.SelectionChanged += (_, _) => { ApplyHuntSort(); _officialHuntView?.Refresh(); };
         controls.Children.Add(_huntStrategyCombo);
-        var refresh = MakeOfficialRefreshButton();
-        controls.Children.Add(refresh);
+        controls.Children.Add(MakeOfficialRefreshButton());
 
         _huntGrid = CreateOfficialGrid();
         _huntGrid.SelectionChanged += (_, _) => UpdateOfficialHuntInspector();
@@ -175,7 +228,7 @@ public partial class MainWindow
     private Grid BuildOfficialMarketPage()
     {
         var root = MakeOfficialRoot();
-        root.Children.Add(BuildOfficialHeader("ROBLOX OFFICIAL LIMITEDS", "Broad Roblox-published Limited browser. Double-click any row for the full Analyzer.", false));
+        root.Children.Add(BuildOfficialHeader("ROBLOX OFFICIAL LIMITEDS", "Broad Roblox-published Limited browser. Double-click any row for the full Analyzer.", hunt: false));
 
         var panel = MakePanel();
         Grid.SetRow(panel, 2);
@@ -234,17 +287,20 @@ public partial class MainWindow
         Grid.SetColumn(metrics, 1);
         header.Children.Add(metrics);
         metrics.Children.Add(MakeSmallLabel("SCANNED"));
-        _officialScanCount ??= MakeMetric("0", TerminalText, 11);
-        var scanned = new TextBlock { Text = _officialScanCount.Text, Foreground = TerminalText, FontWeight = FontWeights.SemiBold, FontSize = 11, Margin = new Thickness(6, 0, 14, 0) };
-        if (!hunt) _officialScanCount = scanned;
+        var scanned = MakeMetric("0", TerminalText, 11);
+        scanned.Margin = new Thickness(6, 0, 14, 0);
+        if (hunt) _huntScanCount = scanned; else _officialScanCount = scanned;
         metrics.Children.Add(scanned);
+
         metrics.Children.Add(MakeSmallLabel(hunt ? "DEALS" : "ENRICHED"));
-        var metric = MakeMetric("0", hunt ? TerminalGreen : TerminalBlue, 11);
-        metric.Margin = new Thickness(6, 0, 14, 0);
-        if (hunt) _officialDealCount = metric; else _officialEnrichedCount = metric;
-        metrics.Children.Add(metric);
-        _officialScanStatus ??= new TextBlock { Text = "READY", Foreground = TerminalMuted, FontSize = 8.5, VerticalAlignment = VerticalAlignment.Center };
-        metrics.Children.Add(_officialScanStatus);
+        var secondary = MakeMetric("0", hunt ? TerminalGreen : TerminalBlue, 11);
+        secondary.Margin = new Thickness(6, 0, 14, 0);
+        if (hunt) _officialDealCount = secondary; else _officialEnrichedCount = secondary;
+        metrics.Children.Add(secondary);
+
+        var status = new TextBlock { Text = "READY", Foreground = TerminalMuted, FontSize = 8.5, VerticalAlignment = VerticalAlignment.Center };
+        if (hunt) _huntScanStatus = status; else _officialMarketScanStatus = status;
+        metrics.Children.Add(status);
         return header;
     }
 
@@ -255,7 +311,7 @@ public partial class MainWindow
         return button;
     }
 
-    private DataGrid CreateOfficialGrid() => new()
+    private static DataGrid CreateOfficialGrid() => new()
     {
         IsReadOnly = true,
         RowHeight = 52,
@@ -409,8 +465,8 @@ public partial class MainWindow
             _officialRows.Clear();
             foreach (var item in scan.Items)
             {
-                thumbnails.TryGetValue(item.AssetId, out var thumb);
-                _officialRows.Add(new OfficialLimitedRow(item, thumb));
+                thumbnails.TryGetValue(item.AssetId, out var thumbnail);
+                _officialRows.Add(new OfficialLimitedRow(item, thumbnail));
             }
 
             _officialLastRefreshUtc = scan.ObservedAtUtc;
@@ -447,6 +503,7 @@ public partial class MainWindow
     private void UpdateOfficialCounts(RobloxOfficialLimitedScanResult scan)
     {
         var deals = _officialRows.Count(x => x.IsHuntCandidate);
+        if (_huntScanCount is not null) _huntScanCount.Text = scan.DiscoveredCount.ToString("N0");
         if (_officialScanCount is not null) _officialScanCount.Text = scan.DiscoveredCount.ToString("N0");
         if (_officialEnrichedCount is not null) _officialEnrichedCount.Text = scan.EnrichedCount.ToString("N0");
         if (_officialDealCount is not null) _officialDealCount.Text = deals.ToString("N0");
@@ -454,9 +511,8 @@ public partial class MainWindow
 
     private void SetOfficialStatus(string text, Brush brush)
     {
-        if (_officialScanStatus is null) return;
-        _officialScanStatus.Text = text;
-        _officialScanStatus.Foreground = brush;
+        if (_huntScanStatus is not null) { _huntScanStatus.Text = text; _huntScanStatus.Foreground = brush; }
+        if (_officialMarketScanStatus is not null) { _officialMarketScanStatus.Text = text; _officialMarketScanStatus.Foreground = brush; }
     }
 
     private void SetOfficialWarning(string? warning)
@@ -513,6 +569,7 @@ public partial class MainWindow
         _analyzerInput.Text = row.AssetId.ToString();
         if (_analyzerNav is not null) _analyzerNav.IsChecked = true;
         ShowPage("Analyzer");
+        HideOfficialLimitedPages();
         await AnalyzeCurrentInputAsync();
     }
 
