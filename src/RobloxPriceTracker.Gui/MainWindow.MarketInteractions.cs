@@ -12,6 +12,16 @@ public partial class MainWindow
             typeof(DataGrid),
             Control.MouseDoubleClickEvent,
             new MouseButtonEventHandler(OnDataGridMouseDoubleClick));
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            FrameworkElement.LoadedEvent,
+            new RoutedEventHandler(OnMainWindowLoadedForHunterPolicy));
+    }
+
+    private static void OnMainWindowLoadedForHunterPolicy(object sender, RoutedEventArgs e)
+    {
+        if (sender is MainWindow window)
+            window.InitializeHunterBoardPolicy();
     }
 
     private static async void OnDataGridMouseDoubleClick(object sender, MouseButtonEventArgs e)
