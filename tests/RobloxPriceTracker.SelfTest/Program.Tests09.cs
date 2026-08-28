@@ -12,6 +12,19 @@ internal static partial class Program
         AssertTrue(!UgcHunterPrimaryPricePolicy.IsLargeIncrease(150, 95));
         AssertTrue(!UgcHunterPrimaryPricePolicy.IsLargeIncrease(120, 95));
         AssertTrue(!UgcHunterPrimaryPricePolicy.IsLargeIncrease(95, 95));
+
+        // First-seen repricings must also be rejected from Roblox market evidence even when
+        // Hunter never personally observed the old primary price.
+        AssertTrue(UgcHunterPrimaryPricePolicy.IsMarketReferenceIncrease(300, 95d, null));
+        AssertTrue(UgcHunterPrimaryPricePolicy.IsMarketReferenceIncrease(68_000_000, 95d, null));
+        AssertTrue(UgcHunterPrimaryPricePolicy.IsMarketReferenceIncrease(300, null, 95));
+        AssertTrue(!UgcHunterPrimaryPricePolicy.IsMarketReferenceIncrease(150, 95d, null));
+        AssertTrue(!UgcHunterPrimaryPricePolicy.IsMarketReferenceIncrease(95, 95d, null));
+
+        // UGC Hunter should never surface Roblox-published inventory as a UGC opportunity.
+        AssertTrue(UgcHunterPrimaryPricePolicy.IsClearlyNonUgcPublisher(1, "Roblox"));
+        AssertTrue(UgcHunterPrimaryPricePolicy.IsClearlyNonUgcPublisher(12345, "Roblox"));
+        AssertTrue(!UgcHunterPrimaryPricePolicy.IsClearlyNonUgcPublisher(12345, "UGC Creator"));
         return Task.CompletedTask;
     }
 
