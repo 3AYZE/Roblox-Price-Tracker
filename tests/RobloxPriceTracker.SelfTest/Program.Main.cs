@@ -55,7 +55,10 @@ internal static partial class Program
             ("Official Limited parser keeps Roblox-published Limiteds", TestOfficialLimitedParserKeepsRobloxLimitedsAsync),
             ("Official Hunt ranks liquid discounts", TestOfficialHuntRanksLiquidDiscountAsync),
             ("Official Hunt rejects illiquid fake discounts", TestOfficialHuntRejectsFakeDeepDiscountWithoutLiquidityAsync),
-            ("Official Hunt detects price drops", TestOfficialHuntDetectsPriceDropAsync)
+            ("Official Hunt detects price drops", TestOfficialHuntDetectsPriceDropAsync),
+            ("Safe JSON recovers last good backup", TestSafeJsonRecoversBackupAsync),
+            ("Legacy JSON migration preserves current data", TestLegacyJsonMigrationPreservesCurrentAsync),
+            ("User-data snapshot captures JSON state", TestUserDataSnapshotCapturesJsonAsync)
         };
 
         var failed = 0;

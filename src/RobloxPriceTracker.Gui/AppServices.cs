@@ -76,33 +76,40 @@ public sealed class AppServices : IDisposable
     public static async Task<AppServices> CreateAsync(CancellationToken cancellationToken = default)
     {
         var dataDir = Environment.GetEnvironmentVariable("RPT_DATA_DIR");
+        string? legacyDir = null;
         if (string.IsNullOrWhiteSpace(dataDir))
         {
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             dataDir = Path.Combine(localAppData, "RobloxPriceTracker");
-            var legacyDir = Path.Combine(localAppData, "RobloxPriceTrackerPrototype");
-
-            Directory.CreateDirectory(dataDir);
-            if (Directory.Exists(legacyDir))
-            {
-                foreach (var fileName in new[] { "tracker-state.json", "app-settings.json" })
-                {
-                    var oldPath = Path.Combine(legacyDir, fileName);
-                    var newPath = Path.Combine(dataDir, fileName);
-                    if (File.Exists(oldPath) && !File.Exists(newPath))
-                    {
-                        try { File.Copy(oldPath, newPath, overwrite: false); }
-                        catch { }
-                    }
-                }
-            }
+            legacyDir = Path.Combine(localAppData, "RobloxPriceTrackerPrototype");
         }
 
         Directory.CreateDirectory(dataDir);
+        var logger = new AppLogger(Path.Combine(dataDir, "logs", "app.log"));
+
+        if (!string.IsNullOrWhiteSpace(legacyDir) && Directory.Exists(legacyDir))
+        {
+            var migrated = SafeJsonStore.MigrateLegacyJsonFiles(legacyDir, dataDir, logger);
+            if (migrated.Count > 0)
+                logger.Info($"Migrated {migrated.Count} legacy user-data file(s) into the current data directory.");
+        }
+
+        try
+        {
+            await SafeJsonStore.CreateAutomaticSnapshotAsync(dataDir, logger, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.Info($"Automatic user-data snapshot was skipped: {ex.Message}");
+        }
+
         var repository = new JsonFileRepository(Path.Combine(dataDir, "tracker-state.json"));
         await repository.InitializeAsync(cancellationToken);
 
-        var logger = new AppLogger(Path.Combine(dataDir, "logs", "app.log"));
         var settingsStore = new AppSettingsStore(Path.Combine(dataDir, "app-settings.json"));
         var settings = await settingsStore.LoadAsync(cancellationToken);
 
@@ -114,9 +121,7 @@ public sealed class AppServices : IDisposable
 
         var persistedBackoff = await repository.GetProviderBackoffUntilAsync(provider.Name, cancellationToken);
         if (persistedBackoff is { } backoffUntil && backoffUntil > DateTimeOffset.UtcNow)
-        {
             governor.ApplyMinimumDelay(backoffUntil - DateTimeOffset.UtcNow);
-        }
 
         var sequence = await repository.GetMaxPollSequenceAsync(cancellationToken);
         var coordinator = new TrackerCoordinator(repository, provider, alertEngine, governor, sequence, logger);
