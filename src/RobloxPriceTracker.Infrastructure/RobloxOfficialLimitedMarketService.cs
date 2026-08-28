@@ -322,10 +322,10 @@ public static class RobloxOfficialLimitedCatalogParser
             var restrictions = ReadStrings(node, "itemRestrictions");
             if (!restrictions.Any(x => LimitedMarkers.Contains(x))) continue;
 
-            var floor = TryInt64(node, "lowestPrice", out var floorValue) && floorValue > 0 ? floorValue : null;
-            var listed = TryInt64(node, "price", out var priceValue) && priceValue > 0 ? priceValue : null;
+            long? floor = TryInt64(node, "lowestPrice", out var floorValue) && floorValue > 0 ? floorValue : null;
+            long? listed = TryInt64(node, "price", out var priceValue) && priceValue > 0 ? priceValue : null;
             var favorites = TryInt64(node, "favoriteCount", out var favoriteValue) && favoriteValue > 0 ? favoriteValue : 0;
-            var purchases = TryInt64(node, "purchaseCount", out var purchaseValue) && purchaseValue >= 0 ? purchaseValue : null;
+            long? purchases = TryInt64(node, "purchaseCount", out var purchaseValue) && purchaseValue >= 0 ? purchaseValue : null;
             var assetType = TryInt64(node, "assetType", out var assetTypeValue) ? (int)Math.Clamp(assetTypeValue, 0, int.MaxValue) : 0;
             items.Add(new RobloxOfficialLimitedCatalogItem(id, ReadString(node, "name") ?? $"Asset {id}", floor, listed, favorites, purchases, assetType, 0));
         }
@@ -377,7 +377,7 @@ public static class OfficialLimitedHuntScoring
         var recentPrices = validPrices.Where(x => x.Date >= (validPrices.LastOrDefault()?.Date ?? DateTimeOffset.UtcNow) - TimeSpan.FromDays(30)).Select(x => x.Value).ToArray();
         var recentMedian = Median(recentPrices);
         var fair = ConservativeFairValue(rap, recentMedian);
-        var discount = floor is > 0 && fair is > 0 ? (fair.Value - floor.Value) / fair.Value : null;
+        double? discount = floor is > 0 && fair is > 0 ? (fair.Value - floor.Value) / fair.Value : null;
         var sales7 = SumRecent(market?.VolumeDataPoints, 7.25);
         var sales30 = SumRecent(market?.VolumeDataPoints, 30.25);
         var evidence = EvidenceScore(market, rap, recentPrices.Length);
