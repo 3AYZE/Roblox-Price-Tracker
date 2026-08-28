@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using RobloxPriceTracker.Infrastructure;
 
 namespace RobloxPriceTracker.Gui;
 
@@ -22,7 +23,11 @@ public sealed class AppSettingsStore
 {
     private readonly string _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true
+    };
 
     public AppSettingsStore(string path)
     {
@@ -32,23 +37,11 @@ public sealed class AppSettingsStore
 
     public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!File.Exists(_path))
-            {
-                return new AppSettings();
-            }
-
-            try
-            {
-                await using var stream = File.OpenRead(_path);
-                return await JsonSerializer.DeserializeAsync<AppSettings>(stream, Options, cancellationToken) ?? new AppSettings();
-            }
-            catch
-            {
-                return new AppSettings();
-            }
+            return await SafeJsonStore.LoadWithRecoveryAsync<AppSettings>(_path, Options, cancellationToken: cancellationToken).ConfigureAwait(false)
+                   ?? new AppSettings();
         }
         finally
         {
@@ -58,17 +51,10 @@ public sealed class AppSettingsStore
 
     public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var temp = _path + ".tmp";
-            await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
-            {
-                await JsonSerializer.SerializeAsync(stream, settings, Options, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-            }
-
-            File.Move(temp, _path, overwrite: true);
+            await SafeJsonStore.SaveWithBackupAsync(_path, settings, Options, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
