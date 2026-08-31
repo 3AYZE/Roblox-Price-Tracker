@@ -271,7 +271,7 @@ internal sealed class NativeTrayIcon : IDisposable
     private static extern bool Shell_NotifyIcon(uint dwMessage, ref NotifyIconData lpData);
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern uint ExtractIconEx(string szFileName, int nIconIndex, out var phiconLarge, out var phiconSmall, uint nIcons);
+    private static extern uint ExtractIconEx(string szFileName, int nIconIndex, out IntPtr phiconLarge, out IntPtr phiconSmall, uint nIcons);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
