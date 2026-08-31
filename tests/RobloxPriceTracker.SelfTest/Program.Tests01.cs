@@ -85,10 +85,62 @@ static Task TestTrackedLowAlertAsync()
 {
     var now = DateTimeOffset.UtcNow;
     var snapshot = NewSnapshot(target: 5_000, trackedLow: 10_000, targetState: AlertState.Armed, current: 10_000);
+    snapshot = snapshot with { Rules = snapshot.Rules.Where(x => x.RuleType == AlertRuleType.NewTrackedLow).ToArray() };
+    var engine = new AlertEngine();
+    var decision = engine.Evaluate(snapshot, Available(snapshot.Item.ItemKey, 9_700, now), 2, now);
+    AssertEqual(1, decision.Alerts.Count(x => x.EventType == AlertEventType.NewTrackedLow));
+    AssertEqual<long?>(9_700L, decision.UpdatedSnapshot.Market.TrackedLow);
+    return Task.CompletedTask;
+}
+
+static Task TestFarTargetSuppressesNewLowNotificationAsync()
+{
+    var now = DateTimeOffset.UtcNow;
+    var snapshot = NewSnapshot(target: 5_000, trackedLow: 10_000, targetState: AlertState.Armed, current: 10_000);
     var engine = new AlertEngine();
     var decision = engine.Evaluate(snapshot, Available(snapshot.Item.ItemKey, 9_000, now), 2, now);
-    AssertEqual(1, decision.Alerts.Count(x => x.EventType == AlertEventType.NewTrackedLow));
+    AssertEqual(0, decision.Alerts.Count);
     AssertEqual<long?>(9_000L, decision.UpdatedSnapshot.Market.TrackedLow);
+    return Task.CompletedTask;
+}
+
+static Task TestApproachingTargetAlertAsync()
+{
+    var now = DateTimeOffset.UtcNow;
+    var snapshot = NewSnapshot(target: 8_000, trackedLow: 9_000, targetState: AlertState.Armed, current: 9_000);
+    var engine = new AlertEngine();
+    var decision = engine.Evaluate(snapshot, Available(snapshot.Item.ItemKey, 8_700, now), 2, now);
+    AssertEqual(1, decision.Alerts.Count(x => x.EventType == AlertEventType.TargetApproaching));
+    AssertEqual(1, decision.Alerts.Count(x => x.QueueNotification));
+    AssertEqual(AlertState.Armed, TargetRule(decision.UpdatedSnapshot).State);
+    return Task.CompletedTask;
+}
+
+static Task TestApproachingTargetTinyDropSuppressedAsync()
+{
+    var now = DateTimeOffset.UtcNow;
+    var snapshot = NewSnapshot(target: 8_000, trackedLow: 8_500, targetState: AlertState.Armed, current: 8_500);
+    var engine = new AlertEngine();
+    var decision = engine.Evaluate(snapshot, Available(snapshot.Item.ItemKey, 8_400, now), 2, now);
+    AssertEqual(0, decision.Alerts.Count(x => x.EventType == AlertEventType.TargetApproaching));
+    AssertEqual<long?>(8_400L, decision.UpdatedSnapshot.Market.TrackedLow);
+    return Task.CompletedTask;
+}
+
+static Task TestApproachingTargetCooldownAsync()
+{
+    var now = DateTimeOffset.UtcNow;
+    var snapshot = NewSnapshot(target: 8_000, trackedLow: 9_000, targetState: AlertState.Armed, current: 9_000);
+    var engine = new AlertEngine();
+
+    var first = engine.Evaluate(snapshot, Available(snapshot.Item.ItemKey, 8_700, now), 2, now);
+    AssertEqual(1, first.Alerts.Count(x => x.EventType == AlertEventType.TargetApproaching));
+
+    var second = engine.Evaluate(first.UpdatedSnapshot, Available(snapshot.Item.ItemKey, 8_400, now.AddMinutes(10)), 3, now.AddMinutes(10));
+    AssertEqual(0, second.Alerts.Count(x => x.EventType == AlertEventType.TargetApproaching));
+
+    var third = engine.Evaluate(second.UpdatedSnapshot, Available(snapshot.Item.ItemKey, 8_100, now.AddMinutes(61)), 4, now.AddMinutes(61));
+    AssertEqual(1, third.Alerts.Count(x => x.EventType == AlertEventType.TargetApproaching));
     return Task.CompletedTask;
 }
 
@@ -100,7 +152,7 @@ static Task TestTargetDedupAndRearmAsync()
 
     var first = engine.Evaluate(snapshot, Available(snapshot.Item.ItemKey, 7_900, now), 2, now);
     AssertEqual(1, first.Alerts.Count(x => x.EventType == AlertEventType.TargetReached));
-    AssertEqual(2, first.Alerts.Count);
+    AssertEqual(1, first.Alerts.Count);
     AssertEqual(1, first.Alerts.Count(x => x.QueueNotification));
     AssertEqual(AlertState.Triggered, TargetRule(first.UpdatedSnapshot).State);
 
