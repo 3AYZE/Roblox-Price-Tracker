@@ -119,7 +119,8 @@ public sealed record TrackerItemSnapshot(
 public enum AlertEventType
 {
     TargetReached = 1,
-    NewTrackedLow = 2
+    NewTrackedLow = 2,
+    TargetApproaching = 3
 }
 
 public sealed record AlertEmission(
