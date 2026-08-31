@@ -31,6 +31,11 @@ public sealed class GitHubUpdateService : IDisposable
 {
     public const string DefaultRepository = "3AYZE/Roblox-Price-Tracker";
 
+    private const string LiteExecutableName = "RobloxPriceTracker-Lite.exe";
+    private const string LiteChecksumName = "RobloxPriceTracker-Lite.exe.sha256";
+    private const string LegacyExecutableName = "RobloxPriceTracker.exe";
+    private const string LegacyChecksumName = "RobloxPriceTracker.exe.sha256";
+
     private static readonly Regex Sha256Regex = new(@"\b[a-fA-F0-9]{64}\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private readonly string _dataDirectory;
     private readonly AppLogger _logger;
@@ -75,7 +80,7 @@ public sealed class GitHubUpdateService : IDisposable
 
             if (response.StatusCode == HttpStatusCode.Forbidden || (int)response.StatusCode == 429)
             {
-                return new UpdateCheckResult(false, "GitHub temporarily rate-limited the update check. The tracker will try again later.");
+                return new UpdateCheckResult(false, "GitHub temporarily rate-limited the update check. Roblox Market Helper will try again later.");
             }
 
             if (!response.IsSuccessStatusCode)
@@ -101,8 +106,10 @@ public sealed class GitHubUpdateService : IDisposable
                 ? parsedHtml
                 : new Uri($"https://github.com/{Repository}/releases");
 
-            GitHubReleaseAsset? executable = null;
-            GitHubReleaseAsset? checksum = null;
+            GitHubReleaseAsset? liteExecutable = null;
+            GitHubReleaseAsset? liteChecksum = null;
+            GitHubReleaseAsset? legacyExecutable = null;
+            GitHubReleaseAsset? legacyChecksum = null;
             if (root.TryGetProperty("assets", out var assetsElement) && assetsElement.ValueKind == JsonValueKind.Array)
             {
                 foreach (var assetElement in assetsElement.EnumerateArray())
@@ -113,10 +120,17 @@ public sealed class GitHubUpdateService : IDisposable
                     if (string.IsNullOrWhiteSpace(assetName) || !Uri.TryCreate(apiUrlText, UriKind.Absolute, out var apiUrl)) continue;
 
                     var asset = new GitHubReleaseAsset(assetName, apiUrl, size);
-                    if (string.Equals(assetName, "RobloxPriceTracker.exe", StringComparison.OrdinalIgnoreCase)) executable = asset;
-                    else if (string.Equals(assetName, "RobloxPriceTracker.exe.sha256", StringComparison.OrdinalIgnoreCase)) checksum = asset;
+                    if (string.Equals(assetName, LiteExecutableName, StringComparison.OrdinalIgnoreCase)) liteExecutable = asset;
+                    else if (string.Equals(assetName, LiteChecksumName, StringComparison.OrdinalIgnoreCase)) liteChecksum = asset;
+                    else if (string.Equals(assetName, LegacyExecutableName, StringComparison.OrdinalIgnoreCase)) legacyExecutable = asset;
+                    else if (string.Equals(assetName, LegacyChecksumName, StringComparison.OrdinalIgnoreCase)) legacyChecksum = asset;
                 }
             }
+
+            // Prefer the current framework-dependent Lite release pair. Keep the legacy pair as a
+            // compatibility fallback so older/custom release feeds continue to update safely.
+            var executable = liteExecutable is not null && liteChecksum is not null ? liteExecutable : legacyExecutable;
+            var checksum = liteExecutable is not null && liteChecksum is not null ? liteChecksum : legacyChecksum;
 
             var current = CurrentVersion;
             var latest = NormalizeVersion(latestVersion);
@@ -156,7 +170,7 @@ public sealed class GitHubUpdateService : IDisposable
             ?? throw new InvalidDataException("The release checksum file does not contain a valid SHA-256 hash.");
 
         var versionText = FormatVersion(release.Version);
-        var finalPath = Path.Combine(updateDirectory, $"RobloxPriceTracker-v{versionText}.exe");
+        var finalPath = Path.Combine(updateDirectory, $"RobloxMarketHelper-v{versionText}.exe");
         if (File.Exists(finalPath))
         {
             var existingHash = await ComputeSha256Async(finalPath, cancellationToken);
@@ -174,7 +188,7 @@ public sealed class GitHubUpdateService : IDisposable
             await DownloadBinaryAssetAsync(release.Executable, temporaryPath, cancellationToken);
 
             var length = new FileInfo(temporaryPath).Length;
-            if (length < 1_000_000)
+            if (length < 100_000)
             {
                 throw new InvalidDataException("The downloaded update is unexpectedly small.");
             }
@@ -209,7 +223,7 @@ public sealed class GitHubUpdateService : IDisposable
         if (string.IsNullOrWhiteSpace(currentExecutable) || !File.Exists(currentExecutable))
             throw new InvalidOperationException("The current executable path could not be determined.");
         if (string.Equals(Path.GetFileName(currentExecutable), "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Self-update is only available from the published RobloxPriceTracker.exe build.");
+            throw new InvalidOperationException("Self-update is only available from the published Roblox Market Helper Lite build.");
 
         var currentDirectory = Path.GetDirectoryName(currentExecutable) ?? throw new InvalidOperationException("The executable directory could not be determined.");
         VerifyDirectoryWritable(currentDirectory);
@@ -299,7 +313,7 @@ public sealed class GitHubUpdateService : IDisposable
     private HttpRequestMessage CreateGitHubRequest(HttpMethod method, Uri uri, string accept)
     {
         var request = new HttpRequestMessage(method, uri);
-        request.Headers.UserAgent.ParseAdd($"RobloxPriceTracker/{FormatVersion(CurrentVersion)}");
+        request.Headers.UserAgent.ParseAdd($"RobloxMarketHelper/{FormatVersion(CurrentVersion)}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
         request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         if (!string.IsNullOrWhiteSpace(_token)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
