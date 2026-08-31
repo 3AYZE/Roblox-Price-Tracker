@@ -2,6 +2,10 @@ namespace RobloxPriceTracker.Core;
 
 public sealed class AlertEngine
 {
+    private const int NearTargetBasisPoints = 1_000; // 10% above target.
+    private const int MeaningfulDropBasisPoints = 200; // 2% below the previous tracked low.
+    private static readonly TimeSpan PriceAlertCooldown = TimeSpan.FromHours(1);
+
     private readonly TimeSpan _historyHeartbeat;
 
     public AlertEngine(TimeSpan? historyHeartbeat = null)
@@ -81,7 +85,7 @@ public sealed class AlertEngine
 
         foreach (var rule in snapshot.Rules)
         {
-            var updatedRule = EvaluateRule(snapshot.Item, oldMarket, rule, observation, nowUtc, alerts);
+            var updatedRule = EvaluateRule(snapshot.Item, oldMarket, snapshot.Rules, rule, observation, nowUtc, alerts);
             updatedRules.Add(updatedRule);
             if (updatedRule != rule)
             {
@@ -103,6 +107,7 @@ public sealed class AlertEngine
     private static AlertRule EvaluateRule(
         TrackedItem item,
         MarketState oldMarket,
+        IReadOnlyList<AlertRule> allRules,
         AlertRule rule,
         MarketObservation observation,
         DateTimeOffset nowUtc,
@@ -149,6 +154,22 @@ public sealed class AlertEngine
                     };
                 }
 
+                if (rule.State == AlertState.Armed && ShouldNotifyApproachingTarget(oldMarket, price, threshold, rule.LastTriggeredAtUtc, nowUtc))
+                {
+                    var previous = oldMarket.CurrentLowestPrice ?? oldMarket.TrackedLow ?? price;
+                    var distancePct = Math.Max(0d, (price - threshold) / (double)threshold * 100d);
+                    alerts.Add(new AlertEmission(
+                        rule.Id,
+                        AlertEventType.TargetApproaching,
+                        previous,
+                        price,
+                        nowUtc,
+                        $"{item.Name} is approaching your target",
+                        $"Price is falling: {previous:N0} R$ → {price:N0} R$ | Target: {threshold:N0} R$ | {distancePct:0.#}% above target"));
+
+                    return rule with { LastTriggeredAtUtc = nowUtc };
+                }
+
                 if (rule.State == AlertState.Triggered && price >= CalculateRearmPrice(threshold, rule.RearmBasisPoints))
                 {
                     return rule with { State = AlertState.Armed };
@@ -159,26 +180,96 @@ public sealed class AlertEngine
 
             case AlertRuleType.NewTrackedLow:
             {
-                if (oldMarket.TrackedLow is not null && price < oldMarket.TrackedLow.Value)
+                if (oldMarket.TrackedLow is null || price >= oldMarket.TrackedLow.Value)
                 {
-                    alerts.Add(new AlertEmission(
-                        rule.Id,
-                        AlertEventType.NewTrackedLow,
-                        oldMarket.TrackedLow,
-                        price,
-                        nowUtc,
-                        $"{item.Name} hit a new tracked low",
-                        $"Tracked low: {oldMarket.TrackedLow.Value:N0} R$ → {price:N0} R$"));
-
-                    return rule with { LastTriggeredAtUtc = nowUtc };
+                    return rule;
                 }
 
-                return rule;
+                // A configured target owns the notification path. The target rule will alert only
+                // when the price is meaningfully falling near the target, and again when it is hit.
+                // This prevents the default new-low rule from sending a notification for every tiny tick.
+                var hasEnabledTarget = allRules.Any(x =>
+                    x.Enabled &&
+                    x.State != AlertState.Disabled &&
+                    x.RuleType == AlertRuleType.TargetPrice &&
+                    x.Threshold is > 0);
+                if (hasEnabledTarget)
+                {
+                    return rule;
+                }
+
+                if (!IsMeaningfulNewLow(oldMarket.TrackedLow.Value, price) || !CooldownElapsed(rule.LastTriggeredAtUtc, nowUtc))
+                {
+                    return rule;
+                }
+
+                alerts.Add(new AlertEmission(
+                    rule.Id,
+                    AlertEventType.NewTrackedLow,
+                    oldMarket.TrackedLow,
+                    price,
+                    nowUtc,
+                    $"{item.Name} hit a meaningful new low",
+                    $"Tracked low: {oldMarket.TrackedLow.Value:N0} R$ → {price:N0} R$"));
+
+                return rule with { LastTriggeredAtUtc = nowUtc };
             }
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(rule.RuleType), rule.RuleType, "Unknown alert rule type.");
         }
+    }
+
+    private static bool ShouldNotifyApproachingTarget(
+        MarketState oldMarket,
+        long price,
+        long threshold,
+        DateTimeOffset? lastTriggeredAtUtc,
+        DateTimeOffset nowUtc)
+    {
+        if (price <= threshold || price > CalculateNearTargetCeiling(threshold))
+        {
+            return false;
+        }
+
+        if (!CooldownElapsed(lastTriggeredAtUtc, nowUtc))
+        {
+            return false;
+        }
+
+        if (oldMarket.CurrentLowestPrice is not > 0 || price >= oldMarket.CurrentLowestPrice.Value)
+        {
+            return false;
+        }
+
+        // Require an actual new tracked low so a temporary bounce-and-return does not create noise.
+        if (oldMarket.TrackedLow is not > 0 || price >= oldMarket.TrackedLow.Value)
+        {
+            return false;
+        }
+
+        return IsMeaningfulNewLow(oldMarket.TrackedLow.Value, price);
+    }
+
+    private static bool IsMeaningfulNewLow(long previousLow, long price)
+    {
+        if (previousLow <= 0 || price <= 0 || price >= previousLow)
+        {
+            return false;
+        }
+
+        var requiredDrop = Math.Max(1L, (long)Math.Ceiling(previousLow * (MeaningfulDropBasisPoints / 10_000d)));
+        return previousLow - price >= requiredDrop;
+    }
+
+    private static bool CooldownElapsed(DateTimeOffset? lastTriggeredAtUtc, DateTimeOffset nowUtc) =>
+        lastTriggeredAtUtc is null || nowUtc - lastTriggeredAtUtc.Value >= PriceAlertCooldown;
+
+    public static long CalculateNearTargetCeiling(long threshold)
+    {
+        PriceValidation.ThrowIfInvalidTarget(threshold);
+        var margin = Math.Max(1L, (long)Math.Ceiling(threshold * (NearTargetBasisPoints / 10_000d)));
+        return Math.Min(PriceValidation.MaxRobux, threshold + margin);
     }
 
     private static void CoalesceNotifications(List<AlertEmission> alerts)
@@ -189,6 +280,10 @@ public sealed class AlertEngine
         }
 
         var winnerIndex = alerts.FindIndex(x => x.EventType == AlertEventType.TargetReached);
+        if (winnerIndex < 0)
+        {
+            winnerIndex = alerts.FindIndex(x => x.EventType == AlertEventType.TargetApproaching);
+        }
         if (winnerIndex < 0)
         {
             winnerIndex = 0;
