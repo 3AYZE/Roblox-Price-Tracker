@@ -23,8 +23,9 @@ static async Task TestNotificationOutboxAsync()
         await repo.CommitDecisionAsync(baseline, 1);
         var afterBaseline = await repo.LoadSnapshotAsync(key) ?? throw new Exception("baseline snapshot missing");
         var decision = engine.Evaluate(afterBaseline, Available(key, 7_900, now.AddSeconds(2), "Outbox Limited"), 2, now.AddSeconds(2));
-        AssertEqual(2, decision.Alerts.Count);
+        AssertEqual(1, decision.Alerts.Count);
         AssertEqual(1, decision.Alerts.Count(x => x.QueueNotification));
+        AssertEqual(AlertEventType.TargetReached, decision.Alerts[0].EventType);
         await repo.CommitDecisionAsync(decision, 2);
 
         var pending = await repo.GetPendingNotificationsAsync();
