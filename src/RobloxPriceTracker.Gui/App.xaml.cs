@@ -38,6 +38,11 @@ public partial class App : Application
 
         try
         {
+            Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri("pack://application:,,,/RobloxPriceTracker;component/TooltipStyles.xaml", UriKind.Absolute),
+            });
+
             _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
             _services = await AppServices.CreateAsync();
 
