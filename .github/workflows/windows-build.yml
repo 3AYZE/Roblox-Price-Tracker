@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Build, test, and publish Lite
+    name: Build, test, and smoke-test Lite
     runs-on: windows-latest
     timeout-minutes: 25
 
@@ -29,20 +29,14 @@ jobs:
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
 
-      - name: Upload Lite build
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: RobloxPriceTracker-Lite-win-x64
-          path: dist/RobloxPriceTracker-Lite.exe
-          if-no-files-found: error
-          retention-days: 30
-
+      # Successful CI builds are intentionally not uploaded as Actions artifacts.
+      # The release workflow publishes the final Lite executable, so retaining a duplicate
+      # EXE for every PR and main push only consumes the account's Actions storage quota.
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: RobloxPriceTracker-build-log
+          name: RobloxMarketHelper-build-log
           path: logs/build-lite.log
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 1

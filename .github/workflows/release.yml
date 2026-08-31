@@ -63,7 +63,7 @@ jobs:
           }
           gh release edit $env:TAG `
             --repo $env:GITHUB_REPOSITORY `
-            --title "Roblox Price Tracker v$env:VERSION" `
+            --title "Roblox Market Helper v$env:VERSION" `
             --notes "Requires .NET 9 Desktop Runtime (Windows x64): https://dotnet.microsoft.com/en-us/download/dotnet/9.0"
 
       - name: Restore and build
@@ -100,5 +100,5 @@ jobs:
             'dist/RobloxPriceTracker-Lite.exe.sha256#RobloxPriceTracker-Lite.exe.sha256' `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
-            --title "Roblox Price Tracker v$env:VERSION" `
+            --title "Roblox Market Helper v$env:VERSION" `
             --notes "Requires .NET 9 Desktop Runtime (Windows x64): https://dotnet.microsoft.com/en-us/download/dotnet/9.0"
