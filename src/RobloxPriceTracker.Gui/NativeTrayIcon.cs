@@ -33,7 +33,7 @@ internal sealed class NativeTrayIcon : IDisposable
     private IntPtr _iconHandle;
     private bool _ownsIcon;
     private bool _visible;
-    private string _toolTip = "RPT Markets";
+    private string _toolTip = "Roblox Market Helper";
     private readonly uint _taskbarCreatedMessage;
 
     public NativeTrayIcon(
@@ -65,7 +65,7 @@ internal sealed class NativeTrayIcon : IDisposable
             BorderThickness = new System.Windows.Thickness(1)
         };
 
-        var openItem = new MenuItem { Header = "Open RPT Markets" };
+        var openItem = new MenuItem { Header = "Open Roblox Market Helper" };
         openItem.Click += (_, _) => _openAction();
         _menu.Items.Add(openItem);
         _menu.Items.Add(new Separator());
@@ -106,13 +106,13 @@ internal sealed class NativeTrayIcon : IDisposable
         {
             _monitoringItem.Header = "Pause Startup";
             ToolTip = secondsRemaining > 0
-                ? $"RPT Markets - starting in {secondsRemaining}s"
-                : "RPT Markets - starting";
+                ? $"Roblox Market Helper - starting in {secondsRemaining}s"
+                : "Roblox Market Helper - starting";
             return;
         }
 
         _monitoringItem.Header = monitoring ? "Pause Monitoring" : "Resume Monitoring";
-        ToolTip = monitoring ? "RPT Markets - Monitoring" : "RPT Markets - Paused";
+        ToolTip = monitoring ? "Roblox Market Helper - Monitoring" : "Roblox Market Helper - Paused";
     }
 
     public string ToolTip
@@ -120,7 +120,7 @@ internal sealed class NativeTrayIcon : IDisposable
         get => _toolTip;
         set
         {
-            _toolTip = Truncate(value, 127, "RPT Markets");
+            _toolTip = Truncate(value, 127, "Roblox Market Helper");
             if (_visible) ModifyIcon(includeInfo: false, null, null);
         }
     }
@@ -130,7 +130,7 @@ internal sealed class NativeTrayIcon : IDisposable
         if (!_visible) return;
         ModifyIcon(
             includeInfo: true,
-            Truncate(title, 63, "RPT Markets"),
+            Truncate(title, 63, "Roblox Market Helper"),
             Truncate(body, 255, "Marketplace update available."));
     }
 
@@ -271,7 +271,7 @@ internal sealed class NativeTrayIcon : IDisposable
     private static extern bool Shell_NotifyIcon(uint dwMessage, ref NotifyIconData lpData);
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern uint ExtractIconEx(string szFileName, int nIconIndex, out IntPtr phiconLarge, out IntPtr phiconSmall, uint nIcons);
+    private static extern uint ExtractIconEx(string szFileName, int nIconIndex, out var phiconLarge, out var phiconSmall, uint nIcons);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
