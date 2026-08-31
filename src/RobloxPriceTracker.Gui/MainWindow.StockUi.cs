@@ -29,7 +29,8 @@ public partial class MainWindow : Window
         }
 
         WatchlistSearchBox.ToolTip = "Ctrl+F · Search item name or asset ID";
-        WatchlistGrid.ToolTip = "Forecasts are statistical estimates, not guaranteed prices. Enter: details · Delete: remove · F5: refresh";
+        // A grid-wide tooltip obscures tracker rows and renders as a long native light-theme strip.
+        WatchlistGrid.ToolTip = null;
         PreviewKeyDown += Window_StockPreviewKeyDown;
         Loaded += (_, _) => ApplyStockBranding();
     }
