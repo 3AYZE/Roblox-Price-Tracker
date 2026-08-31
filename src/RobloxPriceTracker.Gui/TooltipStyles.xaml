@@ -1,0 +1,33 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Keep WPF tooltips inside the app's dark terminal visual language instead of
+         falling back to Windows' light native tooltip chrome. -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="#111821" />
+        <Setter Property="Foreground" Value="#9AA5B4" />
+        <Setter Property="BorderBrush" Value="#314052" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="9,6" />
+        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="MaxWidth" Value="420" />
+        <Setter Property="Placement" Value="Mouse" />
+        <Setter Property="HorizontalOffset" Value="12" />
+        <Setter Property="VerticalOffset" Value="12" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter MaxWidth="400"
+                                          TextElement.Foreground="{TemplateBinding Foreground}"
+                                          TextBlock.TextWrapping="Wrap" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>
