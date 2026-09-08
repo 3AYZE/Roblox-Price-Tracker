@@ -15,10 +15,11 @@ public partial class MainWindow : Window
     private bool _updateCheckRunning;
     private GitHubReleaseInfo? _stagedRelease;
     private string? _stagedUpdatePath;
-    private Version? _deferredUpdateVersion;
+    private string? _deferredUpdateAssetUrl;
 
     private void InitializeUpdateChecks()
     {
+        EnsureUpdateChannelUi();
         _updateCts ??= new CancellationTokenSource();
         if (_updateTimer is null)
         {
@@ -35,18 +36,19 @@ public partial class MainWindow : Window
         if (_services.Settings.AutoUpdateEnabled)
         {
             _updateTimer.Start();
-            UpdateStatusText.Text = $"Automatic update checks enabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic {UpdateChannelLabel()} update checks enabled · v{CurrentVersionText()}";
             _ = DelayedInitialUpdateCheckAsync(_updateCts.Token);
         }
         else
         {
             _updateTimer.Stop();
-            UpdateStatusText.Text = $"Automatic update checks disabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic update checks disabled · {UpdateChannelLabel()} channel · v{CurrentVersionText()}";
         }
     }
 
     private void ApplyUpdateSetting()
     {
+        EnsureUpdateChannelUi();
         if (_updateTimer is null)
         {
             InitializeUpdateChecks();
@@ -56,13 +58,13 @@ public partial class MainWindow : Window
         if (_services.Settings.AutoUpdateEnabled)
         {
             _updateTimer.Start();
-            UpdateStatusText.Text = $"Automatic update checks enabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic {UpdateChannelLabel()} update checks enabled · v{CurrentVersionText()}";
             _ = CheckForUpdatesAsync(userInitiated: false);
         }
         else
         {
             _updateTimer.Stop();
-            UpdateStatusText.Text = $"Automatic update checks disabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic update checks disabled · {UpdateChannelLabel()} channel · v{CurrentVersionText()}";
         }
     }
 
@@ -98,7 +100,7 @@ public partial class MainWindow : Window
     {
         if (_updateCheckRunning)
         {
-            if (userInitiated) ShowBanner("Update check already running", "GitHub is already being checked for a newer release.");
+            if (userInitiated) ShowBanner("Update check already running", "GitHub is already being checked for a newer build.");
             return;
         }
 
@@ -107,8 +109,14 @@ public partial class MainWindow : Window
         var cancellationToken = _updateCts?.Token ?? CancellationToken.None;
         try
         {
-            UpdateStatusText.Text = "Checking GitHub Releases...";
-            var result = await _services.UpdateService.CheckAsync(cancellationToken);
+            UpdateStatusText.Text = IsLatestUpdateChannel()
+                ? "Checking newest successful main build..."
+                : "Checking GitHub Releases...";
+
+            var result = IsLatestUpdateChannel()
+                ? await _services.UpdateService.CheckMainLatestAsync(cancellationToken)
+                : await _services.UpdateService.CheckAsync(cancellationToken);
+
             if (!result.UpdateAvailable || result.Release is null)
             {
                 UpdateStatusText.Text = result.Message;
@@ -117,27 +125,30 @@ public partial class MainWindow : Window
             }
 
             var release = result.Release;
-            if (_stagedRelease?.Version == release.Version && !string.IsNullOrWhiteSpace(_stagedUpdatePath) && File.Exists(_stagedUpdatePath))
+            var assetIdentity = release.Executable.ApiUrl.AbsoluteUri;
+            if (_stagedRelease?.Executable.ApiUrl == release.Executable.ApiUrl &&
+                !string.IsNullOrWhiteSpace(_stagedUpdatePath) &&
+                File.Exists(_stagedUpdatePath))
             {
-                UpdateStatusText.Text = $"v{VersionText(release.Version)} is verified and ready to install.";
+                UpdateStatusText.Text = $"{UpdateDisplayName(release)} is verified and ready to install.";
                 if (userInitiated) PromptToInstallStagedUpdate(release, _stagedUpdatePath);
                 return;
             }
 
-            UpdateStatusText.Text = $"Downloading v{VersionText(release.Version)}...";
+            UpdateStatusText.Text = $"Downloading {UpdateDisplayName(release)}...";
             var stagedPath = await _services.UpdateService.DownloadAndVerifyAsync(release, cancellationToken);
             _stagedRelease = release;
             _stagedUpdatePath = stagedPath;
-            UpdateStatusText.Text = $"v{VersionText(release.Version)} verified · restart to install";
+            UpdateStatusText.Text = $"{UpdateDisplayName(release)} verified · restart to install";
 
             if (!IsVisible)
             {
-                ShowTrayBalloon("Roblox Price Tracker update ready", $"v{VersionText(release.Version)} is verified and ready. Open the app to install it.");
-                _deferredUpdateVersion = release.Version;
+                ShowTrayBalloon("Roblox Market Helper update ready", $"{UpdateDisplayName(release)} is verified and ready. Open the app to install it.");
+                _deferredUpdateAssetUrl = assetIdentity;
                 return;
             }
 
-            if (!userInitiated && _deferredUpdateVersion == release.Version)
+            if (!userInitiated && string.Equals(_deferredUpdateAssetUrl, assetIdentity, StringComparison.Ordinal))
             {
                 return;
             }
@@ -162,24 +173,24 @@ public partial class MainWindow : Window
 
     private void PromptToInstallStagedUpdate(GitHubReleaseInfo release, string stagedPath)
     {
-        var version = VersionText(release.Version);
+        var displayName = UpdateDisplayName(release);
         var result = MessageBox.Show(
             this,
-            $"Roblox Price Tracker v{version} has been downloaded and SHA-256 verified.\n\nRestart now to install it?\n\nYour watchlist, history, alerts, and settings are stored separately and will be preserved.",
-            $"Update v{version} ready",
+            $"{displayName} has been downloaded and SHA-256 verified.\n\nRestart now to install it?\n\nYour watchlist, history, alerts, and settings are stored separately and will be preserved.",
+            $"{displayName} ready",
             MessageBoxButton.YesNo,
             MessageBoxImage.Information);
 
         if (result != MessageBoxResult.Yes)
         {
-            _deferredUpdateVersion = release.Version;
-            UpdateStatusText.Text = $"v{version} ready · install on your next update check";
+            _deferredUpdateAssetUrl = release.Executable.ApiUrl.AbsoluteUri;
+            UpdateStatusText.Text = $"{displayName} ready · install on your next update check";
             return;
         }
 
         try
         {
-            UpdateStatusText.Text = $"Installing v{version}...";
+            UpdateStatusText.Text = $"Installing {displayName}...";
             _services.UpdateService.LaunchInstaller(stagedPath);
             _allowExit = true;
             Application.Current.Shutdown();
@@ -193,6 +204,11 @@ public partial class MainWindow : Window
     }
 
     private string CurrentVersionText() => VersionText(_services.UpdateService.CurrentVersion);
+
+    private static string UpdateDisplayName(GitHubReleaseInfo release) =>
+        string.Equals(release.TagName, "main-latest", StringComparison.OrdinalIgnoreCase)
+            ? release.ReleaseName
+            : $"v{VersionText(release.Version)}";
 
     private static string VersionText(Version version) => $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
 }
