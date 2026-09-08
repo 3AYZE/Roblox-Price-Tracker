@@ -15,14 +15,15 @@ public partial class MainWindow : Window
     private bool _updateCheckRunning;
     private GitHubReleaseInfo? _stagedRelease;
     private string? _stagedUpdatePath;
-    private Version? _deferredUpdateVersion;
+    private string? _deferredUpdateIdentity;
 
     private void InitializeUpdateChecks()
     {
+        ConfigureUpdateChannelUi();
         _updateCts ??= new CancellationTokenSource();
         if (_updateTimer is null)
         {
-            _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+            _updateTimer = new DispatcherTimer { Interval = GetUpdateCheckInterval() };
             _updateTimer.Tick += async (_, _) =>
             {
                 if (_services.Settings.AutoUpdateEnabled)
@@ -31,38 +32,44 @@ public partial class MainWindow : Window
                 }
             };
         }
+        else
+        {
+            _updateTimer.Interval = GetUpdateCheckInterval();
+        }
 
         if (_services.Settings.AutoUpdateEnabled)
         {
             _updateTimer.Start();
-            UpdateStatusText.Text = $"Automatic update checks enabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic update checks enabled · {UpdateChannelDisplayName()} · v{CurrentVersionText()}";
             _ = DelayedInitialUpdateCheckAsync(_updateCts.Token);
         }
         else
         {
             _updateTimer.Stop();
-            UpdateStatusText.Text = $"Automatic update checks disabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic update checks disabled · {UpdateChannelDisplayName()} · v{CurrentVersionText()}";
         }
     }
 
     private void ApplyUpdateSetting()
     {
+        ConfigureUpdateChannelUi();
         if (_updateTimer is null)
         {
             InitializeUpdateChecks();
             return;
         }
 
+        _updateTimer.Interval = GetUpdateCheckInterval();
         if (_services.Settings.AutoUpdateEnabled)
         {
             _updateTimer.Start();
-            UpdateStatusText.Text = $"Automatic update checks enabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic update checks enabled · {UpdateChannelDisplayName()} · v{CurrentVersionText()}";
             _ = CheckForUpdatesAsync(userInitiated: false);
         }
         else
         {
             _updateTimer.Stop();
-            UpdateStatusText.Text = $"Automatic update checks disabled · v{CurrentVersionText()}";
+            UpdateStatusText.Text = $"Automatic update checks disabled · {UpdateChannelDisplayName()} · v{CurrentVersionText()}";
         }
     }
 
@@ -72,6 +79,7 @@ public partial class MainWindow : Window
         _updateCts?.Cancel();
         _updateCts?.Dispose();
         _updateCts = null;
+        DisposeDevelopmentUpdateService();
     }
 
     private async Task DelayedInitialUpdateCheckAsync(CancellationToken cancellationToken)
@@ -98,7 +106,7 @@ public partial class MainWindow : Window
     {
         if (_updateCheckRunning)
         {
-            if (userInitiated) ShowBanner("Update check already running", "GitHub is already being checked for a newer release.");
+            if (userInitiated) ShowBanner("Update check already running", "GitHub is already being checked for a newer build.");
             return;
         }
 
@@ -107,8 +115,11 @@ public partial class MainWindow : Window
         var cancellationToken = _updateCts?.Token ?? CancellationToken.None;
         try
         {
-            UpdateStatusText.Text = "Checking GitHub Releases...";
-            var result = await _services.UpdateService.CheckAsync(cancellationToken);
+            var development = NormalizeUpdateChannel(_services.Settings.UpdateChannel) == "Development";
+            UpdateStatusText.Text = development ? "Checking Latest / Development build..." : "Checking GitHub Releases...";
+            var result = development
+                ? await GetDevelopmentUpdateService().CheckAsync(_services.UpdateService.CurrentVersion, cancellationToken)
+                : await _services.UpdateService.CheckAsync(cancellationToken);
             if (!result.UpdateAvailable || result.Release is null)
             {
                 UpdateStatusText.Text = result.Message;
@@ -117,27 +128,31 @@ public partial class MainWindow : Window
             }
 
             var release = result.Release;
-            if (_stagedRelease?.Version == release.Version && !string.IsNullOrWhiteSpace(_stagedUpdatePath) && File.Exists(_stagedUpdatePath))
+            var identity = ReleaseIdentity(release);
+            var label = ReleaseDisplayLabel(release);
+            if (string.Equals(ReleaseIdentity(_stagedRelease), identity, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(_stagedUpdatePath)
+                && File.Exists(_stagedUpdatePath))
             {
-                UpdateStatusText.Text = $"v{VersionText(release.Version)} is verified and ready to install.";
+                UpdateStatusText.Text = $"{label} is verified and ready to install.";
                 if (userInitiated) PromptToInstallStagedUpdate(release, _stagedUpdatePath);
                 return;
             }
 
-            UpdateStatusText.Text = $"Downloading v{VersionText(release.Version)}...";
+            UpdateStatusText.Text = $"Downloading {label}...";
             var stagedPath = await _services.UpdateService.DownloadAndVerifyAsync(release, cancellationToken);
             _stagedRelease = release;
             _stagedUpdatePath = stagedPath;
-            UpdateStatusText.Text = $"v{VersionText(release.Version)} verified · restart to install";
+            UpdateStatusText.Text = $"{label} verified · restart to install";
 
             if (!IsVisible)
             {
-                ShowTrayBalloon("Roblox Price Tracker update ready", $"v{VersionText(release.Version)} is verified and ready. Open the app to install it.");
-                _deferredUpdateVersion = release.Version;
+                ShowTrayBalloon("Roblox Market Helper update ready", $"{label} is verified and ready. Open the app to install it.");
+                _deferredUpdateIdentity = identity;
                 return;
             }
 
-            if (!userInitiated && _deferredUpdateVersion == release.Version)
+            if (!userInitiated && string.Equals(_deferredUpdateIdentity, identity, StringComparison.Ordinal))
             {
                 return;
             }
@@ -162,24 +177,24 @@ public partial class MainWindow : Window
 
     private void PromptToInstallStagedUpdate(GitHubReleaseInfo release, string stagedPath)
     {
-        var version = VersionText(release.Version);
+        var label = ReleaseDisplayLabel(release);
         var result = MessageBox.Show(
             this,
-            $"Roblox Price Tracker v{version} has been downloaded and SHA-256 verified.\n\nRestart now to install it?\n\nYour watchlist, history, alerts, and settings are stored separately and will be preserved.",
-            $"Update v{version} ready",
+            $"Roblox Market Helper {label} has been downloaded and SHA-256 verified.\n\nRestart now to install it?\n\nYour watchlist, history, alerts, and settings are stored separately and will be preserved.",
+            $"{label} ready",
             MessageBoxButton.YesNo,
             MessageBoxImage.Information);
 
         if (result != MessageBoxResult.Yes)
         {
-            _deferredUpdateVersion = release.Version;
-            UpdateStatusText.Text = $"v{version} ready · install on your next update check";
+            _deferredUpdateIdentity = ReleaseIdentity(release);
+            UpdateStatusText.Text = $"{label} ready · install on your next update check";
             return;
         }
 
         try
         {
-            UpdateStatusText.Text = $"Installing v{version}...";
+            UpdateStatusText.Text = $"Installing {label}...";
             _services.UpdateService.LaunchInstaller(stagedPath);
             _allowExit = true;
             Application.Current.Shutdown();
@@ -191,6 +206,13 @@ public partial class MainWindow : Window
             MessageBox.Show(this, ex.Message, "Update installation failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
+    private static string ReleaseIdentity(GitHubReleaseInfo? release) => release?.Executable.ApiUrl.AbsoluteUri ?? string.Empty;
+
+    private static string ReleaseDisplayLabel(GitHubReleaseInfo release) =>
+        string.Equals(release.TagName, DevelopmentUpdateService.DevelopmentTag, StringComparison.OrdinalIgnoreCase)
+            ? release.ReleaseName
+            : $"v{VersionText(release.Version)}";
 
     private string CurrentVersionText() => VersionText(_services.UpdateService.CurrentVersion);
 
