@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -29,9 +29,74 @@ jobs:
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
 
-      # Successful CI builds are intentionally not uploaded as Actions artifacts.
-      # The release workflow publishes the final Lite executable, so retaining a duplicate
-      # EXE for every PR and main push only consumes the account's Actions storage quota.
+      - name: Publish Latest / Development channel
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [xml]$project = Get-Content 'src/RobloxPriceTracker.Gui/RobloxPriceTracker.Gui.csproj'
+          $version = [string]$project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version) -or $version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Application Version '$version' is invalid."
+          }
+
+          $lite = Resolve-Path 'dist/RobloxPriceTracker-Lite.exe'
+          $checksumPath = Join-Path (Split-Path $lite -Parent) 'RobloxPriceTracker-Lite.exe.sha256'
+          $hash = (Get-FileHash -LiteralPath $lite -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  RobloxPriceTracker-Lite.exe" | Set-Content -LiteralPath $checksumPath -Encoding ascii -NoNewline
+
+          $sha = $env:GITHUB_SHA
+          $shortSha = $sha.Substring(0, 7)
+          $tag = 'main-latest'
+          $title = "Latest / Development v$version · $shortSha"
+          $notes = @"
+          Automatic development channel build from `main`.
+
+          Commit: $sha
+          Version: $version
+
+          This EXE is published only after the Windows build, self-tests, and Lite EXE smoke test pass. It may contain newer work than the Stable channel.
+          Requires .NET 9 Desktop Runtime (Windows x64).
+          "@
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -f $tag $sha
+          git push origin "refs/tags/$tag" --force
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to move the development tag to the validated commit.' }
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+
+          if ($exists) {
+            gh release upload $tag `
+              'dist/RobloxPriceTracker-Lite.exe#RobloxPriceTracker-Lite.exe' `
+              'dist/RobloxPriceTracker-Lite.exe.sha256#RobloxPriceTracker-Lite.exe.sha256' `
+              --repo $env:GITHUB_REPOSITORY `
+              --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to replace Latest / Development release assets.' }
+
+            gh release edit $tag `
+              --repo $env:GITHUB_REPOSITORY `
+              --title $title `
+              --notes $notes `
+              --prerelease
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to update Latest / Development release metadata.' }
+          }
+          else {
+            gh release create $tag `
+              'dist/RobloxPriceTracker-Lite.exe#RobloxPriceTracker-Lite.exe' `
+              'dist/RobloxPriceTracker-Lite.exe.sha256#RobloxPriceTracker-Lite.exe.sha256' `
+              --repo $env:GITHUB_REPOSITORY `
+              --title $title `
+              --notes $notes `
+              --prerelease
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to create Latest / Development release.' }
+          }
+
+      # Successful PR builds are intentionally not uploaded as Actions artifacts.
+      # Validated main builds are published through the fixed Latest / Development prerelease instead.
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
