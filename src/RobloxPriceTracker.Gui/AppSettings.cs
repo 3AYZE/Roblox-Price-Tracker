@@ -17,6 +17,7 @@ public sealed class AppSettings
     public bool StartMinimizedToTray { get; set; } = true;
     public int StartupDelaySeconds { get; set; } = 15;
     public bool AutoUpdateEnabled { get; set; } = true;
+    public string UpdateChannel { get; set; } = "Stable";
 }
 
 public sealed class AppSettingsStore
