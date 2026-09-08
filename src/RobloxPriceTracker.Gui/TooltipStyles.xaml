@@ -22,9 +22,10 @@
                             CornerRadius="4"
                             Padding="{TemplateBinding Padding}"
                             SnapsToDevicePixels="True">
-                        <ContentPresenter MaxWidth="400"
-                                          TextElement.Foreground="{TemplateBinding Foreground}"
-                                          TextBlock.TextWrapping="Wrap" />
+                        <TextBlock Text="{TemplateBinding Content}"
+                                   MaxWidth="400"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   TextWrapping="Wrap" />
                     </Border>
                 </ControlTemplate>
             </Setter.Value>
