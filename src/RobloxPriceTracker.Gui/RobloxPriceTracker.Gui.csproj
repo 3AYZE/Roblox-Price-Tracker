@@ -7,9 +7,9 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>RobloxPriceTracker</AssemblyName>
     <RootNamespace>RobloxPriceTracker.Gui</RootNamespace>
-    <Version>0.12.2</Version>
-    <AssemblyVersion>0.12.2.0</AssemblyVersion>
-    <FileVersion>0.12.2.0</FileVersion>
+    <Version>0.12.3</Version>
+    <AssemblyVersion>0.12.3.0</AssemblyVersion>
+    <FileVersion>0.12.3.0</FileVersion>
     <ApplicationIcon Condition="'$(RPTEmbedIcon)' == 'true'">Assets\mouse_app.ico</ApplicationIcon>
     <Authors>3AYZE</Authors>
     <Company>3AYZE</Company>
