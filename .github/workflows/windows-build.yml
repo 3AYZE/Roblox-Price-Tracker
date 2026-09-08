@@ -44,11 +44,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = 'main-latest'
-          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            gh release delete $tag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to replace the previous Latest release.' }
-          }
+
+          # Deleting a non-existent release is expected on the very first publish.
+          # Suppress that one native-command error, then let release creation remain strict.
+          $previousPreference = $ErrorActionPreference
+          $ErrorActionPreference = 'SilentlyContinue'
+          gh release delete $tag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes 2>$null
+          $ErrorActionPreference = $previousPreference
 
           $short = $env:GITHUB_SHA.Substring(0, 7)
           gh release create $tag `
@@ -60,12 +62,3 @@ jobs:
             --title "Roblox Market Helper Latest · $short" `
             --notes "Automatic Latest/Development channel build from main. Published only after the Windows build, regression tests, and Lite startup smoke test pass. Stable users remain on normal versioned GitHub Releases."
           if ($LASTEXITCODE -ne 0) { throw 'Failed to publish the Latest main build.' }
-
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: RobloxMarketHelper-build-log
-          path: logs/build-lite.log
-          if-no-files-found: ignore
-          retention-days: 1
