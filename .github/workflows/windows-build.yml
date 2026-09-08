@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -29,9 +29,38 @@ jobs:
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
 
-      # Successful CI builds are intentionally not uploaded as Actions artifacts.
-      # The release workflow publishes the final Lite executable, so retaining a duplicate
-      # EXE for every PR and main push only consumes the account's Actions storage quota.
+      - name: Generate Latest checksum
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        run: |
+          $lite = Resolve-Path 'dist/RobloxPriceTracker-Lite.exe'
+          $hash = (Get-FileHash -LiteralPath $lite -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  RobloxPriceTracker-Lite.exe" | Set-Content -LiteralPath 'dist/RobloxPriceTracker-Lite.exe.sha256' -Encoding ascii -NoNewline
+
+      - name: Publish verified Latest main build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'main-latest'
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete $tag --repo $env:GITHUB_REPOSITORY --cleanup-tag --yes
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to replace the previous Latest release.' }
+          }
+
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          gh release create $tag `
+            'dist/RobloxPriceTracker-Lite.exe#RobloxPriceTracker-Lite.exe' `
+            'dist/RobloxPriceTracker-Lite.exe.sha256#RobloxPriceTracker-Lite.exe.sha256' `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --prerelease `
+            --title "Roblox Market Helper Latest · $short" `
+            --notes "Automatic Latest/Development channel build from main. Published only after the Windows build, regression tests, and Lite startup smoke test pass. Stable users remain on normal versioned GitHub Releases."
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to publish the Latest main build.' }
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
