@@ -89,14 +89,17 @@ public partial class MainWindow
             _watchlistView?.Refresh();
             UpdateDashboardWatchlist();
 
-            // Do not override an intentional pause or the configured startup-delay window.
-            if (_monitoringCts is null || _startupDelayCts is not null) return;
-
+            // A normal pause clears both fields in StopMonitoringAsync. If the guarded monitor
+            // loop exits unexpectedly, however, its finally block clears only _monitoringCts and
+            // leaves the completed task reference behind. That distinction lets the watchdog
+            // restart a crashed loop without overriding an intentional user pause.
+            if (_startupDelayCts is not null) return;
+            var monitorLoopEndedUnexpectedly = _monitoringCts is null && _monitoringTask is { IsCompleted: true };
             var allStale = _watchlistRows.Count > 0 && _watchlistRows.All(x => x.IsStale);
-            if (!allStale) return;
+            if (!allStale && !monitorLoopEndedUnexpectedly) return;
 
             // Respect Roblox's Retry-After / governor state. Once requests are legal again,
-            // recover immediately rather than waiting for a potentially stale scheduled loop.
+            // recover immediately rather than repeatedly restarting or forcing a blocked poll.
             if (!_services.RateGovernor.CanRequest)
             {
                 await RefreshProviderHealthAsync();
@@ -108,6 +111,18 @@ public partial class MainWindow
             if (now - _lastFreshnessRecoveryAttemptUtc < minimumRetrySpacing) return;
 
             _lastFreshnessRecoveryAttemptUtc = now;
+            if (monitorLoopEndedUnexpectedly)
+            {
+                _services.Logger.Info("Freshness watchdog: monitoring loop ended unexpectedly; restarting background monitoring.");
+                StartMonitoring();
+                await RefreshProviderHealthAsync();
+                return;
+            }
+
+            // If monitoring is intentionally paused, all-stale data should remain visible as stale
+            // rather than silently turning monitoring back on.
+            if (_monitoringCts is null) return;
+
             _services.Logger.Info("Freshness watchdog: all tracked quotes are stale; requesting an immediate recovery poll.");
             await RunCheckAsync(userInitiated: false, CancellationToken.None);
             await RefreshProviderHealthAsync();
