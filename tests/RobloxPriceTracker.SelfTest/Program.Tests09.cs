@@ -35,7 +35,9 @@ internal static partial class Program
         var detailCalls = 0;
         var totalCalls = 0;
         var maxDetailBatch = 0;
+        var sawCursorRequest = false;
         var searchQueries = new List<string>();
+        var generatedId = 10_000L;
 
         using var handler = new DelegateHandler(async (request, _) =>
         {
@@ -43,21 +45,37 @@ internal static partial class Program
             if (request.Method == HttpMethod.Get)
             {
                 searchCalls++;
-                searchQueries.Add(request.RequestUri?.Query ?? string.Empty);
+                var query = request.RequestUri?.Query ?? string.Empty;
+                searchQueries.Add(query);
+                var isCursorPage = query.Contains("cursor=", StringComparison.OrdinalIgnoreCase);
+                sawCursorRequest |= isCursorPage;
 
-                IEnumerable<long> ids = searchCalls switch
+                var isUgcDay = query.Contains("Category=13", StringComparison.OrdinalIgnoreCase) &&
+                               query.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase);
+                var isUgcWeek = query.Contains("Category=13", StringComparison.OrdinalIgnoreCase) &&
+                                query.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase);
+
+                var ids = new List<long>(30);
+                if (isCursorPage && (isUgcDay || isUgcWeek))
                 {
-                    1 => Enumerable.Range(1000, 30).Select(x => (long)x),
-                    // Reference regression: an older item can be absent from the daily feed and
-                    // still be discovered because it becomes a high seller in the weekly window.
-                    2 => new[] { caesarCrownAssetId }.Concat(Enumerable.Range(1030, 29).Select(x => (long)x)),
-                    3 => Enumerable.Range(1060, 30).Select(x => (long)x),
-                    4 => Enumerable.Range(1090, 30).Select(x => (long)x),
-                    _ => Enumerable.Range(1120, 30).Select(x => (long)x)
-                };
+                    // Regression target: Caesar Crown is deliberately outside the first 30 rows.
+                    // It must still be discovered because the strong sales feeds are paginated.
+                    ids.Add(caesarCrownAssetId);
+                    for (var i = 1; i < 30; i++) ids.Add(generatedId++);
+                }
+                else
+                {
+                    for (var i = 0; i < 30; i++) ids.Add(generatedId++);
+                }
+
+                var nextCursor = !isCursorPage && (isUgcDay || isUgcWeek)
+                    ? $"page2-{searchCalls}"
+                    : null;
 
                 var json = JsonSerializer.Serialize(new
                 {
+                    previousPageCursor = (string?)null,
+                    nextPageCursor = nextCursor,
                     data = ids.Select(id => new
                     {
                         id,
@@ -65,7 +83,9 @@ internal static partial class Program
                         assetType = 8,
                         creatorTargetId = 12345,
                         price = 0,
-                        itemRestrictions = new[] { "Collectible" }
+                        // Search metadata can omit itemRestrictions in production. Hydration below
+                        // is the strict Limited check, so discovery must not lose the ID here.
+                        itemRestrictions = id == caesarCrownAssetId ? null : new[] { "Collectible" }
                     }).ToArray()
                 });
                 return new HttpResponseMessage(HttpStatusCode.OK)
@@ -97,9 +117,9 @@ internal static partial class Program
                     creatorTargetId = 12345,
                     assetType = 8,
                     price = 95,
-                    unitsAvailableForConsumption = 20,
-                    totalQuantity = 100,
-                    saleLocationType = "ShopOnly",
+                    unitsAvailableForConsumption = 1464,
+                    totalQuantity = 2500,
+                    saleLocationType = "ShopAndAllExperiences",
                     itemRestrictions = new[] { "Collectible" },
                     itemStatus = new[] { "Sale" }
                 }).ToArray()
@@ -116,13 +136,14 @@ internal static partial class Program
         var service = new RobloxUgcDiscoveryService(http, logger, expandDiscovery: true);
         var result = await service.DiscoverAsync();
 
-        AssertEqual(5, searchCalls);
-        AssertEqual(2, detailCalls);
-        AssertEqual(7, totalCalls);
+        AssertTrue(searchCalls >= 8);
+        AssertTrue(sawCursorRequest);
         AssertTrue(maxDetailBatch <= 40);
-        AssertEqual(80, result.DiscoveredCount);
-        AssertEqual(80, result.HydratedCount);
-        AssertEqual(80, result.Items.Count);
+        AssertTrue(detailCalls >= 1 && detailCalls <= 4);
+        AssertTrue(totalCalls >= searchCalls + detailCalls);
+        AssertTrue(result.DiscoveredCount > 30 && result.DiscoveredCount <= 140);
+        AssertEqual(result.DiscoveredCount, result.HydratedCount);
+        AssertEqual(result.DiscoveredCount, result.Items.Count);
         AssertTrue(result.Items.Any(x => x.AssetId == caesarCrownAssetId));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase)));
