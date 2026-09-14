@@ -30,17 +30,32 @@ internal static partial class Program
 
     static async Task TestUgcDiscoveryCombinesMultipleLimitedFeedsAsync()
     {
+        const long caesarCrownAssetId = 96_423_734_124_931L;
         var searchCalls = 0;
+        var detailCalls = 0;
         var totalCalls = 0;
-        using var handler = new DelegateHandler((request, _) =>
+        var maxDetailBatch = 0;
+        var searchQueries = new List<string>();
+
+        using var handler = new DelegateHandler(async (request, _) =>
         {
             totalCalls++;
             if (request.Method == HttpMethod.Get)
             {
                 searchCalls++;
-                var ids = searchCalls == 1
-                    ? Enumerable.Range(1000, 30).Select(x => (long)x)
-                    : Enumerable.Range(1020, 30).Select(x => (long)x);
+                searchQueries.Add(request.RequestUri?.Query ?? string.Empty);
+
+                IEnumerable<long> ids = searchCalls switch
+                {
+                    1 => Enumerable.Range(1000, 30).Select(x => (long)x),
+                    // Reference regression: an older item can be absent from the daily feed and
+                    // still be discovered because it becomes a high seller in the weekly window.
+                    2 => new[] { caesarCrownAssetId }.Concat(Enumerable.Range(1030, 29).Select(x => (long)x)),
+                    3 => Enumerable.Range(1060, 30).Select(x => (long)x),
+                    4 => Enumerable.Range(1090, 30).Select(x => (long)x),
+                    _ => Enumerable.Range(1120, 30).Select(x => (long)x)
+                };
+
                 var json = JsonSerializer.Serialize(new
                 {
                     data = ids.Select(id => new
@@ -53,20 +68,31 @@ internal static partial class Program
                         itemRestrictions = new[] { "Collectible" }
                     }).ToArray()
                 });
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
-                });
+                };
             }
 
             AssertEqual(HttpMethod.Post, request.Method);
+            AssertTrue(request.RequestUri?.Host.Equals("catalog.roblox.com", StringComparison.OrdinalIgnoreCase) == true);
+            detailCalls++;
+
+            var payload = await request.Content!.ReadAsStringAsync();
+            using var payloadDocument = JsonDocument.Parse(payload);
+            var requestedIds = payloadDocument.RootElement.GetProperty("items")
+                .EnumerateArray()
+                .Select(x => x.GetProperty("id").GetInt64())
+                .ToArray();
+            maxDetailBatch = Math.Max(maxDetailBatch, requestedIds.Length);
+
             var detailJson = JsonSerializer.Serialize(new
             {
-                data = Enumerable.Range(1000, 40).Select(x => new
+                data = requestedIds.Select(id => new
                 {
-                    id = (long)x,
+                    id,
                     itemType = "Asset",
-                    name = $"Limited {x}",
+                    name = id == caesarCrownAssetId ? "Caesar Crown" : $"Limited {id}",
                     creatorName = "UGC Creator",
                     creatorTargetId = 12345,
                     assetType = 8,
@@ -78,22 +104,29 @@ internal static partial class Program
                     itemStatus = new[] { "Sale" }
                 }).ToArray()
             });
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(detailJson, Encoding.UTF8, "application/json")
-            });
+            };
         });
 
-        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
         var logPath = Path.Combine(Path.GetTempPath(), "rpt-selftest", Guid.NewGuid().ToString("N"), "app.log");
         var logger = new AppLogger(logPath);
         var service = new RobloxUgcDiscoveryService(http, logger, expandDiscovery: true);
         var result = await service.DiscoverAsync();
 
-        AssertEqual(2, searchCalls);
-        AssertEqual(3, totalCalls);
-        AssertEqual(40, result.DiscoveredCount);
-        AssertEqual(40, result.HydratedCount);
-        AssertEqual(40, result.Items.Count);
+        AssertEqual(5, searchCalls);
+        AssertEqual(2, detailCalls);
+        AssertEqual(7, totalCalls);
+        AssertTrue(maxDetailBatch <= 40);
+        AssertEqual(80, result.DiscoveredCount);
+        AssertEqual(80, result.HydratedCount);
+        AssertEqual(80, result.Items.Count);
+        AssertTrue(result.Items.Any(x => x.AssetId == caesarCrownAssetId));
+        AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase)));
+        AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase)));
+        AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=4", StringComparison.OrdinalIgnoreCase)));
+        AssertTrue(searchQueries.Any(x => x.Contains("SortType=3", StringComparison.OrdinalIgnoreCase)));
     }
 }
