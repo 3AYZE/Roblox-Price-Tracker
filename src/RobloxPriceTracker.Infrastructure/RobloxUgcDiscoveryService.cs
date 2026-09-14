@@ -55,25 +55,48 @@ public sealed record RobloxUgcDiscoveryResult(
     int HydratedCount);
 
 /// <summary>
-/// Finds current UGC Limiteds in two stages. Roblox search is discovery-only because Limited
-/// search rows can contain placeholder price/sales fields. Hunter combines several bounded,
-/// paced Limited feeds, deduplicates IDs, then hydrates at most one 40-item detail batch before
-/// applying buyability, supply, and price filters.
+/// Finds buyable UGC Limiteds without imposing an item-age window. Discovery deliberately mixes
+/// recent-drop coverage with Roblox best-selling windows (day/week/month), so an older Limited can
+/// re-enter Hunter when demand revives. Search rows are discovery-only; IDs are hydrated in bounded
+/// catalog and Marketplace Item batches before buyability, stock, and price checks are applied.
 /// </summary>
 public sealed class RobloxUgcDiscoveryService
 {
-    private static readonly Uri[] DiscoveryEndpoints =
+    private sealed record DiscoveryFeed(string Name, Uri Endpoint, int Budget);
+
+    private static readonly DiscoveryFeed[] DiscoveryFeeds =
     [
-        new("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
-        new("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30"),
-        new("https://catalog.roblox.com/v1/search/items/details?Category=2&SortType=3&Limit=30"),
-        new("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30")
+        new(
+            "sales-day",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
+            25),
+        new(
+            "sales-week",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
+            25),
+        new(
+            "sales-month",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=4&Limit=30"),
+            10),
+        new(
+            "ugc-sales-week",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
+            10),
+        new(
+            "recent-limiteds",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30"),
+            10)
     ];
+
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
-    private const int MaxDiscoveryIds = 40;
+    private const int MaxDiscoveryIds = 80;
+    private const int MaxDetailBatchSize = 40;
+    private const int MaxMarketplaceBatchSize = 40;
     private const int MaxRateLimitAttempts = 2;
-    private static readonly TimeSpan InterFeedDelay = TimeSpan.FromMilliseconds(800);
+    private static readonly TimeSpan InterFeedDelay = TimeSpan.FromMilliseconds(650);
+    private static readonly TimeSpan InterDetailBatchDelay = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan InterMarketplaceBatchDelay = TimeSpan.FromMilliseconds(250);
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
@@ -93,34 +116,38 @@ public sealed class RobloxUgcDiscoveryService
     {
         var ids = new List<long>(MaxDiscoveryIds);
         var seen = new HashSet<long>();
-        var feedCount = _expandDiscovery ? DiscoveryEndpoints.Length : 1;
+        var feeds = _expandDiscovery ? DiscoveryFeeds : DiscoveryFeeds.Take(1).ToArray();
         var feedsUsed = 0;
 
-        for (var i = 0; i < feedCount && ids.Count < MaxDiscoveryIds; i++)
+        for (var i = 0; i < feeds.Length && ids.Count < MaxDiscoveryIds; i++)
         {
+            var feed = feeds[i];
             JsonDocument searchDocument;
             try
             {
-                searchDocument = await FetchDiscoveryAsync(DiscoveryEndpoints[i], cancellationToken).ConfigureAwait(false);
+                searchDocument = await FetchDiscoveryAsync(feed.Endpoint, cancellationToken).ConfigureAwait(false);
             }
             catch (RobloxUgcDiscoveryException ex) when (i > 0 && ids.Count > 0)
             {
-                _logger.Info($"UGC Hunter supplemental discovery stopped after feed {i + 1}: {ex.Message}");
+                _logger.Info($"UGC Hunter supplemental discovery stopped at {feed.Name}: {ex.Message}");
                 break;
             }
 
             using (searchDocument)
             {
                 feedsUsed++;
+                var addedForFeed = 0;
                 foreach (var id in RobloxUgcCatalogDiscoveryParser.ParseDiscoveryIds(searchDocument.RootElement))
                 {
-                    if (seen.Add(id)) ids.Add(id);
-                    if (ids.Count >= MaxDiscoveryIds) break;
+                    if (!seen.Add(id)) continue;
+                    ids.Add(id);
+                    addedForFeed++;
+                    if (addedForFeed >= feed.Budget || ids.Count >= MaxDiscoveryIds) break;
                 }
             }
 
             if (ids.Count >= MaxDiscoveryIds) break;
-            if (i + 1 < feedCount)
+            if (i + 1 < feeds.Length)
                 await Task.Delay(InterFeedDelay, cancellationToken).ConfigureAwait(false);
         }
 
@@ -130,15 +157,39 @@ public sealed class RobloxUgcDiscoveryService
             return new RobloxUgcDiscoveryResult(Array.Empty<RobloxUgcCatalogCandidate>(), 0, 0);
         }
 
-        // Avoid issuing catalog hydration in the same burst as the last search request.
-        await Task.Delay(TimeSpan.FromMilliseconds(650), cancellationToken).ConfigureAwait(false);
+        // Avoid issuing hydration in the same burst as the last search request.
+        await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken).ConfigureAwait(false);
 
         var idArray = ids.ToArray();
-        using var detailDocument = await FetchDetailsAsync(idArray, cancellationToken).ConfigureAwait(false);
-        var hydratedRows = detailDocument.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array
-            ? data.GetArrayLength()
-            : 0;
-        var catalogCandidates = RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(detailDocument.RootElement);
+        var catalogCandidates = new List<RobloxUgcCatalogCandidate>(idArray.Length);
+        var hydratedRows = 0;
+        var detailBatches = 0;
+
+        for (var offset = 0; offset < idArray.Length; offset += MaxDetailBatchSize)
+        {
+            var batch = idArray.Skip(offset).Take(MaxDetailBatchSize).ToArray();
+            try
+            {
+                using var detailDocument = await FetchDetailsAsync(batch, cancellationToken).ConfigureAwait(false);
+                detailBatches++;
+                if (detailDocument.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+                    hydratedRows += data.GetArrayLength();
+                catalogCandidates.AddRange(RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(detailDocument.RootElement));
+            }
+            catch (RobloxUgcDiscoveryException ex) when (catalogCandidates.Count > 0)
+            {
+                _logger.Info($"UGC Hunter kept {catalogCandidates.Count} hydrated candidates after a later detail batch failed: {ex.Message}");
+                break;
+            }
+
+            if (offset + MaxDetailBatchSize < idArray.Length)
+                await Task.Delay(InterDetailBatchDelay, cancellationToken).ConfigureAwait(false);
+        }
+
+        catalogCandidates = catalogCandidates
+            .GroupBy(x => x.AssetId)
+            .Select(x => x.First())
+            .ToList();
 
         var collectibleIds = catalogCandidates
             .Select(x => x.CollectibleItemId)
@@ -146,9 +197,7 @@ public sealed class RobloxUgcDiscoveryService
             .Select(x => x!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var marketplace = collectibleIds.Length == 0
-            ? new Dictionary<string, RobloxMarketplaceItemData>(StringComparer.OrdinalIgnoreCase)
-            : await _marketplaceItems.GetManyAsync(collectibleIds, cancellationToken).ConfigureAwait(false);
+        var marketplace = await GetMarketplaceInBatchesAsync(collectibleIds, cancellationToken).ConfigureAwait(false);
 
         var candidates = new List<RobloxUgcCatalogCandidate>(catalogCandidates.Count);
         var verified = 0;
@@ -188,8 +237,28 @@ public sealed class RobloxUgcDiscoveryService
                 rejectedUnavailable++;
         }
 
-        _logger.Info($"UGC Hunter authoritative discovery: {feedsUsed} feed(s), {idArray.Length} IDs, {hydratedRows} catalog rows, {verified} marketplace-verified, {rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
+        _logger.Info(
+            $"UGC Hunter age-independent discovery: {feedsUsed} feed(s), {idArray.Length} IDs, {detailBatches} detail batch(es), " +
+            $"{hydratedRows} catalog rows, {verified} marketplace-verified, {rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
         return new RobloxUgcDiscoveryResult(candidates, idArray.Length, hydratedRows);
+    }
+
+    private async Task<Dictionary<string, RobloxMarketplaceItemData>> GetMarketplaceInBatchesAsync(
+        string[] collectibleIds,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, RobloxMarketplaceItemData>(StringComparer.OrdinalIgnoreCase);
+        for (var offset = 0; offset < collectibleIds.Length; offset += MaxMarketplaceBatchSize)
+        {
+            var batch = collectibleIds.Skip(offset).Take(MaxMarketplaceBatchSize).ToArray();
+            var rows = await _marketplaceItems.GetManyAsync(batch, cancellationToken).ConfigureAwait(false);
+            foreach (var pair in rows)
+                result[pair.Key] = pair.Value;
+
+            if (offset + MaxMarketplaceBatchSize < collectibleIds.Length)
+                await Task.Delay(InterMarketplaceBatchDelay, cancellationToken).ConfigureAwait(false);
+        }
+        return result;
     }
 
     private async Task<JsonDocument> FetchDiscoveryAsync(Uri endpoint, CancellationToken cancellationToken)
