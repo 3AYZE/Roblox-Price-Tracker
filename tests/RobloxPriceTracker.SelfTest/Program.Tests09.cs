@@ -50,16 +50,18 @@ internal static partial class Program
                 var isCursorPage = query.Contains("cursor=", StringComparison.OrdinalIgnoreCase);
                 sawCursorRequest |= isCursorPage;
 
-                var isUgcDay = query.Contains("Category=13", StringComparison.OrdinalIgnoreCase) &&
-                               query.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase);
-                var isUgcWeek = query.Contains("Category=13", StringComparison.OrdinalIgnoreCase) &&
-                                query.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase);
+                var isCollectiblesMomentum = query.Contains("Category=2", StringComparison.OrdinalIgnoreCase) &&
+                                             query.Contains("SortType=2", StringComparison.OrdinalIgnoreCase) &&
+                                             (query.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase) ||
+                                              query.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase) ||
+                                              query.Contains("SortAggregation=4", StringComparison.OrdinalIgnoreCase));
 
                 var ids = new List<long>(30);
-                if (isCursorPage && (isUgcDay || isUgcWeek))
+                if (isCursorPage && isCollectiblesMomentum)
                 {
-                    // Regression target: Caesar Crown is deliberately outside the first 30 rows.
-                    // It must still be discovered because the strong sales feeds are paginated.
+                    // Regression target: Caesar Crown is deliberately outside the first 30 rows
+                    // in every strong sales window. Real discovery must follow the cursor and let
+                    // repeated cross-window momentum carry the older item into the selected set.
                     ids.Add(caesarCrownAssetId);
                     for (var i = 1; i < 30; i++) ids.Add(generatedId++);
                 }
@@ -68,7 +70,7 @@ internal static partial class Program
                     for (var i = 0; i < 30; i++) ids.Add(generatedId++);
                 }
 
-                var nextCursor = !isCursorPage && (isUgcDay || isUgcWeek)
+                var nextCursor = !isCursorPage && isCollectiblesMomentum
                     ? $"page2-{searchCalls}"
                     : null;
 
@@ -139,12 +141,13 @@ internal static partial class Program
         AssertTrue(searchCalls >= 8);
         AssertTrue(sawCursorRequest);
         AssertTrue(maxDetailBatch <= 40);
-        AssertTrue(detailCalls >= 1 && detailCalls <= 4);
+        AssertTrue(detailCalls >= 1 && detailCalls <= 3);
         AssertTrue(totalCalls >= searchCalls + detailCalls);
-        AssertTrue(result.DiscoveredCount > 30 && result.DiscoveredCount <= 140);
+        AssertTrue(result.DiscoveredCount > 30 && result.DiscoveredCount <= 120);
         AssertEqual(result.DiscoveredCount, result.HydratedCount);
         AssertEqual(result.DiscoveredCount, result.Items.Count);
         AssertTrue(result.Items.Any(x => x.AssetId == caesarCrownAssetId));
+        AssertTrue(searchQueries.Any(x => x.Contains("Category=2", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=4", StringComparison.OrdinalIgnoreCase)));
