@@ -50,6 +50,8 @@ internal static partial class Program
             ("UGC hydrated experience-only Limited is excluded", TestUgcHydratedExperienceOnlyLimitedIsExcludedAsync),
             ("UGC discovery completes anonymous CSRF hydration", TestUgcDiscoveryRetriesAnonymousCsrfAndHydratesAsync),
             ("UGC discovery combines multiple Limited feeds", TestUgcDiscoveryCombinesMultipleLimitedFeedsAsync),
+            ("UGC discovery falls back from protocol route errors", TestUgcDiscoveryFallsBackFromProtocolErrorAsync),
+            ("UGC discovery keeps valid rows from a partially bad detail batch", TestUgcDiscoveryRecoversPartialBadDetailBatchAsync),
             ("UGC Hunter hides large primary-price increases", TestUgcHunterLargePrimaryPriceIncreasePolicyAsync),
             ("Marketplace item parser matches White Heart Aura reference", TestMarketplaceItemParserUsesWhiteHeartAuraReferenceAsync),
             ("White Heart Aura reference is unprofitable", TestWhiteHeartAuraReferenceIsUnprofitableAsync),
