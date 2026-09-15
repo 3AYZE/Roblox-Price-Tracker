@@ -99,9 +99,6 @@ public sealed class RobloxUgcDiscoveryService
 
     private static readonly DiscoveryFeed[] DiscoveryFeeds =
     [
-        // Category=2 is Roblox's documented V1 Collectibles bucket. Category=1 is deliberately the
-        // fallback because it has historically remained usable even when narrower category routes
-        // drift or return HTTP 400. UGC is filtered after the response by creator and asset type.
         new(
             "collectibles-sales-day",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
@@ -123,8 +120,6 @@ public sealed class RobloxUgcDiscoveryService
             MaxPages: 2,
             Budget: 60,
             Weight: 1.05d),
-
-        // CommunityCreations is useful extra coverage, but it is never allowed to take Hunter down.
         new(
             "community-sales-week",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
@@ -132,8 +127,6 @@ public sealed class RobloxUgcDiscoveryService
             MaxPages: 3,
             Budget: 90,
             Weight: 1.10d),
-
-        // Reserve some capacity for recent Limiteds that have not yet accumulated enough sales.
         new(
             "recent-collectibles",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=3&Limit=30"),
@@ -280,9 +273,6 @@ public sealed class RobloxUgcDiscoveryService
             ex.StatusCode == (int)HttpStatusCode.BadRequest &&
             batch.Length > DetailIsolationChunkSize)
         {
-            // A single malformed/stale discovery ID must not blank the whole Hunter. Probe four
-            // bounded sub-batches. If every sub-batch fails, the endpoint itself is unhealthy and
-            // the original protocol error is surfaced instead of hiding a systemic failure.
             var recovered = new List<RobloxUgcCatalogCandidate>();
             var rows = 0;
             var requests = 1;
@@ -310,7 +300,7 @@ public sealed class RobloxUgcDiscoveryService
             }
 
             if (successes == 0)
-                throw ex;
+                throw;
 
             _logger.Info($"UGC Hunter recovered {recovered.Count} candidates from a partially invalid detail batch.");
             return new HydrationResult(recovered, rows, requests);
@@ -476,7 +466,6 @@ public sealed class RobloxUgcDiscoveryService
     {
         if (string.IsNullOrWhiteSpace(cursor)) return endpoint;
         var separator = endpoint.Query.Length == 0 ? "?" : "&";
-        // V1 documentation spells this parameter Cursor. Keep that exact casing for compatibility.
         return new Uri(endpoint.AbsoluteUri + separator + "Cursor=" + Uri.EscapeDataString(cursor));
     }
 
@@ -737,9 +726,6 @@ public static class RobloxUgcCatalogDiscoveryParser
         foreach (var row in data.EnumerateArray())
         {
             if (!TryGetInt64(row, "id", out var id) || id <= 0) continue;
-
-            // Real catalog search responses identify Asset vs Bundle. Require Asset here; allowing a
-            // row with no itemType into an Asset-detail batch can make Roblox reject the whole POST.
             var itemType = GetString(row, "itemType");
             if (!string.Equals(itemType, "Asset", StringComparison.OrdinalIgnoreCase)) continue;
 
@@ -751,7 +737,6 @@ public static class RobloxUgcCatalogDiscoveryParser
 
             var assetType = TryGetInt32(row, "assetType", out var parsedAssetType) ? parsedAssetType : 0;
             if (assetType > 0 && !IsSupportedUgcAssetType(assetType)) continue;
-
             result.Add(id);
         }
         return result;
