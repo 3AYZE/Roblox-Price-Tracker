@@ -180,3 +180,15 @@ public sealed class GuiNotificationEventArgs : EventArgs
     public string Title { get; }
     public string Body { get; }
 }
+
+public sealed class GuiNotificationSink : INotificationSink
+{
+    public event EventHandler<GuiNotificationEventArgs>? NotificationRaised;
+
+    public Task SendAsync(string title, string body, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        NotificationRaised?.Invoke(this, new GuiNotificationEventArgs(title, body));
+        return Task.CompletedTask;
+    }
+}
