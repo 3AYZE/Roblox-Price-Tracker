@@ -25,7 +25,7 @@ public sealed class AppServices : IDisposable
         RobloxResaleDataService resaleDataService,
         PriceForecastEngine forecastEngine,
         ForecastHistoryStore forecastHistoryStore,
-        UgcHunterService ugcHunterService,
+        UgcHunterServiceFacade ugcHunterService,
         PaperPortfolioStore paperPortfolioStore)
     {
         DataDirectory = dataDirectory;
@@ -66,7 +66,7 @@ public sealed class AppServices : IDisposable
     public RobloxResaleDataService ResaleDataService { get; }
     public PriceForecastEngine ForecastEngine { get; }
     public ForecastHistoryStore ForecastHistoryStore { get; }
-    public UgcHunterService UgcHunterService { get; }
+    public UgcHunterServiceFacade UgcHunterService { get; }
     public PaperPortfolioStore PaperPortfolioStore { get; }
 
     public PollPlanner CreatePollPlanner() => new(
@@ -133,7 +133,8 @@ public sealed class AppServices : IDisposable
         var forecastEngine = new PriceForecastEngine();
         var forecastHistoryStore = new ForecastHistoryStore(Path.Combine(dataDir, "forecast-history.json"));
         await forecastHistoryStore.InitializeAsync(cancellationToken);
-        var ugcHunterService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir);
+        var ugcHunterCoreService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir);
+        var ugcHunterService = new UgcHunterServiceFacade(ugcHunterCoreService, logger, dataDir);
         await ugcHunterService.InitializeAsync(cancellationToken);
         var paperPortfolioStore = new PaperPortfolioStore(dataDir);
         await paperPortfolioStore.InitializeAsync(cancellationToken);
@@ -162,6 +163,7 @@ public sealed class AppServices : IDisposable
 
     public void Dispose()
     {
+        UgcHunterService.Dispose();
         UpdateService.Dispose();
         HttpClient.Dispose();
     }
@@ -177,16 +179,4 @@ public sealed class GuiNotificationEventArgs : EventArgs
 
     public string Title { get; }
     public string Body { get; }
-}
-
-public sealed class GuiNotificationSink : INotificationSink
-{
-    public event EventHandler<GuiNotificationEventArgs>? NotificationRaised;
-
-    public Task SendAsync(string title, string body, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        NotificationRaised?.Invoke(this, new GuiNotificationEventArgs(title, body));
-        return Task.CompletedTask;
-    }
 }
