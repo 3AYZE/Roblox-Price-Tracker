@@ -34,7 +34,9 @@ public partial class MainWindow
     private bool FilterHunterBoardRow(object item)
     {
         if (!FilterHunterRow(item)) return false;
-        return item is not UgcHunterItem row || !_hunterPriceSpikeHidden.Contains(row.AssetId);
+        if (item is not UgcHunterItem row) return true;
+        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price)) return false;
+        return !_hunterPriceSpikeHidden.Contains(row.AssetId);
     }
 
     private void HunterRows_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -56,7 +58,7 @@ public partial class MainWindow
 
     private void ObserveHunterPrimaryPrice(UgcHunterItem item)
     {
-        if (item.Price <= 0) return;
+        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price)) return;
         var now = item.ObservedAtUtc == default ? DateTimeOffset.UtcNow : item.ObservedAtUtc;
 
         if (!_hunterPriceAnchors.TryGetValue(item.AssetId, out var anchor))
@@ -155,7 +157,10 @@ public partial class MainWindow
 
     private void UpdateHunterVisibleCounts()
     {
-        var visible = _hunterRows.Where(x => !_hunterPriceSpikeHidden.Contains(x.AssetId)).ToArray();
+        var visible = _hunterRows
+            .Where(x => UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(x.Price))
+            .Where(x => !_hunterPriceSpikeHidden.Contains(x.AssetId))
+            .ToArray();
         if (_hunterLiveCountText is not null)
             _hunterLiveCountText.Text = visible.Length.ToString("N0");
         if (_hunterStrongCountText is not null)

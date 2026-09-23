@@ -58,14 +58,20 @@ public sealed class UgcHunterServiceFacade : IDisposable
                 {
                     var age = DateTimeOffset.UtcNow - persisted.ObservedAtUtc;
                     if (age < TimeSpan.Zero) age = TimeSpan.Zero;
-                    if (age <= MaximumDiskSnapshotAge)
+                    if (age <= MaximumDiskSnapshotAge && SnapshotMatchesEntryPricePolicy(persisted))
                     {
                         _cachedSnapshot = persisted;
                         _logger.Info($"UGC Hunter restored cached snapshot with {persisted.Items.Count} item(s), age {age.TotalMinutes:0.#}m.");
                     }
-                    else
+                    else if (age > MaximumDiskSnapshotAge)
                     {
                         _logger.Info($"UGC Hunter ignored cached snapshot older than {MaximumDiskSnapshotAge.TotalHours:0}h.");
+                    }
+                    else
+                    {
+                        _logger.Info(
+                            $"UGC Hunter ignored a cached snapshot that does not match the current " +
+                            $"{UgcHunterEntryPricePolicy.MinimumPrimaryPrice:N0} R$ minimum-entry policy.");
                     }
                 }
             }
@@ -164,6 +170,9 @@ public sealed class UgcHunterServiceFacade : IDisposable
 
         return snapshot;
     }
+
+    private static bool SnapshotMatchesEntryPricePolicy(UgcHunterMarketSnapshot snapshot) =>
+        snapshot.Items.All(item => UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price));
 
     private void ThrowIfDisposed()
     {

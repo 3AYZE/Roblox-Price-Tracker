@@ -166,4 +166,15 @@ internal static partial class Program
         AssertEqual(20, result.Items.Count);
         AssertTrue(result.Items.All(x => x.AssetId < firstId + 20));
     }
+
+    static Task TestUgcHunterMinimumPrimaryPricePolicyAsync()
+    {
+        AssertEqual(95, UgcHunterEntryPricePolicy.MinimumPrimaryPrice);
+        AssertTrue(UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(95));
+        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(94));
+        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(96));
+        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(150));
+        return Task.CompletedTask;
+    }
+
 }
