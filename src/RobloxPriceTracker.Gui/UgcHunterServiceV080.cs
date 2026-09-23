@@ -188,7 +188,18 @@ public sealed class UgcHunterService
         // Roblox search is discovery-only: current Collectible rows can contain placeholder
         // price/sales fields. Hydrate IDs through batch details before filtering/scoring.
         var discovery = await _discoveryService.DiscoverAsync(cancellationToken).ConfigureAwait(false);
-        return discovery.Items.Select(item => new UgcRawCatalogItem(
+        var eligible = discovery.Items
+            .Where(item => UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price))
+            .ToArray();
+        var excludedByEntryPrice = discovery.Items.Count - eligible.Length;
+        if (excludedByEntryPrice > 0)
+        {
+            _logger.Info(
+                $"UGC Hunter excluded {excludedByEntryPrice} item(s) outside the required minimum primary entry price " +
+                $"of {UgcHunterEntryPricePolicy.MinimumPrimaryPrice:N0} R$.");
+        }
+
+        return eligible.Select(item => new UgcRawCatalogItem(
             item.AssetId,
             item.Name,
             item.CreatorName,
