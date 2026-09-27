@@ -1,8 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <Compile Remove="RobloxUgcDiscoveryService.cs" />
-  </ItemGroup>
-  <ItemGroup>
     <ProjectReference Include="..\RobloxPriceTracker.Core\RobloxPriceTracker.Core.csproj" />
   </ItemGroup>
 </Project>
