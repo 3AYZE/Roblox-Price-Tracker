@@ -217,4 +217,22 @@ internal static partial class Program
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
     };
 
+    static Task TestSingleExeReleaseIntegrityAsync()
+    {
+        AssertTrue(GitHubReleaseIntegrity.TryReadVersion("Roblox Price Tracker v0.13.9", out var version));
+        AssertEqual(new Version(0, 13, 9), version);
+        AssertTrue(!GitHubReleaseIntegrity.TryReadVersion("Latest", out _));
+        AssertTrue(GitHubReleaseIntegrity.TryReadDigest("sha256:" + new string('a', 64), out var hash));
+        AssertEqual(new string('a', 64), hash);
+        AssertTrue(!GitHubReleaseIntegrity.TryReadDigest("sha256:" + new string('b', 63), out _));
+        AssertTrue(!GitHubReleaseIntegrity.TryReadDigest("md5:" + new string('b', 64), out _));
+        var current = new Version(0, 13, 9, 0);
+        AssertTrue(GitHubReleaseIntegrity.NeedsDownload(current, new Version(0, 13, 10), hash, hash));
+        AssertTrue(!GitHubReleaseIntegrity.NeedsDownload(current, new Version(0, 13, 8), hash, hash));
+        AssertTrue(!GitHubReleaseIntegrity.NeedsDownload(current, current, hash, hash));
+        AssertTrue(GitHubReleaseIntegrity.NeedsDownload(current, current, new string('b', 64), hash));
+        AssertTrue(!GitHubReleaseIntegrity.NeedsDownload(current, current, null, hash));
+        return Task.CompletedTask;
+    }
+
 }

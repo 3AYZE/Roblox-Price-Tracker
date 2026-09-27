@@ -69,7 +69,8 @@ internal static partial class Program
             ("Startup recovers missing items without losing current targets", TestTrackerStartupRecoversMissingItemsAsync),
             ("Live rollback is repaired before any partial save", TestTrackerInSessionRollbackGuardAsync),
             ("Startup restores from immutable checkpoint after both rolling files regress", TestTrackerCheckpointRecoveryAsync),
-            ("User-data snapshot captures JSON state", TestUserDataSnapshotCapturesJsonAsync)
+            ("User-data snapshot captures JSON state", TestUserDataSnapshotCapturesJsonAsync),
+            ("Permanent EXE version and SHA-256 verification", TestSingleExeReleaseIntegrityAsync)
         };
 
         var failed = 0;
