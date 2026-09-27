@@ -1,5 +1,17 @@
 # Roblox Price Tracker changelog
 
+## v0.13.10
+- Simplified the GitHub project page and release notes for the permanent single-EXE download.
+- Shortened application metadata and removed obsolete generated/base64 artwork, redundant legacy implementation files and outdated documentation.
+- Kept the original tracker-data storage and the older updater compatibility releases unchanged.
+
+## v0.13.9
+- Published one permanent Latest release containing only `RobloxPriceTracker.exe`, with built-in SHA-256 verification and in-app updates.
+- Retained one-time compatibility paths for existing Stable and old Latest users.
+
+## v0.13.8
+- Introduced the cleaner Roblox-inspired icon in multiple Windows sizes and consistently named the app Roblox Price Tracker.
+
 ## v0.9.0
 - Added a dedicated **Analyzer** workspace: paste any Roblox catalog URL or asset ID for a direct market deep-dive.
 - Analyzer separates Roblox-observed primary price, sold/remaining supply, resale floor, RAP, seller depth, and resale volume from modeled economics.

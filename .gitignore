@@ -22,3 +22,6 @@ app-settings.json
 # OS
 Thumbs.db
 .DS_Store
+
+# Generated legacy asset exports
+src/RobloxPriceTracker.Gui/Assets/*.ico.b64

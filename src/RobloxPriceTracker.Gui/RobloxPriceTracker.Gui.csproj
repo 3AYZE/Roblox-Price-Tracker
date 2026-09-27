@@ -7,13 +7,13 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>RobloxPriceTracker</AssemblyName>
     <RootNamespace>RobloxPriceTracker.Gui</RootNamespace>
-    <Version>0.13.9</Version>
-    <AssemblyVersion>0.13.9.0</AssemblyVersion>
-    <FileVersion>0.13.9.0</FileVersion>
+    <Version>0.13.10</Version>
+    <AssemblyVersion>0.13.10.0</AssemblyVersion>
+    <FileVersion>0.13.10.0</FileVersion>
     <ApplicationIcon>Assets\mouse_app.ico</ApplicationIcon>
     <Authors>3AYZE</Authors>
     <Company>3AYZE</Company>
-    <Description>Roblox Price Tracker: a clean Windows Roblox Limited market terminal with Official Hunt, resilient age-independent UGC momentum discovery, non-blocking cached Hunter refreshes, minimum-price UGC entry gating, tracking, stock-style market signals, smart target notifications, research, paper portfolio, alerts, resilient local data backups, and self-recovering background monitoring.</Description>
+    <Description>Track Roblox Limited resale prices, discover qualifying UGC Limiteds, and get price alerts with a Windows desktop app.</Description>
     <Product>Roblox Price Tracker</Product>
     <Title>Roblox Price Tracker</Title>
     <DebugType>None</DebugType>
@@ -22,9 +22,6 @@
   <Target Name="GenerateTrackerBrandAssets" BeforeTargets="PrepareForBuild" Condition="'$(OS)' == 'Windows_NT'">
     <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Generate-BrandAssets.ps1&quot;" />
   </Target>
-  <ItemGroup>
-    <Compile Remove="UgcHunterService.cs" />
-  </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\mouse_logo.png" />
     <Resource Include="Assets\mouse_menu.png" />
