@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows.Controls;
 using System.Windows.Interop;
-using System.Windows.Media;
 
 namespace RobloxPriceTracker.Gui;
 
@@ -57,38 +56,47 @@ internal sealed class NativeTrayIcon : IDisposable
         _messageWindow.AddHook(WindowProc);
         _taskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
 
+        // A full control template is required here: changing ContextMenu.Background alone
+        // leaves Windows' light MenuItem gutter, blue focus rectangle, and square chrome.
+        // Keep the flyout resources local so other WPF menus retain their own styling.
+        var flyoutStyles = new System.Windows.ResourceDictionary
+        {
+            Source = new Uri(
+                "pack://application:,,,/RobloxPriceTracker;component/TrayMenuStyles.xaml",
+                UriKind.Absolute)
+        };
+        var flyoutItemStyle = (System.Windows.Style)flyoutStyles["TrayFlyoutItemStyle"];
         _menu = new ContextMenu
         {
-            Background = new SolidColorBrush(Color.FromRgb(17, 24, 33)),
-            Foreground = new SolidColorBrush(Color.FromRgb(226, 232, 240)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(45, 58, 74)),
-            BorderThickness = new System.Windows.Thickness(1)
+            Style = (System.Windows.Style)flyoutStyles["TrayFlyoutStyle"],
+            StaysOpen = false
         };
 
-        var openItem = new MenuItem { Header = "Open Roblox Market Helper" };
+        MenuItem CreateItem(string header) => new()
+        {
+            Header = header,
+            Style = flyoutItemStyle
+        };
+
+        var openItem = CreateItem("Open Roblox Market Helper");
         openItem.Click += (_, _) => _openAction();
         _menu.Items.Add(openItem);
-        _menu.Items.Add(new Separator());
 
-        var checkItem = new MenuItem { Header = "Check Now" };
+        var checkItem = CreateItem("Check Now");
         checkItem.Click += (_, _) => checkNowAction();
         _menu.Items.Add(checkItem);
 
-        _monitoringItem = new MenuItem { Header = monitoring ? "Pause Monitoring" : "Resume Monitoring" };
+        _monitoringItem = CreateItem(monitoring ? "Pause Monitoring" : "Resume Monitoring");
         _monitoringItem.Click += async (_, _) => await toggleMonitoringAction();
         _menu.Items.Add(_monitoringItem);
 
-        _startupItem = new MenuItem
-        {
-            Header = "Start with Windows",
-            IsCheckable = true,
-            IsChecked = startWithWindows
-        };
+        _startupItem = CreateItem("Start with Windows");
+        _startupItem.IsCheckable = true;
+        _startupItem.IsChecked = startWithWindows;
         _startupItem.Click += async (_, _) => await setStartupAction(_startupItem.IsChecked);
         _menu.Items.Add(_startupItem);
 
-        _menu.Items.Add(new Separator());
-        var exitItem = new MenuItem { Header = "Exit" };
+        var exitItem = CreateItem("Exit");
         exitItem.Click += (_, _) => exitAction();
         _menu.Items.Add(exitItem);
 
