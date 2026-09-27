@@ -32,70 +32,18 @@ function Invoke-DotNet([string]$Description, [string[]]$ArgsList) {
 }
 
 function Initialize-BrandAssets {
-    Write-Step 'Generating validated RPT Markets icon assets...'
+    Write-Step 'Generating the Roblox Price Tracker multi-resolution icon...'
+    & (Join-Path $PSScriptRoot 'Generate-BrandAssets.ps1') 2>&1 | Tee-Object -FilePath $logPath -Append
+    if (-not (Test-Path $iconPath)) { throw 'The application icon was not generated.' }
     Add-Type -AssemblyName System.Drawing
-    if (-not ('RPTLiteIconMethods' -as [type])) {
-        Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class RPTLiteIconMethods {
-    [DllImport("user32.dll")]
-    public static extern bool DestroyIcon(IntPtr handle);
-}
-"@
-    }
-
-    $bitmap = New-Object System.Drawing.Bitmap 64, 64, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $background = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 11, 18, 32))
-    $border = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 47, 65, 87)), 2
-    $bars = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 39, 196, 214))
-    $line = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 93, 224, 230)), 3
-    $arrow = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 45, 216, 129)), 3
-    $hIcon = [IntPtr]::Zero
-    $icon = $null
-    $stream = $null
-
+    $icon = [System.Drawing.Icon]::new($iconPath)
     try {
-        $graphics.Clear([System.Drawing.Color]::Transparent)
-        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        $graphics.FillEllipse($background, 3, 3, 58, 58)
-        $graphics.DrawEllipse($border, 4, 4, 56, 56)
-        $graphics.FillRectangle($bars, 16, 36, 5, 10)
-        $graphics.FillRectangle($bars, 27, 29, 5, 12)
-        $graphics.FillRectangle($bars, 38, 31, 5, 8)
-        $points = [System.Drawing.Point[]]@(
-            (New-Object System.Drawing.Point 14, 43),
-            (New-Object System.Drawing.Point 26, 34),
-            (New-Object System.Drawing.Point 36, 37),
-            (New-Object System.Drawing.Point 50, 21)
-        )
-        $graphics.DrawLines($line, $points)
-        $graphics.DrawLine($arrow, 50, 21, 49, 29)
-        $graphics.DrawLine($arrow, 50, 21, 42, 22)
-
-        $bitmap.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
-        $bitmap.Save($menuPath, [System.Drawing.Imaging.ImageFormat]::Png)
-        $bitmap.Save($windowPath, [System.Drawing.Imaging.ImageFormat]::Png)
-
-        $hIcon = $bitmap.GetHicon()
-        if ($hIcon -eq [IntPtr]::Zero) { throw 'Windows failed to create the application icon.' }
-        $icon = [System.Drawing.Icon]::FromHandle($hIcon)
-        $stream = [IO.File]::Create($iconPath)
-        $icon.Save($stream)
+        if ($icon.Width -lt 16 -or $icon.Height -lt 16) { throw 'Generated application icon is invalid.' }
     }
-    finally {
-        if ($null -ne $stream) { $stream.Dispose() }
-        if ($null -ne $icon) { $icon.Dispose() }
-        if ($hIcon -ne [IntPtr]::Zero) { [RPTLiteIconMethods]::DestroyIcon($hIcon) | Out-Null }
-        $arrow.Dispose(); $line.Dispose(); $bars.Dispose(); $border.Dispose(); $background.Dispose(); $graphics.Dispose(); $bitmap.Dispose()
+    finally { $icon.Dispose() }
+    foreach ($asset in @($logoPath, $menuPath, $windowPath)) {
+        if (-not (Test-Path $asset)) { throw "Missing generated brand asset: $asset" }
     }
-
-    $check = New-Object System.Drawing.Icon $iconPath
-    try {
-        if ($check.Width -lt 16 -or $check.Height -lt 16) { throw 'Generated application icon is invalid.' }
-    }
-    finally { $check.Dispose() }
 }
 
 function Assert-LiteStartup([string]$ExePath) {

@@ -46,109 +46,15 @@ function Assert-LightweightGui {
 }
 
 function Restore-AppIcon {
-    Write-Step 'Generating original RPT Markets branding and application icon...'
-
+    Write-Step 'Generating the Roblox Price Tracker multi-resolution icon...'
+    & (Join-Path $PSScriptRoot 'Generate-BrandAssets.ps1') 2>&1 | Tee-Object -FilePath $logPath -Append
+    if (-not (Test-Path $iconPath)) { throw 'The application icon was not generated.' }
     Add-Type -AssemblyName System.Drawing
-    if (-not ('RPTNativeIconMethods' -as [type])) {
-        Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class RPTNativeIconMethods {
-    [DllImport("user32.dll")]
-    public static extern bool DestroyIcon(IntPtr handle);
-}
-"@
-    }
-
-    $bitmap = $null
-    $graphics = $null
-    $backgroundBrush = $null
-    $borderPen = $null
-    $gridPen = $null
-    $cyanPen = $null
-    $greenPen = $null
-    $barBrush = $null
-    $icon = $null
-    $stream = $null
-    $hIcon = [IntPtr]::Zero
-
+    $icon = [System.Drawing.Icon]::new($iconPath)
     try {
-        $bitmap = New-Object System.Drawing.Bitmap 64, 64, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-        $graphics.Clear([System.Drawing.Color]::Transparent)
-        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-
-        # RPT Markets brand mark: dark market-terminal tile with a compact rising price chart.
-        $backgroundBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 11, 18, 32))
-        $borderPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 47, 65, 87)), 2
-        $graphics.FillEllipse($backgroundBrush, 3, 3, 58, 58)
-        $graphics.DrawEllipse($borderPen, 4, 4, 56, 56)
-
-        $gridPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(90, 79, 98, 121)), 1
-        $graphics.DrawLine($gridPen, 13, 46, 52, 46)
-        $graphics.DrawLine($gridPen, 13, 35, 52, 35)
-
-        $barBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 39, 196, 214))
-        $graphics.FillRectangle($barBrush, 16, 36, 5, 10)
-        $graphics.FillRectangle($barBrush, 27, 29, 5, 12)
-        $graphics.FillRectangle($barBrush, 38, 31, 5, 8)
-
-        $cyanPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 93, 224, 230)), 3
-        $cyanPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-        $cyanPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-        $points = [System.Drawing.Point[]]@(
-            (New-Object System.Drawing.Point 14, 43),
-            (New-Object System.Drawing.Point 26, 34),
-            (New-Object System.Drawing.Point 36, 37),
-            (New-Object System.Drawing.Point 50, 21)
-        )
-        $graphics.DrawLines($cyanPen, $points)
-
-        $greenPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 45, 216, 129)), 3
-        $greenPen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-        $greenPen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-        $graphics.DrawLine($greenPen, 50, 21, 49, 29)
-        $graphics.DrawLine($greenPen, 50, 21, 42, 22)
-
-        # Keep legacy resource filenames for compatibility, but replace their content with the new brand.
-        $bitmap.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
-        $bitmap.Save($menuPath, [System.Drawing.Imaging.ImageFormat]::Png)
-        $bitmap.Save($windowPath, [System.Drawing.Imaging.ImageFormat]::Png)
-
-        $hIcon = $bitmap.GetHicon()
-        if ($hIcon -eq [IntPtr]::Zero) { throw 'Windows failed to create an HICON from the RPT artwork.' }
-        $icon = [System.Drawing.Icon]::FromHandle($hIcon)
-        $stream = [IO.File]::Create($iconPath)
-        $icon.Save($stream)
+        if ($icon.Width -lt 16 -or $icon.Height -lt 16) { throw 'Generated Win32 icon is invalid.' }
     }
-    finally {
-        if ($null -ne $stream) { $stream.Dispose() }
-        if ($null -ne $icon) { $icon.Dispose() }
-        if ($hIcon -ne [IntPtr]::Zero) { [RPTNativeIconMethods]::DestroyIcon($hIcon) | Out-Null }
-        if ($null -ne $greenPen) { $greenPen.Dispose() }
-        if ($null -ne $cyanPen) { $cyanPen.Dispose() }
-        if ($null -ne $barBrush) { $barBrush.Dispose() }
-        if ($null -ne $gridPen) { $gridPen.Dispose() }
-        if ($null -ne $borderPen) { $borderPen.Dispose() }
-        if ($null -ne $backgroundBrush) { $backgroundBrush.Dispose() }
-        if ($null -ne $graphics) { $graphics.Dispose() }
-        if ($null -ne $bitmap) { $bitmap.Dispose() }
-    }
-
-    $iconBytes = (Get-Item $iconPath).Length
-    if ($iconBytes -lt 512) { throw "Generated icon is unexpectedly small ($iconBytes bytes)." }
-
-    # Verify both Win32 and WPF decoders so the XAML icon remains startup-safe.
-    $verifyIcon = New-Object System.Drawing.Icon $iconPath
-    try {
-        if ($verifyIcon.Width -lt 16 -or $verifyIcon.Height -lt 16) {
-            throw "Generated Win32 icon has invalid dimensions: $($verifyIcon.Width)x$($verifyIcon.Height)."
-        }
-    }
-    finally { $verifyIcon.Dispose() }
-
+    finally { $icon.Dispose() }
     Add-Type -AssemblyName PresentationCore
     $iconStream = [IO.File]::OpenRead($iconPath)
     try {
@@ -156,13 +62,12 @@ public static class RPTNativeIconMethods {
             $iconStream,
             [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat,
             [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
-        if ($frame.PixelWidth -lt 16 -or $frame.PixelHeight -lt 16) {
-            throw "Generated WPF icon has invalid dimensions: $($frame.PixelWidth)x$($frame.PixelHeight)."
-        }
+        if ($frame.PixelWidth -lt 16 -or $frame.PixelHeight -lt 16) { throw 'Generated WPF icon is invalid.' }
     }
     finally { $iconStream.Dispose() }
-
-    Write-Step "RPT Markets icon generated and decoded successfully: $iconBytes bytes."
+    foreach ($asset in @($logoPath, $menuPath, $windowPath)) {
+        if (-not (Test-Path $asset)) { throw "Missing generated brand asset: $asset" }
+    }
 }
 
 function Assert-PublishedIcon([string]$ExePath) {
