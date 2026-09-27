@@ -1,4 +1,5 @@
 using System.Text.Json;
+using RobloxPriceTracker.Core;
 using RobloxPriceTracker.Infrastructure;
 
 internal static partial class Program
