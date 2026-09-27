@@ -32,7 +32,7 @@ internal sealed class NativeTrayIcon : IDisposable
     private IntPtr _iconHandle;
     private bool _ownsIcon;
     private bool _visible;
-    private string _toolTip = "Roblox Market Helper";
+    private string _toolTip = "Roblox Price Tracker";
     private readonly uint _taskbarCreatedMessage;
 
     public NativeTrayIcon(
@@ -78,7 +78,7 @@ internal sealed class NativeTrayIcon : IDisposable
             Style = flyoutItemStyle
         };
 
-        var openItem = CreateItem("Open Roblox Market Helper");
+        var openItem = CreateItem("Open Roblox Price Tracker");
         openItem.Click += (_, _) => _openAction();
         _menu.Items.Add(openItem);
 
@@ -114,13 +114,13 @@ internal sealed class NativeTrayIcon : IDisposable
         {
             _monitoringItem.Header = "Pause Startup";
             ToolTip = secondsRemaining > 0
-                ? $"Roblox Market Helper - starting in {secondsRemaining}s"
-                : "Roblox Market Helper - starting";
+                ? $"Roblox Price Tracker - starting in {secondsRemaining}s"
+                : "Roblox Price Tracker - starting";
             return;
         }
 
         _monitoringItem.Header = monitoring ? "Pause Monitoring" : "Resume Monitoring";
-        ToolTip = monitoring ? "Roblox Market Helper - Monitoring" : "Roblox Market Helper - Paused";
+        ToolTip = monitoring ? "Roblox Price Tracker - Monitoring" : "Roblox Price Tracker - Paused";
     }
 
     public string ToolTip
@@ -128,7 +128,7 @@ internal sealed class NativeTrayIcon : IDisposable
         get => _toolTip;
         set
         {
-            _toolTip = Truncate(value, 127, "Roblox Market Helper");
+            _toolTip = Truncate(value, 127, "Roblox Price Tracker");
             if (_visible) ModifyIcon(includeInfo: false, null, null);
         }
     }
@@ -138,7 +138,7 @@ internal sealed class NativeTrayIcon : IDisposable
         if (!_visible) return;
         ModifyIcon(
             includeInfo: true,
-            Truncate(title, 63, "Roblox Market Helper"),
+            Truncate(title, 63, "Roblox Price Tracker"),
             Truncate(body, 255, "Marketplace update available."));
     }
 

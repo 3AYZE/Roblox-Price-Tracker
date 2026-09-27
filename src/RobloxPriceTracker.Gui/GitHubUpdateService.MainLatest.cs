@@ -111,7 +111,7 @@ public static class GitHubUpdateServiceMainLatestExtensions
     private static HttpRequestMessage CreateRequest(HttpMethod method, Uri uri, string accept, Version currentVersion)
     {
         var request = new HttpRequestMessage(method, uri);
-        request.Headers.UserAgent.ParseAdd($"RobloxMarketHelper/{currentVersion.Major}.{currentVersion.Minor}.{Math.Max(0, currentVersion.Build)}");
+        request.Headers.UserAgent.ParseAdd($"RobloxPriceTracker/{currentVersion.Major}.{currentVersion.Minor}.{Math.Max(0, currentVersion.Build)}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
         request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         var token = Environment.GetEnvironmentVariable("RPT_GITHUB_TOKEN")?.Trim();

@@ -143,7 +143,7 @@ public partial class MainWindow : Window
 
             if (!IsVisible)
             {
-                ShowTrayBalloon("Roblox Market Helper update ready", $"{UpdateDisplayName(release)} is verified and ready. Open the app to install it.");
+                ShowTrayBalloon("Roblox Price Tracker update ready", $"{UpdateDisplayName(release)} is verified and ready. Open the app to install it.");
                 _deferredUpdateAssetUrl = assetIdentity;
                 return;
             }

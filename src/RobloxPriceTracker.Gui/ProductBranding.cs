@@ -33,14 +33,14 @@ public partial class MainWindow
 {
     internal void ApplyProductBranding()
     {
-        Title = "Roblox Market Helper";
+        Title = "Roblox Price Tracker";
 
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.12.0";
         foreach (var text in FindVisualChildren<TextBlock>(this))
         {
             if (string.Equals(text.Text, "RPT TERMINAL", StringComparison.OrdinalIgnoreCase))
             {
-                text.Text = "ROBLOX MARKET HELPER";
+                text.Text = "ROBLOX PRICE TRACKER";
                 text.FontSize = 9.8;
                 continue;
             }

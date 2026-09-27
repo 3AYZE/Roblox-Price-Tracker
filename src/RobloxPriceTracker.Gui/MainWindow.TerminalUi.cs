@@ -125,7 +125,7 @@ public partial class MainWindow : Window
 
     private void ApplyTerminalPolish()
     {
-        Title = "RPT Markets — Roblox Limited Market Terminal";
+        Title = "Roblox Price Tracker";
         PageSubtitleText.Text = "Live Roblox Limited market intelligence, resale tracking, and UGC opportunity scanning.";
         CheckNowButton.ToolTip = "F5 · Refresh tracked market data";
         DashboardWatchlistList.RowHeight = 58;

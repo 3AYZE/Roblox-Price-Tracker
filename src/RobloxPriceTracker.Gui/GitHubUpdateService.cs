@@ -80,7 +80,7 @@ public sealed class GitHubUpdateService : IDisposable
 
             if (response.StatusCode == HttpStatusCode.Forbidden || (int)response.StatusCode == 429)
             {
-                return new UpdateCheckResult(false, "GitHub temporarily rate-limited the update check. Roblox Market Helper will try again later.");
+                return new UpdateCheckResult(false, "GitHub temporarily rate-limited the update check. Roblox Price Tracker will try again later.");
             }
 
             if (!response.IsSuccessStatusCode)
@@ -223,7 +223,7 @@ public sealed class GitHubUpdateService : IDisposable
         if (string.IsNullOrWhiteSpace(currentExecutable) || !File.Exists(currentExecutable))
             throw new InvalidOperationException("The current executable path could not be determined.");
         if (string.Equals(Path.GetFileName(currentExecutable), "dotnet.exe", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Self-update is only available from the published Roblox Market Helper Lite build.");
+            throw new InvalidOperationException("Self-update is only available from the published Roblox Price Tracker Lite build.");
 
         var currentDirectory = Path.GetDirectoryName(currentExecutable) ?? throw new InvalidOperationException("The executable directory could not be determined.");
         VerifyDirectoryWritable(currentDirectory);
