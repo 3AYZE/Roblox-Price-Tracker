@@ -15,7 +15,7 @@ using RobloxPriceTracker.Infrastructure;
 
 namespace RobloxPriceTracker.Gui;
 
-public sealed record GitHubReleaseAsset(string Name, Uri ApiUrl, long Size);
+public sealed record GitHubReleaseAsset(string Name, Uri ApiUrl, long Size, string? DigestSha256 = null);
 
 public sealed record GitHubReleaseInfo(
     Version Version,
@@ -23,7 +23,7 @@ public sealed record GitHubReleaseInfo(
     string ReleaseName,
     Uri HtmlUrl,
     GitHubReleaseAsset Executable,
-    GitHubReleaseAsset Checksum);
+    GitHubReleaseAsset? Checksum = null);
 
 public sealed record UpdateCheckResult(bool UpdateAvailable, string Message, GitHubReleaseInfo? Release = null);
 
@@ -66,93 +66,61 @@ public sealed class GitHubUpdateService : IDisposable
     {
         try
         {
-            var endpoint = new Uri($"https://api.github.com/repos/{Repository}/releases/latest");
-            using var request = CreateGitHubRequest(HttpMethod.Get, endpoint, "application/vnd.github+json");
+            using var request = CreateGitHubRequest(HttpMethod.Get,
+                new Uri($"https://api.github.com/repos/{Repository}/releases/tags/latest"),
+                "application/vnd.github+json");
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-
             if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                var message = string.IsNullOrWhiteSpace(_token)
-                    ? $"No public GitHub Release feed is available for {Repository}. The repository may be private."
-                    : $"No GitHub Release is published for {Repository} yet.";
-                return new UpdateCheckResult(false, message);
-            }
-
+                return new UpdateCheckResult(false, "The permanent one-EXE Latest release is not published yet.");
             if (response.StatusCode == HttpStatusCode.Forbidden || (int)response.StatusCode == 429)
-            {
-                return new UpdateCheckResult(false, "GitHub temporarily rate-limited the update check. Roblox Price Tracker will try again later.");
-            }
-
+                return new UpdateCheckResult(false, "GitHub temporarily rate-limited the update check.");
             if (!response.IsSuccessStatusCode)
-            {
                 return new UpdateCheckResult(false, $"GitHub update check returned HTTP {(int)response.StatusCode}.");
-            }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
             var root = document.RootElement;
+            var releaseName = root.TryGetProperty("name", out var titleElement) ? titleElement.GetString() : null;
+            if (!GitHubReleaseIntegrity.TryReadVersion(releaseName, out var releaseVersion))
+                return new UpdateCheckResult(false, "The Latest release does not declare a valid application version.");
 
-            var tag = root.TryGetProperty("tag_name", out var tagElement) ? tagElement.GetString() : null;
-            if (!TryParseVersionTag(tag, out var latestVersion))
+            GitHubReleaseAsset? executable = null;
+            if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
             {
-                return new UpdateCheckResult(false, "The latest GitHub Release does not contain a valid version tag.");
-            }
-
-            var releaseName = root.TryGetProperty("name", out var nameElement) && !string.IsNullOrWhiteSpace(nameElement.GetString())
-                ? nameElement.GetString()!.Trim()
-                : tag!;
-            var htmlUrlText = root.TryGetProperty("html_url", out var htmlElement) ? htmlElement.GetString() : null;
-            var htmlUrl = Uri.TryCreate(htmlUrlText, UriKind.Absolute, out var parsedHtml)
-                ? parsedHtml
-                : new Uri($"https://github.com/{Repository}/releases");
-
-            GitHubReleaseAsset? liteExecutable = null;
-            GitHubReleaseAsset? liteChecksum = null;
-            GitHubReleaseAsset? legacyExecutable = null;
-            GitHubReleaseAsset? legacyChecksum = null;
-            if (root.TryGetProperty("assets", out var assetsElement) && assetsElement.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var assetElement in assetsElement.EnumerateArray())
+                foreach (var asset in assets.EnumerateArray())
                 {
-                    var assetName = assetElement.TryGetProperty("name", out var assetNameElement) ? assetNameElement.GetString() : null;
-                    var apiUrlText = assetElement.TryGetProperty("url", out var apiUrlElement) ? apiUrlElement.GetString() : null;
-                    var size = assetElement.TryGetProperty("size", out var sizeElement) && sizeElement.TryGetInt64(out var parsedSize) ? parsedSize : 0;
-                    if (string.IsNullOrWhiteSpace(assetName) || !Uri.TryCreate(apiUrlText, UriKind.Absolute, out var apiUrl)) continue;
-
-                    var asset = new GitHubReleaseAsset(assetName, apiUrl, size);
-                    if (string.Equals(assetName, LiteExecutableName, StringComparison.OrdinalIgnoreCase)) liteExecutable = asset;
-                    else if (string.Equals(assetName, LiteChecksumName, StringComparison.OrdinalIgnoreCase)) liteChecksum = asset;
-                    else if (string.Equals(assetName, LegacyExecutableName, StringComparison.OrdinalIgnoreCase)) legacyExecutable = asset;
-                    else if (string.Equals(assetName, LegacyChecksumName, StringComparison.OrdinalIgnoreCase)) legacyChecksum = asset;
+                    var name = asset.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+                    if (!string.Equals(name, LegacyExecutableName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var digest = asset.TryGetProperty("digest", out var digestElement) ? digestElement.GetString() : null;
+                    var urlText = asset.TryGetProperty("url", out var urlElement) ? urlElement.GetString() : null;
+                    var size = asset.TryGetProperty("size", out var sizeElement) && sizeElement.TryGetInt64(out var bytes) ? bytes : 0;
+                    if (!GitHubReleaseIntegrity.TryReadDigest(digest, out var hash) ||
+                        !Uri.TryCreate(urlText, UriKind.Absolute, out var url) ||
+                        !string.Equals(url.Host, "api.github.com", StringComparison.OrdinalIgnoreCase) ||
+                        size < 100_000)
+                        return new UpdateCheckResult(false, "The Latest EXE has an invalid GitHub digest or asset URL.");
+                    executable = new GitHubReleaseAsset(name!, url, size, hash);
+                    break;
                 }
             }
-
-            // Prefer the current framework-dependent Lite release pair. Keep the legacy pair as a
-            // compatibility fallback so older/custom release feeds continue to update safely.
-            var executable = liteExecutable is not null && liteChecksum is not null ? liteExecutable : legacyExecutable;
-            var checksum = liteExecutable is not null && liteChecksum is not null ? liteChecksum : legacyChecksum;
+            if (executable is null)
+                return new UpdateCheckResult(false, "The Latest release is missing RobloxPriceTracker.exe.");
 
             var current = CurrentVersion;
-            var latest = NormalizeVersion(latestVersion);
-            if (latest.CompareTo(current) <= 0)
-            {
+            var published = NormalizeVersion(releaseVersion);
+            var currentHash = published.CompareTo(current) == 0
+                ? await TryHashCurrentExecutableAsync(cancellationToken) : null;
+            if (!GitHubReleaseIntegrity.NeedsDownload(current, published, currentHash, executable.DigestSha256!))
                 return new UpdateCheckResult(false, $"Up to date · v{FormatVersion(current)}");
-            }
 
-            if (executable is null || checksum is null)
-            {
-                return new UpdateCheckResult(false, $"Release v{FormatVersion(latest)} is newer, but its verified Windows update files are incomplete.");
-            }
-
-            return new UpdateCheckResult(
-                true,
-                $"Update v{FormatVersion(latest)} is available.",
-                new GitHubReleaseInfo(latest, tag!, releaseName, htmlUrl, executable, checksum));
+            var htmlText = root.TryGetProperty("html_url", out var htmlElement) ? htmlElement.GetString() : null;
+            var htmlUrl = Uri.TryCreate(htmlText, UriKind.Absolute, out var parsedUrl)
+                ? parsedUrl : new Uri($"https://github.com/{Repository}/releases/tag/latest");
+            return new UpdateCheckResult(true, $"Update v{FormatVersion(published)} is available.",
+                new GitHubReleaseInfo(published, "latest", releaseName!, htmlUrl, executable));
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.Error($"GitHub update check failed: {ex}");
@@ -165,12 +133,14 @@ public sealed class GitHubUpdateService : IDisposable
         var updateDirectory = Path.Combine(_dataDirectory, "updates");
         Directory.CreateDirectory(updateDirectory);
 
-        var checksumText = await DownloadTextAssetAsync(release.Checksum, cancellationToken);
-        var expectedHash = ExtractSha256(checksumText)
-            ?? throw new InvalidDataException("The release checksum file does not contain a valid SHA-256 hash.");
+        var expectedHash = release.Executable.DigestSha256;
+        if (expectedHash is null && release.Checksum is { } legacyChecksum)
+            expectedHash = ExtractSha256(await DownloadTextAssetAsync(legacyChecksum, cancellationToken));
+        if (expectedHash is null || expectedHash.Length != 64)
+            throw new InvalidDataException("The release does not provide a valid SHA-256 digest.");
 
         var versionText = FormatVersion(release.Version);
-        var finalPath = Path.Combine(updateDirectory, $"RobloxMarketHelper-v{versionText}.exe");
+        var finalPath = Path.Combine(updateDirectory, $"RobloxPriceTracker-v{versionText}.exe");
         if (File.Exists(finalPath))
         {
             var existingHash = await ComputeSha256Async(finalPath, cancellationToken);
@@ -313,7 +283,7 @@ public sealed class GitHubUpdateService : IDisposable
     private HttpRequestMessage CreateGitHubRequest(HttpMethod method, Uri uri, string accept)
     {
         var request = new HttpRequestMessage(method, uri);
-        request.Headers.UserAgent.ParseAdd($"RobloxMarketHelper/{FormatVersion(CurrentVersion)}");
+        request.Headers.UserAgent.ParseAdd($"RobloxPriceTracker/{FormatVersion(CurrentVersion)}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
         request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         if (!string.IsNullOrWhiteSpace(_token)) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
@@ -339,6 +309,17 @@ public sealed class GitHubUpdateService : IDisposable
     }
 
     private static string? NormalizeToken(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static async Task<string?> TryHashCurrentExecutableAsync(CancellationToken cancellationToken)
+    {
+        var path = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) ||
+            string.Equals(Path.GetFileName(path), "dotnet.exe", StringComparison.OrdinalIgnoreCase))
+            return null;
+        try { return await ComputeSha256Async(path, cancellationToken); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch { return null; }
+    }
 
     private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken)
     {

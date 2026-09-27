@@ -109,13 +109,8 @@ public partial class MainWindow : Window
         var cancellationToken = _updateCts?.Token ?? CancellationToken.None;
         try
         {
-            UpdateStatusText.Text = IsLatestUpdateChannel()
-                ? "Checking newest successful main build..."
-                : "Checking GitHub Releases...";
-
-            var result = IsLatestUpdateChannel()
-                ? await _services.UpdateService.CheckMainLatestAsync(cancellationToken)
-                : await _services.UpdateService.CheckAsync(cancellationToken);
+            UpdateStatusText.Text = "Checking the Latest verified EXE...";
+            var result = await _services.UpdateService.CheckAsync(cancellationToken);
 
             if (!result.UpdateAvailable || result.Release is null)
             {
@@ -206,9 +201,7 @@ public partial class MainWindow : Window
     private string CurrentVersionText() => VersionText(_services.UpdateService.CurrentVersion);
 
     private static string UpdateDisplayName(GitHubReleaseInfo release) =>
-        string.Equals(release.TagName, "main-latest", StringComparison.OrdinalIgnoreCase)
-            ? release.ReleaseName
-            : $"v{VersionText(release.Version)}";
+        $"Roblox Price Tracker v{VersionText(release.Version)}";
 
     private static string VersionText(Version version) => $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
 }

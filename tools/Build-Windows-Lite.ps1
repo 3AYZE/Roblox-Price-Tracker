@@ -12,7 +12,7 @@ $windowPath = Join-Path $assetsDir 'mouse_window.png'
 $dist = Join-Path $repoRoot 'dist'
 $publishDir = Join-Path $dist 'publish-lite-temp'
 $isolatedDir = Join-Path $dist 'lite-smoke-temp'
-$finalExe = Join-Path $dist 'RobloxPriceTracker-Lite.exe'
+$finalExe = Join-Path $dist 'RobloxPriceTracker.exe'
 $logDir = Join-Path $repoRoot 'logs'
 $logPath = Join-Path $logDir 'build-lite.log'
 
@@ -106,7 +106,7 @@ try {
         throw 'Lite single-file invariant failed; publish output contained extra files.'
     }
 
-    $isolatedExe = Join-Path $isolatedDir 'RobloxPriceTracker-Lite.exe'
+    $isolatedExe = Join-Path $isolatedDir 'RobloxPriceTracker.exe'
     Copy-Item $publishedExe $isolatedExe -Force
     Assert-LiteStartup $isolatedExe
 
