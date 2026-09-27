@@ -65,6 +65,10 @@ internal static partial class Program
             ("Official Hunt detects price drops", TestOfficialHuntDetectsPriceDropAsync),
             ("Safe JSON recovers last good backup", TestSafeJsonRecoversBackupAsync),
             ("Legacy JSON migration preserves current data", TestLegacyJsonMigrationPreservesCurrentAsync),
+            ("Legacy migration cannot replace newer tracker backup", TestLegacyMigrationSkipsProtectedTrackerStateAsync),
+            ("Startup recovers missing items without losing current targets", TestTrackerStartupRecoversMissingItemsAsync),
+            ("Live rollback is repaired before any partial save", TestTrackerInSessionRollbackGuardAsync),
+            ("Startup restores from immutable checkpoint after both rolling files regress", TestTrackerCheckpointRecoveryAsync),
             ("User-data snapshot captures JSON state", TestUserDataSnapshotCapturesJsonAsync)
         };
 

@@ -16,6 +16,9 @@ public sealed class JsonFileRepository
     private const int CurrentSchemaVersion = 1;
     private readonly string _path;
     private readonly string _backupPath;
+    private readonly AppLogger? _logger;
+    private readonly HashSet<string> _knownItemKeys = new(StringComparer.OrdinalIgnoreCase);
+    private bool _initialized;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -26,10 +29,11 @@ public sealed class JsonFileRepository
 
     private Store _store = Store.Create();
 
-    public JsonFileRepository(string path)
+    public JsonFileRepository(string path, AppLogger? logger = null)
     {
         _path = path;
         _backupPath = path + ".bak";
+        _logger = logger;
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
     }
 
@@ -38,7 +42,31 @@ public sealed class JsonFileRepository
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _store = await LoadBestAvailableAsync(cancellationToken).ConfigureAwait(false);
+            Exception? readFailure = null;
+            try
+            {
+                _store = await LoadBestAvailableAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                readFailure = ex;
+                _store = Store.Create();
+            }
+
+            NormalizeCounters(_store);
+            var recovered = await RecoverFromSavedEvidenceAsync(cancellationToken).ConfigureAwait(false);
+            if (readFailure is not null && recovered == 0)
+            {
+                throw new InvalidDataException(
+                    "Tracker data could not be read and no usable recovery snapshot was found. " +
+                    "The original files have been left intact; automatic writes are blocked.", readFailure);
+            }
+            if (recovered > 0)
+            {
+                QuarantineIncompletePrimary();
+                _logger?.Info($"Tracker recovery restored {recovered} missing saved item(s) from protected backups.");
+            }
+
             if (_store.SchemaVersion > CurrentSchemaVersion)
             {
                 throw new InvalidOperationException($"State schema {_store.SchemaVersion} is newer than this application supports ({CurrentSchemaVersion}).");
@@ -51,6 +79,10 @@ public sealed class JsonFileRepository
 
             NormalizeCounters(_store);
             await SaveUnsafeAsync(cancellationToken).ConfigureAwait(false);
+            _knownItemKeys.UnionWith(_store.Items.Keys);
+            _initialized = true;
+            if (recovered > 0)
+                CreateTrackedCheckpoint();
         }
         finally
         {
@@ -90,7 +122,7 @@ public sealed class JsonFileRepository
 
             UpsertRule(store, observation.ItemKey, AlertRuleType.TargetPrice, targetPrice, AlertState.Armed, rearmBasisPoints, true, null, resetTrigger: true);
             UpsertRule(store, observation.ItemKey, AlertRuleType.NewTrackedLow, null, AlertState.Armed, 0, true, null, resetTrigger: false);
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken, checkpoint: true).ConfigureAwait(false);
     }
 
     public Task DisableItemAsync(ItemKey key, CancellationToken cancellationToken = default) =>
@@ -109,7 +141,7 @@ public sealed class JsonFileRepository
                     store.Rules[i] = store.Rules[i] with { Enabled = false, State = AlertState.Disabled };
                 }
             }
-        }, cancellationToken);
+        }, cancellationToken, checkpoint: true);
 
     public async Task<bool> CommitDecisionAsync(ObservationDecision decision, long pollSequence, CancellationToken cancellationToken = default)
     {
@@ -177,6 +209,7 @@ public sealed class JsonFileRepository
             }
 
             await SaveUnsafeAsync(cancellationToken).ConfigureAwait(false);
+            _knownItemKeys.UnionWith(_store.Items.Keys);
             return true;
         }
         finally
@@ -359,7 +392,7 @@ public sealed class JsonFileRepository
         }
     }
 
-    private async Task MutateAsync(Action<Store> mutation, CancellationToken cancellationToken)
+    private async Task MutateAsync(Action<Store> mutation, CancellationToken cancellationToken, bool checkpoint = false)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -367,6 +400,8 @@ public sealed class JsonFileRepository
             await RefreshUnsafeAsync(cancellationToken).ConfigureAwait(false);
             mutation(_store);
             await SaveUnsafeAsync(cancellationToken).ConfigureAwait(false);
+            _knownItemKeys.UnionWith(_store.Items.Keys);
+            if (checkpoint) CreateTrackedCheckpoint();
         }
         finally
         {
@@ -376,8 +411,106 @@ public sealed class JsonFileRepository
 
     private async Task RefreshUnsafeAsync(CancellationToken cancellationToken)
     {
-        _store = await LoadBestAvailableAsync(cancellationToken).ConfigureAwait(false);
-        NormalizeCounters(_store);
+        var loaded = await LoadBestAvailableAsync(cancellationToken).ConfigureAwait(false);
+        NormalizeCounters(loaded);
+
+        if (_initialized && _knownItemKeys.Except(loaded.Items.Keys, StringComparer.OrdinalIgnoreCase).Any())
+        {
+            // The on-disk file regressed during this session. Never save the smaller state over
+            // an intact backup: recover the missing records from the last loaded in-memory state.
+            var restored = TrackerStateRecovery.Merge(loaded, _store);
+            if (_knownItemKeys.Except(loaded.Items.Keys, StringComparer.OrdinalIgnoreCase).Any())
+                throw new InvalidDataException("Tracker data unexpectedly lost saved items; saving has been blocked.");
+
+            QuarantineIncompletePrimary();
+            _store = loaded;
+            await SaveUnsafeAsync(cancellationToken).ConfigureAwait(false);
+            CreateTrackedCheckpoint();
+            _logger?.Info($"Tracker repaired an unexpected on-disk rollback; restored {restored} tracked item(s).");
+        }
+        else
+        {
+            _store = loaded;
+        }
+
+        _knownItemKeys.UnionWith(_store.Items.Keys);
+    }
+
+    private async Task<int> RecoverFromSavedEvidenceAsync(CancellationToken cancellationToken)
+    {
+        var restored = 0;
+        foreach (var candidate in EnumerateRecoveryFiles())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var backup = await ReadStoreAsync(candidate, cancellationToken).ConfigureAwait(false);
+                NormalizeCounters(backup);
+                if (backup.SchemaVersion > CurrentSchemaVersion) continue;
+                restored += TrackerStateRecovery.Merge(_store, backup);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger?.Error($"Skipped unreadable tracker recovery file '{Path.GetFileName(candidate)}': {ex.Message}");
+            }
+        }
+        return restored;
+    }
+
+    private IEnumerable<string> EnumerateRecoveryFiles()
+    {
+        if (File.Exists(_backupPath)) yield return _backupPath;
+        var root = Path.Combine(Path.GetDirectoryName(_path) ?? ".", "backups");
+        if (!Directory.Exists(root)) yield break;
+        foreach (var prefix in new[] { "tracked-", "auto-", "manual-" })
+        {
+            var keep = prefix == "tracked-" ? 32 : prefix == "auto-" ? 8 : 4;
+            var directories = Directory.EnumerateDirectories(root, prefix + "*")
+                .OrderByDescending(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .Take(keep);
+            foreach (var directory in directories)
+            {
+                var snapshot = Path.Combine(directory, Path.GetFileName(_path));
+                if (File.Exists(snapshot)) yield return snapshot;
+                if (File.Exists(snapshot + ".bak")) yield return snapshot + ".bak";
+            }
+        }
+    }
+
+    private void QuarantineIncompletePrimary()
+    {
+        if (!File.Exists(_path)) return;
+        var quarantine = _path + ".rollback-" + DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmssfff");
+        File.Move(_path, quarantine, overwrite: false);
+        _logger?.Info($"Preserved incomplete tracker state as '{Path.GetFileName(quarantine)}'.");
+    }
+
+    private void CreateTrackedCheckpoint()
+    {
+        try
+        {
+            var root = Path.Combine(Path.GetDirectoryName(_path) ?? ".", "backups");
+            Directory.CreateDirectory(root);
+            var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfffffffZ");
+            var directory = Path.Combine(root, $"tracked-{stamp}-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory);
+            File.Copy(_path, Path.Combine(directory, Path.GetFileName(_path)));
+            foreach (var old in Directory.EnumerateDirectories(root, "tracked-*")
+                         .OrderByDescending(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                         .Skip(32))
+            {
+                try { Directory.Delete(old, recursive: true); }
+                catch (Exception ex) { _logger?.Error($"Could not prune tracked checkpoint: {ex.Message}"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"Could not create a tracked-item recovery checkpoint: {ex.Message}");
+        }
     }
 
     private async Task<Store> LoadBestAvailableAsync(CancellationToken cancellationToken)
@@ -469,7 +602,7 @@ public sealed class JsonFileRepository
         store.Rules.Add(new AlertRule(store.NextRuleId++, key, type, threshold, state, rearmBasisPoints, enabled, lastTriggered));
     }
 
-    private static void NormalizeCounters(Store store)
+    internal static void NormalizeCounters(Store store)
     {
         store.Items ??= new Dictionary<string, TrackedItem>(StringComparer.OrdinalIgnoreCase);
         store.MarketStates ??= new Dictionary<string, MarketState>(StringComparer.OrdinalIgnoreCase);

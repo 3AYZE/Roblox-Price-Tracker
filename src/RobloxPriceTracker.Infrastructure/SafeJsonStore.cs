@@ -95,8 +95,19 @@ public static class SafeJsonStore
         foreach (var source in Directory.EnumerateFiles(legacyDirectory, "*.json*", SearchOption.TopDirectoryOnly))
         {
             if (source.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
-            var destination = Path.Combine(destinationDirectory, Path.GetFileName(source));
-            if (File.Exists(destination)) continue;
+            var fileName = Path.GetFileName(source);
+            var destination = Path.Combine(destinationDirectory, fileName);
+            var primaryName = fileName.EndsWith(".bak", StringComparison.OrdinalIgnoreCase)
+                ? fileName[..^4]
+                : fileName;
+            var primary = Path.Combine(destinationDirectory, primaryName);
+
+            // A missing primary does not mean this is a new installation. The last-known-good
+            // .bak or a modern snapshot may be the only surviving copy. Never import a stale
+            // prototype file over that newer data (the September 27 regression).
+            if (File.Exists(primary) || File.Exists(primary + ".bak")) continue;
+            if (primaryName.Equals("tracker-state.json", StringComparison.OrdinalIgnoreCase) &&
+                HasTrackerRecoverySnapshot(destinationDirectory)) continue;
             try
             {
                 File.Copy(source, destination, overwrite: false);
@@ -109,6 +120,15 @@ public static class SafeJsonStore
         }
 
         return copied;
+    }
+
+    private static bool HasTrackerRecoverySnapshot(string dataDirectory)
+    {
+        var root = Path.Combine(dataDirectory, "backups");
+        if (!Directory.Exists(root)) return false;
+        return Directory.EnumerateDirectories(root)
+            .Any(directory => File.Exists(Path.Combine(directory, "tracker-state.json")) ||
+                              File.Exists(Path.Combine(directory, "tracker-state.json.bak")));
     }
 
     public static Task<string?> CreateAutomaticSnapshotAsync(
