@@ -87,13 +87,6 @@ public sealed class AppServices : IDisposable
         Directory.CreateDirectory(dataDir);
         var logger = new AppLogger(Path.Combine(dataDir, "logs", "app.log"));
 
-        if (!string.IsNullOrWhiteSpace(legacyDir) && Directory.Exists(legacyDir))
-        {
-            var migrated = SafeJsonStore.MigrateLegacyJsonFiles(legacyDir, dataDir, logger);
-            if (migrated.Count > 0)
-                logger.Info($"Migrated {migrated.Count} legacy user-data file(s) into the current data directory.");
-        }
-
         try
         {
             await SafeJsonStore.CreateAutomaticSnapshotAsync(dataDir, logger, cancellationToken).ConfigureAwait(false);
@@ -107,7 +100,15 @@ public sealed class AppServices : IDisposable
             logger.Info($"Automatic user-data snapshot was skipped: {ex.Message}");
         }
 
-        var repository = new JsonFileRepository(Path.Combine(dataDir, "tracker-state.json"));
+        if (!string.IsNullOrWhiteSpace(legacyDir) && Directory.Exists(legacyDir))
+        {
+            var migrated = SafeJsonStore.MigrateLegacyJsonFiles(legacyDir, dataDir, logger);
+            if (migrated.Count > 0)
+                logger.Info($"Migrated {migrated.Count} legacy user-data file(s) into the current data directory.");
+        }
+
+
+        var repository = new JsonFileRepository(Path.Combine(dataDir, "tracker-state.json"), logger);
         await repository.InitializeAsync(cancellationToken);
 
         var settingsStore = new AppSettingsStore(Path.Combine(dataDir, "app-settings.json"));
