@@ -106,6 +106,8 @@ try {
         throw 'Lite single-file invariant failed; publish output contained extra files.'
     }
 
+    Write-Step 'Verifying all ICO sizes embedded in the published EXE...'
+    & (Join-Path $PSScriptRoot 'Verify-EmbeddedIcon.ps1') -ExecutablePath $publishedExe -IconPath $iconPath | Tee-Object -FilePath $logPath -Append
     $isolatedExe = Join-Path $isolatedDir 'RobloxPriceTracker.exe'
     Copy-Item $publishedExe $isolatedExe -Force
     Assert-LiteStartup $isolatedExe

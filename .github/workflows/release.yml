@@ -70,6 +70,12 @@ jobs:
             throw 'Expected exactly one EXE with the correct GitHub SHA-256 digest.'
           }
 
+          $verifyDir = Join-Path $env:RUNNER_TEMP 'roblox-tracker-icon-verification'
+          New-Item -ItemType Directory -Path $verifyDir -Force | Out-Null
+          gh release download latest --repo $env:GITHUB_REPOSITORY --pattern 'RobloxPriceTracker.exe' --dir $verifyDir --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download the released EXE for icon inspection.' }
+          & ./tools/Verify-EmbeddedIcon.ps1 -ExecutablePath (Join-Path $verifyDir 'RobloxPriceTracker.exe') -IconPath 'src/RobloxPriceTracker.Gui/Assets/mouse_app.ico'
+
       - name: Preserve one-time legacy auto-update path
         shell: pwsh
         env:
