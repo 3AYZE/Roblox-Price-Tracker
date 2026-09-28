@@ -1,5 +1,13 @@
 # Roblox Price Tracker changelog
 
+## v0.13.12
+- Optimized separate small/medium icon designs and added 20, 40 and 96px DPI frames.
+- Verify all ten raw icon resource images inside each built EXE and the actual downloaded GitHub release EXE.
+- Request Explorer's icon cache refresh after in-app updates.
+
+## v0.13.11
+- Fixed outside-click dismissal of the background system-tray menu.
+
 ## v0.13.10
 - Simplified the GitHub project page and release notes for the permanent single-EXE download.
 - Shortened application metadata and removed obsolete generated/base64 artwork, redundant legacy implementation files and outdated documentation.

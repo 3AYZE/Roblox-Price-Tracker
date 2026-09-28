@@ -220,6 +220,12 @@ public sealed class GitHubUpdateService : IDisposable
         scriptBuilder.AppendLine("        }");
         scriptBuilder.AppendLine("    }");
         scriptBuilder.AppendLine("    if (-not $copied) { exit 21 }");
+        // Ask Windows Explorer to refresh icon associations after the EXE is replaced.
+        // Do not delete icon caches, restart Explorer or alter users' desktop shortcuts.
+        scriptBuilder.AppendLine("    try {");
+        scriptBuilder.AppendLine("        Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class RptShellRefresh { [DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(uint ev, uint flags, IntPtr a, IntPtr b); }' -ErrorAction Stop");
+        scriptBuilder.AppendLine("        [RptShellRefresh]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)");
+        scriptBuilder.AppendLine("    } catch { }");
         scriptBuilder.AppendLine("    Start-Process -FilePath $destination -ArgumentList '--updated'");
         scriptBuilder.AppendLine("    Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue");
         scriptBuilder.AppendLine("} finally {");

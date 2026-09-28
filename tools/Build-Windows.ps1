@@ -154,6 +154,8 @@ try {
     if ($dlls.Count -gt 0) { throw "Single-file invariant failed: publish output contains $($dlls.Count) DLL(s)." }
 
     Assert-PublishedIcon $publishedExe
+    Write-Step 'Verifying all ICO sizes embedded in the published EXE...'
+    & (Join-Path $PSScriptRoot 'Verify-EmbeddedIcon.ps1') -ExecutablePath $publishedExe -IconPath $iconPath | Tee-Object -FilePath $logPath -Append
     Assert-PublishedStartup $publishedExe
 
     $publishedBytes = (Get-Item $publishedExe).Length
