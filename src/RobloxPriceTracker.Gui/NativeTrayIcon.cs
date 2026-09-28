@@ -14,6 +14,11 @@ internal sealed class NativeTrayIcon : IDisposable
     private const int WmLButtonDoubleClick = 0x0203;
     private const int WmRButtonUp = 0x0205;
     private const int WmContextMenu = 0x007B;
+    private const int WmLButtonDown = 0x0201;
+    private const int WmRButtonDown = 0x0204;
+    private const int WmMButtonDown = 0x0207;
+    private const int WmXButtonDown = 0x020B;
+    private const int WhMouseLl = 14;
 
     private const uint NimAdd = 0x00000000;
     private const uint NimModify = 0x00000001;
@@ -29,6 +34,13 @@ internal sealed class NativeTrayIcon : IDisposable
     private readonly MenuItem _monitoringItem;
     private readonly MenuItem _startupItem;
     private readonly Action _openAction;
+
+    // A WPF ContextMenu attached to an invisible notification-area HWND does not
+    // reliably receive clicks in other applications. Install this lightweight
+    // native listener only while the tray flyout is visible; pass clicks through.
+    private readonly LowLevelMouseProc _outsideClickProc;
+    private IntPtr _outsideClickHook;
+    private IntPtr _menuWindowHandle;
     private IntPtr _iconHandle;
     private bool _ownsIcon;
     private bool _visible;
@@ -45,6 +57,7 @@ internal sealed class NativeTrayIcon : IDisposable
         bool startWithWindows)
     {
         _openAction = openAction;
+        _outsideClickProc = OutsideClickProc;
 
         var sourceParameters = new HwndSourceParameters("RPT.NativeTrayHost")
         {
@@ -71,6 +84,8 @@ internal sealed class NativeTrayIcon : IDisposable
             Style = (System.Windows.Style)flyoutStyles["TrayFlyoutStyle"],
             StaysOpen = false
         };
+        _menu.Opened += Menu_Opened;
+        _menu.Closed += Menu_Closed;
 
         MenuItem CreateItem(string header) => new()
         {
@@ -207,6 +222,58 @@ internal sealed class NativeTrayIcon : IDisposable
         return IntPtr.Zero;
     }
 
+    private void Menu_Opened(object? sender, System.Windows.RoutedEventArgs e)
+    {
+        // The popup has its own top-level HWND, separate from the zero-size
+        // notification host. Native screen coordinates avoid WPF DPI confusion.
+        _menuWindowHandle = (System.Windows.PresentationSource.FromVisual(_menu) as HwndSource)?.Handle
+            ?? IntPtr.Zero;
+        if (_menuWindowHandle == IntPtr.Zero || _outsideClickHook != IntPtr.Zero)
+            return;
+
+        _outsideClickHook = SetWindowsHookEx(
+            WhMouseLl, _outsideClickProc, GetModuleHandle(null), 0);
+    }
+
+    private void Menu_Closed(object? sender, System.Windows.RoutedEventArgs e)
+    {
+        StopOutsideClickCapture();
+    }
+
+    private IntPtr OutsideClickProc(int code, IntPtr wParam, IntPtr lParam)
+    {
+        if (code >= 0 && _menu.IsOpen && _menuWindowHandle != IntPtr.Zero &&
+            IsMouseButtonDown(unchecked((int)wParam.ToInt64())) &&
+            GetWindowRect(_menuWindowHandle, out var bounds))
+        {
+            var mouse = Marshal.PtrToStructure<LowLevelMouseHookData>(lParam);
+            if (mouse.Point.X < bounds.Left || mouse.Point.X >= bounds.Right ||
+                mouse.Point.Y < bounds.Top || mouse.Point.Y >= bounds.Bottom)
+            {
+                // Do not consume the click: the selected desktop, taskbar or
+                // other-app control must still receive its normal mouse input.
+                // Defer closing to avoid re-entering WPF inside a Win32 hook.
+                _menu.Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Send,
+                    new Action(() => { if (_menu.IsOpen) _menu.IsOpen = false; }));
+            }
+        }
+
+        return CallNextHookEx(_outsideClickHook, code, wParam, lParam);
+    }
+
+    private static bool IsMouseButtonDown(int message) =>
+        message is WmLButtonDown or WmRButtonDown or WmMButtonDown or WmXButtonDown;
+
+    private void StopOutsideClickCapture()
+    {
+        var hook = _outsideClickHook;
+        _outsideClickHook = IntPtr.Zero;
+        _menuWindowHandle = IntPtr.Zero;
+        if (hook != IntPtr.Zero)
+            UnhookWindowsHookEx(hook);
+    }
+
     private void LoadApplicationIcon()
     {
         var path = Environment.ProcessPath;
@@ -240,12 +307,44 @@ internal sealed class NativeTrayIcon : IDisposable
             _visible = false;
         }
 
+        StopOutsideClickCapture();
+        _menu.Opened -= Menu_Opened;
+        _menu.Closed -= Menu_Closed;
         _menu.IsOpen = false;
         _messageWindow.RemoveHook(WindowProc);
         _messageWindow.Dispose();
         if (_ownsIcon && _iconHandle != IntPtr.Zero)
             DestroyIcon(_iconHandle);
         _iconHandle = IntPtr.Zero;
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate IntPtr LowLevelMouseProc(int code, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ScreenPoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LowLevelMouseHookData
+    {
+        public ScreenPoint Point;
+        public uint MouseData;
+        public uint Flags;
+        public uint Time;
+        public UIntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowBounds
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 
     private static string Truncate(string? value, int maxLength, string fallback)
@@ -290,4 +389,22 @@ internal sealed class NativeTrayIcon : IDisposable
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(
+        int hookType, LowLevelMouseProc callback, IntPtr module, uint threadId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hwnd, out WindowBounds bounds);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string? moduleName);
 }
