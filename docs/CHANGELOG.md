@@ -1,13 +1,12 @@
 # Roblox Price Tracker changelog
 
-## v0.14.0
-- Add shared adaptive per-Roblox-host HTTP request pacing: bounded parallel requests, gradual recovery after healthy responses, and host-specific cooldown on 429 and 5xx.
-- Discover independent UGC catalog feeds concurrently while preserving page cursor order, cross-feed scoring, fallback routes, the fresh-item reserve and 120-ID cap.
-- Replace redundant fixed sleeps in UGC hydration/verification and Official Market with shared adaptive HTTP pacing; retain endpoint-specific Retry-After handling and incomplete-data fallbacks.
-- Start thumbnail lookups alongside market analysis, show preliminary catalog-screened candidates before deeper resale enrichment, and automatically publish completed background scans to the Hunter board.
-- Update Hunter rows incrementally instead of clearing the table, preserving selection and filters.
-- Share cached resale-market data between Tracker, Official Market, Analyzer and Hunter, with single-flight deduplication for overlapping legacy/modern resale requests.
-- Log discovery, first-result and full-scan timings; test concurrency bounds, per-host backoff and parallel feed deduplication.
+## v0.14.1 — Stability recovery
+- Restore the v0.13.12 scanner, request pacing, resale cache, and Hunter UI update path after reports of slower scans and crashes in v0.14.0.
+- Withdraw v0.14.0's adaptive shared network scheduler, parallel feed discovery, preliminary Hunter notifications and in-flight resale request coalescing pending separate diagnosis and measured testing.
+- Keep the permanent single-EXE auto-updater, desktop icon enhancements, tray-menu behavior, and all existing locally saved data unchanged.
+
+## v0.14.0 — Withdrawn from current release
+- Experimental adaptive scanner and incremental UI updates were released but rolled back in v0.14.1 following performance and crash reports. The old build is not the recommended version.
 
 ## v0.13.12
 - Optimized separate small/medium icon designs and added 20, 40 and 96px DPI frames.

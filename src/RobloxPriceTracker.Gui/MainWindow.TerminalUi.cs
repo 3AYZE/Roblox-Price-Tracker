@@ -594,8 +594,37 @@ public partial class MainWindow : Window
         if (_hunterErrorText is not null && !silent) _hunterErrorText.Visibility = Visibility.Collapsed;
         try
         {
+            var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
             var snapshot = await _services.UgcHunterService.RefreshAsync();
-            ApplyHunterSnapshot(snapshot, isFinal: true);
+            _hunterRows.Clear();
+            foreach (var item in snapshot.Items) _hunterRows.Add(item);
+            _hunterView?.Refresh();
+            _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
+            if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;
+
+            if (_hunterRegimeText is not null)
+            {
+                _hunterRegimeText.Text = snapshot.Market.Regime;
+                _hunterRegimeText.Foreground = snapshot.Market.Regime switch
+                {
+                    "VERY HOT" or "HOT" => TerminalGreen,
+                    "COOLING" => TerminalAmber,
+                    "WEAK" => TerminalRed,
+                    _ => TerminalText
+                };
+            }
+            if (_hunterRegimeDetailText is not null) _hunterRegimeDetailText.Text = snapshot.Market.Detail;
+            if (_hunterLiveCountText is not null) _hunterLiveCountText.Text = snapshot.Market.LiveDrops.ToString("N0");
+            if (_hunterStrongCountText is not null) _hunterStrongCountText.Text = snapshot.Market.StrongDrops.ToString("N0");
+            if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = $"Updated {snapshot.ObservedAtUtc.ToLocalTime():h:mm:ss tt}";
+
+            if (_hunterGrid is not null)
+            {
+                var previous = selectedAssetId is { } id ? _hunterRows.FirstOrDefault(x => x.AssetId == id) : null;
+                if (previous is not null) _hunterGrid.SelectedItem = previous;
+                else if (_hunterRows.Count > 0) _hunterGrid.SelectedIndex = 0;
+            }
+            UpdateHunterInspector();
         }
         catch (Exception ex)
         {
@@ -658,82 +687,6 @@ public partial class MainWindow : Window
         {
             _hunterRefreshInProgress = false;
         }
-    }
-
-    private void HunterSnapshotUpdated(UgcHunterMarketSnapshot snapshot, bool isFinal)
-    {
-        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
-        Dispatcher.BeginInvoke(new Action(() =>
-        {
-            if (!_initialized || _allowExit) return;
-            if (_hunterLastRefreshUtc is { } previous && snapshot.ObservedAtUtc < previous) return;
-            ApplyHunterSnapshot(snapshot, isFinal);
-        }), DispatcherPriority.Background);
-    }
-
-    private void ApplyHunterSnapshot(UgcHunterMarketSnapshot snapshot, bool isFinal)
-    {
-        var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
-        var ids = snapshot.Items.Select(item => item.AssetId).ToHashSet();
-        // Diff updates preserve selection and scroll positions. Defer filtering
-        // until the complete batch is applied instead of clearing the entire grid.
-        using (var batch = _hunterView?.DeferRefresh())
-        {
-            for (var i = _hunterRows.Count - 1; i >= 0; i--)
-                if (!ids.Contains(_hunterRows[i].AssetId)) _hunterRows.RemoveAt(i);
-
-            for (var index = 0; index < snapshot.Items.Count; index++)
-            {
-                var item = snapshot.Items[index];
-                var existing = -1;
-                for (var j = index; j < _hunterRows.Count; j++)
-                    if (_hunterRows[j].AssetId == item.AssetId) { existing = j; break; }
-
-                if (existing < 0) _hunterRows.Insert(index, item);
-                else
-                {
-                    if (existing != index) _hunterRows.Move(existing, index);
-                    if (!ReferenceEquals(_hunterRows[index], item)) _hunterRows[index] = item;
-                }
-            }
-        }
-
-        _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
-        if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;
-        if (_hunterRegimeText is not null)
-        {
-            _hunterRegimeText.Text = isFinal ? snapshot.Market.Regime : "VERIFYING RESALE";
-            _hunterRegimeText.Foreground = isFinal
-                ? snapshot.Market.Regime switch
-                {
-                    "VERY HOT" or "HOT" => TerminalGreen,
-                    "COOLING" => TerminalAmber,
-                    "WEAK" => TerminalRed,
-                    _ => TerminalText
-                }
-                : TerminalAmber;
-        }
-        if (_hunterRegimeDetailText is not null)
-            _hunterRegimeDetailText.Text = isFinal
-                ? snapshot.Market.Detail
-                : "Catalog-screened candidates · marketplace/resale analysis pending";
-        if (_hunterLiveCountText is not null)
-            _hunterLiveCountText.Text = snapshot.Market.LiveDrops.ToString("N0");
-        if (_hunterStrongCountText is not null)
-            _hunterStrongCountText.Text = isFinal ? snapshot.Market.StrongDrops.ToString("N0") : "—";
-        if (_hunterUpdatedText is not null)
-            _hunterUpdatedText.Text = isFinal
-                ? $"Updated {snapshot.ObservedAtUtc.ToLocalTime():h:mm:ss tt}"
-                : $"Verified {snapshot.Items.Count} candidates · analyzing resale…";
-
-        if (_hunterGrid is not null)
-        {
-            if (selectedAssetId is { } id)
-                _hunterGrid.SelectedItem = _hunterRows.FirstOrDefault(item => item.AssetId == id);
-            if (_hunterGrid.SelectedItem is null && _hunterRows.Count > 0)
-                _hunterGrid.SelectedIndex = 0;
-        }
-        UpdateHunterInspector();
     }
 
     private async Task RefreshPaperPortfolioAsync()

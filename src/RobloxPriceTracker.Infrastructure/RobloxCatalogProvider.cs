@@ -234,20 +234,17 @@ public sealed class RobloxCatalogProvider : IMarketProvider
         return null;
     }
 
-    public static HttpClient CreateDefaultHttpClient(Action<string>? diagnostics = null)
+    public static HttpClient CreateDefaultHttpClient()
     {
         var handler = new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.All,
             ConnectTimeout = TimeSpan.FromSeconds(10),
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-            MaxConnectionsPerServer = 4
+            MaxConnectionsPerServer = 2
         };
 
-        // One shared adaptive scheduler for Hunter, Official Market, Tracker and
-        // analyzer requests made through this HttpClient. Each Roblox host has its
-        // own lane and learns its safe throughput from server responses.
-        var client = new HttpClient(new AdaptiveRobloxHttpHandler(handler, diagnostics))
+        var client = new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
