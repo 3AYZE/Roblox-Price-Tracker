@@ -114,7 +114,7 @@ public sealed class AppServices : IDisposable
         var settingsStore = new AppSettingsStore(Path.Combine(dataDir, "app-settings.json"));
         var settings = await settingsStore.LoadAsync(cancellationToken);
 
-        var httpClient = RobloxCatalogProvider.CreateDefaultHttpClient(logger.Info);
+        var httpClient = RobloxCatalogProvider.CreateDefaultHttpClient();
         var batchSize = int.TryParse(Environment.GetEnvironmentVariable("RPT_BATCH_SIZE"), out var parsedBatch) ? parsedBatch : 40;
         var provider = new RobloxCatalogProvider(httpClient, new RobloxProviderOptions(batchSize));
         var alertEngine = new AlertEngine();
@@ -134,7 +134,7 @@ public sealed class AppServices : IDisposable
         var forecastEngine = new PriceForecastEngine();
         var forecastHistoryStore = new ForecastHistoryStore(Path.Combine(dataDir, "forecast-history.json"));
         await forecastHistoryStore.InitializeAsync(cancellationToken);
-        var ugcHunterCoreService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir, resaleDataService);
+        var ugcHunterCoreService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir);
         var ugcHunterService = new UgcHunterServiceFacade(ugcHunterCoreService, logger, dataDir);
         await ugcHunterService.InitializeAsync(cancellationToken);
         var paperPortfolioStore = new PaperPortfolioStore(dataDir);

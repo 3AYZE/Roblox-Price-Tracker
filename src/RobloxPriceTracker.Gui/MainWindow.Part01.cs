@@ -66,7 +66,6 @@ public partial class MainWindow : Window
         if (_initialized) return;
         _initialized = true;
         _services.NotificationSink.NotificationRaised += NotificationSink_NotificationRaised;
-        _services.UgcHunterService.SnapshotUpdated += HunterSnapshotUpdated;
         Application.Current.SessionEnding += Application_SessionEnding;
 
         _watchlistView = CollectionViewSource.GetDefaultView(_watchlistRows);
@@ -119,7 +118,6 @@ public partial class MainWindow : Window
         }
 
         _services.NotificationSink.NotificationRaised -= NotificationSink_NotificationRaised;
-        _services.UgcHunterService.SnapshotUpdated -= HunterSnapshotUpdated;
         Application.Current.SessionEnding -= Application_SessionEnding;
         _startupDelayCts?.Cancel();
         _monitoringCts?.Cancel();
