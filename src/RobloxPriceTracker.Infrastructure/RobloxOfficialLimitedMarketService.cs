@@ -69,7 +69,6 @@ public sealed class RobloxOfficialLimitedMarketService
     private const int MaxDiscoveredItems = 180;
     private const int MaxEnrichedItems = 36;
     private const int MaxCatalogAttempts = 3;
-    private static readonly TimeSpan InterRequestDelay = TimeSpan.FromMilliseconds(170);
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
@@ -136,7 +135,6 @@ public sealed class RobloxOfficialLimitedMarketService
 
                         cursor = parsed.NextPageCursor;
                         if (string.IsNullOrWhiteSpace(cursor)) break;
-                        await Task.Delay(InterRequestDelay, cancellationToken).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
@@ -150,8 +148,6 @@ public sealed class RobloxOfficialLimitedMarketService
                     }
                 }
 
-                if (feedIndex + 1 < DiscoveryQueries.Length && discovered.Count < MaxDiscoveredItems)
-                    await Task.Delay(InterRequestDelay, cancellationToken).ConfigureAwait(false);
             }
 
             var catalogItems = discovered.Values

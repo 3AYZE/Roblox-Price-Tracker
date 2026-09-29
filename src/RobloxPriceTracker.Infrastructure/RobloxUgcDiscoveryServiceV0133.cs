@@ -150,9 +150,6 @@ public sealed class RobloxUgcDiscoveryService
     private const int MaxMarketplaceBatchSize = 40;
     private const int MaxRateLimitAttempts = 2;
     private static readonly TimeSpan DiscoveryCacheDuration = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan InterPageDelay = TimeSpan.FromMilliseconds(150);
-    private static readonly TimeSpan InterDetailBatchDelay = TimeSpan.FromMilliseconds(350);
-    private static readonly TimeSpan InterMarketplaceBatchDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
@@ -182,10 +179,6 @@ public sealed class RobloxUgcDiscoveryService
             return new RobloxUgcDiscoveryResult(Array.Empty<RobloxUgcCatalogCandidate>(), 0, 0);
         }
 
-        await Task.Delay(
-            discovery.FromCache ? TimeSpan.FromMilliseconds(120) : TimeSpan.FromMilliseconds(500),
-            cancellationToken).ConfigureAwait(false);
-
         var catalogCandidates = new List<RobloxUgcCatalogCandidate>(discovery.Ids.Length);
         var hydratedRows = 0;
         var detailRequests = 0;
@@ -205,7 +198,6 @@ public sealed class RobloxUgcDiscoveryService
                 break;
             }
 
-            await Task.Delay(InterDetailBatchDelay, cancellationToken).ConfigureAwait(false);
         }
 
         catalogCandidates = catalogCandidates
@@ -477,7 +469,6 @@ public sealed class RobloxUgcDiscoveryService
             if (string.IsNullOrWhiteSpace(cursor) || rowsConsidered >= feed.Budget)
                 break;
 
-            await Task.Delay(InterPageDelay, cancellationToken).ConfigureAwait(false);
         }
         return new FeedScanResult(feed, observations, pagesUsed, pagesUsed > 0, firstFailure);
     }
@@ -509,8 +500,6 @@ public sealed class RobloxUgcDiscoveryService
             var batch = collectibleIds.Skip(offset).Take(MaxMarketplaceBatchSize).ToArray();
             var rows = await _marketplaceItems.GetManyAsync(batch, cancellationToken).ConfigureAwait(false);
             foreach (var pair in rows) result[pair.Key] = pair.Value;
-            if (offset + MaxMarketplaceBatchSize < collectibleIds.Length)
-                await Task.Delay(InterMarketplaceBatchDelay, cancellationToken).ConfigureAwait(false);
         }
         return result;
     }

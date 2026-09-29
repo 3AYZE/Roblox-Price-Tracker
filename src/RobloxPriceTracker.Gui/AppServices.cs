@@ -114,7 +114,7 @@ public sealed class AppServices : IDisposable
         var settingsStore = new AppSettingsStore(Path.Combine(dataDir, "app-settings.json"));
         var settings = await settingsStore.LoadAsync(cancellationToken);
 
-        var httpClient = RobloxCatalogProvider.CreateDefaultHttpClient();
+        var httpClient = RobloxCatalogProvider.CreateDefaultHttpClient(logger.Info);
         var batchSize = int.TryParse(Environment.GetEnvironmentVariable("RPT_BATCH_SIZE"), out var parsedBatch) ? parsedBatch : 40;
         var provider = new RobloxCatalogProvider(httpClient, new RobloxProviderOptions(batchSize));
         var alertEngine = new AlertEngine();

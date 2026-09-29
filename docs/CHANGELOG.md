@@ -3,7 +3,7 @@
 ## v0.14.0
 - Add shared adaptive per-Roblox-host HTTP request pacing: bounded parallel requests, gradual recovery after healthy responses, and host-specific cooldown on 429 and 5xx.
 - Discover independent UGC catalog feeds concurrently while preserving page cursor order, cross-feed scoring, fallback routes, the fresh-item reserve and 120-ID cap.
-- Replace conservative fixed Official Market pauses with adaptive HTTP pacing; retain exponential Retry-After handling and incomplete-data fallbacks.
+- Replace redundant fixed sleeps in UGC hydration/verification and Official Market with shared adaptive HTTP pacing; retain endpoint-specific Retry-After handling and incomplete-data fallbacks.
 - Start thumbnail lookups alongside market analysis, show preliminary catalog-screened candidates before deeper resale enrichment, and automatically publish completed background scans to the Hunter board.
 - Update Hunter rows incrementally instead of clearing the table, preserving selection and filters.
 - Share cached resale-market data between Tracker, Official Market, Analyzer and Hunter to avoid repeated requests for the same asset.
