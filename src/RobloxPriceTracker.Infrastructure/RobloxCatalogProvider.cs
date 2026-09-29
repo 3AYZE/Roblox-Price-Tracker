@@ -241,10 +241,13 @@ public sealed class RobloxCatalogProvider : IMarketProvider
             AutomaticDecompression = DecompressionMethods.All,
             ConnectTimeout = TimeSpan.FromSeconds(10),
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-            MaxConnectionsPerServer = 2
+            MaxConnectionsPerServer = 4
         };
 
-        var client = new HttpClient(handler)
+        // One shared adaptive scheduler for Hunter, Official Market, Tracker and
+        // analyzer requests made through this HttpClient. Each Roblox host has its
+        // own lane and learns its safe throughput from server responses.
+        var client = new HttpClient(new AdaptiveRobloxHttpHandler(handler))
         {
             Timeout = TimeSpan.FromSeconds(15)
         };

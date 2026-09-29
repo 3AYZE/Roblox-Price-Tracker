@@ -70,7 +70,9 @@ internal static partial class Program
             ("Live rollback is repaired before any partial save", TestTrackerInSessionRollbackGuardAsync),
             ("Startup restores from immutable checkpoint after both rolling files regress", TestTrackerCheckpointRecoveryAsync),
             ("User-data snapshot captures JSON state", TestUserDataSnapshotCapturesJsonAsync),
-            ("Permanent EXE version and SHA-256 verification", TestSingleExeReleaseIntegrityAsync)
+            ("Permanent EXE version and SHA-256 verification", TestSingleExeReleaseIntegrityAsync),
+            ("Adaptive scanner bounds concurrent Roblox requests", TestAdaptiveScannerBoundsConcurrencyAsync),
+            ("Adaptive scanner isolates hosts and backs off on HTTP 429", TestAdaptiveScannerBackoffAsync)
         };
 
         var failed = 0;
