@@ -716,7 +716,7 @@ public partial class MainWindow : Window
         if (_hunterRegimeDetailText is not null)
             _hunterRegimeDetailText.Text = isFinal
                 ? snapshot.Market.Detail
-                : "Verified primary-market candidates · resale analysis running";
+                : "Catalog-screened candidates · marketplace/resale analysis pending";
         if (_hunterLiveCountText is not null)
             _hunterLiveCountText.Text = snapshot.Market.LiveDrops.ToString("N0");
         if (_hunterStrongCountText is not null)

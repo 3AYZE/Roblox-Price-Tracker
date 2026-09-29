@@ -72,7 +72,8 @@ internal static partial class Program
             ("User-data snapshot captures JSON state", TestUserDataSnapshotCapturesJsonAsync),
             ("Permanent EXE version and SHA-256 verification", TestSingleExeReleaseIntegrityAsync),
             ("Adaptive scanner bounds concurrent Roblox requests", TestAdaptiveScannerBoundsConcurrencyAsync),
-            ("Adaptive scanner isolates hosts and backs off on HTTP 429", TestAdaptiveScannerBackoffAsync)
+            ("Adaptive scanner isolates hosts and backs off on HTTP 429", TestAdaptiveScannerBackoffAsync),
+            ("Parallel UGC discovery merges duplicate IDs deterministically", TestParallelDiscoveryKeepsDeduplicationAsync)
         };
 
         var failed = 0;

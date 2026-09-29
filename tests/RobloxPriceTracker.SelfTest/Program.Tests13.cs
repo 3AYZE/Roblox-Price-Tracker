@@ -62,6 +62,53 @@ internal static partial class Program
         AssertTrue(!AdaptiveRobloxHttpHandler.IsRobloxHost("roblox.com.evil.example"));
     }
 
+    static async Task TestParallelDiscoveryKeepsDeduplicationAsync()
+    {
+        var inFlight = 0;
+        var maximum = 0;
+        using var handler = new DelegateHandler(async (request, cancellationToken) =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                int current = Interlocked.Increment(ref inFlight);
+                int seen;
+                do
+                {
+                    seen = Volatile.Read(ref maximum);
+                    if (seen >= current) break;
+                } while (Interlocked.CompareExchange(ref maximum, current, seen) != seen);
+                try
+                {
+                    await Task.Delay(100, cancellationToken);
+                    const string ids = """{"data":[{"id":99001,"assetType":8}],"nextPageCursor":null}""";
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(ids)
+                    };
+                }
+                finally { Interlocked.Decrement(ref inFlight); }
+            }
+
+            // A single ID returned by all independent feeds should only be hydrated once.
+            const string detail = """
+            {"data":[{"id":99001,"itemType":"Asset","name":"Limited",
+            "creatorName":"Test","creatorTargetId":987,"assetType":8,
+            "price":95,"unitsAvailableForConsumption":100,"totalQuantity":1000,
+            "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Collectible"]}]}
+            """;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(detail) };
+        });
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
+        var logger = new AppLogger(Path.Combine(Path.GetTempPath(), "rpt-scan-perf", Guid.NewGuid().ToString("N"), "app.log"));
+        var scanner = new RobloxUgcDiscoveryService(http, logger, expandDiscovery: true);
+        var result = await scanner.DiscoverAsync();
+        AssertTrue(maximum >= 2);
+        AssertEqual(1, result.DiscoveredCount);
+        AssertEqual(1, result.HydratedCount);
+        AssertEqual(1, result.Items.Count);
+        AssertEqual(99001L, result.Items[0].AssetId);
+    }
+
     private sealed class ResponseGroup : IDisposable
     {
         private readonly HttpResponseMessage[] _responses;
