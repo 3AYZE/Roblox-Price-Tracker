@@ -30,6 +30,10 @@ public sealed class UgcHunterServiceFacade : IDisposable
     private bool _initialized;
     private bool _disposed;
 
+    // Callbacks execute on a background scan thread; WPF consumers must marshal
+    // them to the dispatcher. Preliminary updates are not persisted as final data.
+    public event Action<UgcHunterMarketSnapshot, bool>? SnapshotUpdated;
+
     public UgcHunterServiceFacade(UgcHunterService inner, AppLogger logger, string dataDirectory)
     {
         _inner = inner;
@@ -144,12 +148,15 @@ public sealed class UgcHunterServiceFacade : IDisposable
 
     private async Task<UgcHunterMarketSnapshot> RefreshLiveAndCacheAsync(CancellationToken cancellationToken)
     {
-        var snapshot = await _inner.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await _inner.RefreshAsync(
+            cancellationToken, preliminary => RaiseSnapshotUpdated(preliminary, isFinal: false))
+            .ConfigureAwait(false);
 
         lock (_stateGate)
         {
             _cachedSnapshot = snapshot;
         }
+        RaiseSnapshotUpdated(snapshot, isFinal: true);
 
         try
         {
@@ -171,6 +178,18 @@ public sealed class UgcHunterServiceFacade : IDisposable
         return snapshot;
     }
 
+    private void RaiseSnapshotUpdated(UgcHunterMarketSnapshot snapshot, bool isFinal)
+    {
+        if (_disposed) return;
+        var listeners = SnapshotUpdated;
+        if (listeners is null) return;
+        foreach (Action<UgcHunterMarketSnapshot, bool> listener in listeners.GetInvocationList())
+        {
+            try { listener(snapshot, isFinal); }
+            catch (Exception ex) { _logger.Error($"Hunter UI scan notification failed: {ex.Message}"); }
+        }
+    }
+
     private static bool SnapshotMatchesEntryPricePolicy(UgcHunterMarketSnapshot snapshot) =>
         snapshot.Items.All(item => UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price));
 
@@ -183,6 +202,7 @@ public sealed class UgcHunterServiceFacade : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        SnapshotUpdated = null;
         _initializeGate.Dispose();
     }
 }

@@ -1,5 +1,14 @@
 # Roblox Price Tracker changelog
 
+## v0.14.0
+- Add shared adaptive per-Roblox-host HTTP request pacing: bounded parallel requests, gradual recovery after healthy responses, and host-specific cooldown on 429 and 5xx.
+- Discover independent UGC catalog feeds concurrently while preserving page cursor order, cross-feed scoring, fallback routes, the fresh-item reserve and 120-ID cap.
+- Replace redundant fixed sleeps in UGC hydration/verification and Official Market with shared adaptive HTTP pacing; retain endpoint-specific Retry-After handling and incomplete-data fallbacks.
+- Start thumbnail lookups alongside market analysis, show preliminary catalog-screened candidates before deeper resale enrichment, and automatically publish completed background scans to the Hunter board.
+- Update Hunter rows incrementally instead of clearing the table, preserving selection and filters.
+- Share cached resale-market data between Tracker, Official Market, Analyzer and Hunter, with single-flight deduplication for overlapping legacy/modern resale requests.
+- Log discovery, first-result and full-scan timings; test concurrency bounds, per-host backoff and parallel feed deduplication.
+
 ## v0.13.12
 - Optimized separate small/medium icon designs and added 20, 40 and 96px DPI frames.
 - Verify all ten raw icon resource images inside each built EXE and the actual downloaded GitHub release EXE.

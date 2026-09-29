@@ -35,12 +35,14 @@ public sealed class UgcHunterService
     private readonly Dictionary<long, List<UgcHunterObservation>> _history = new();
     private bool _initialized;
 
-    public UgcHunterService(HttpClient httpClient, RobloxThumbnailService thumbnailService, AppLogger logger, string dataDirectory)
+    public UgcHunterService(
+        HttpClient httpClient, RobloxThumbnailService thumbnailService, AppLogger logger,
+        string dataDirectory, RobloxResaleDataService? sharedResaleDataService = null)
     {
         _httpClient = httpClient;
         _discoveryService = new RobloxUgcDiscoveryService(httpClient, logger);
         _thumbnailService = thumbnailService;
-        _resaleDataService = new RobloxResaleDataService(httpClient, logger);
+        _resaleDataService = sharedResaleDataService ?? new RobloxResaleDataService(httpClient, logger);
         _resellerDataService = new RobloxResellerDataService(httpClient, logger);
         _logger = logger;
         _historyPath = Path.Combine(dataDirectory, "ugc-hunter-history.json");
@@ -76,23 +78,18 @@ public sealed class UgcHunterService
         }
     }
 
-    public async Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
+    public async Task<UgcHunterMarketSnapshot> RefreshAsync(
+        CancellationToken cancellationToken = default,
+        Action<UgcHunterMarketSnapshot>? onPreliminary = null)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         var now = DateTimeOffset.UtcNow;
         var raw = await FetchCandidatesAsync(now, cancellationToken).ConfigureAwait(false);
+        var discoveryMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
-        IReadOnlyDictionary<long, string> thumbnails;
-        try
-        {
-            thumbnails = await _thumbnailService.GetAssetThumbnailUrlsAsync(raw.Select(x => x.AssetId), cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"UGC Hunter thumbnails could not be loaded: {ex.Message}");
-            thumbnails = new Dictionary<long, string>();
-        }
-
+        // Thumbnails never block preliminary analysis or resale enrichment.
+        var thumbnailsTask = LoadThumbnailsSafelyAsync(raw, cancellationToken);
         var baseline = new List<UgcHunterItem>(raw.Count);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -121,8 +118,7 @@ public sealed class UgcHunterService
                 observations.RemoveAll(x => now - x.ObservedAtUtc > TimeSpan.FromHours(24));
                 if (observations.Count > 360) observations.RemoveRange(0, observations.Count - 360);
 
-                thumbnails.TryGetValue(candidate.AssetId, out var thumbnail);
-                baseline.Add(Analyze(candidate, observations, thumbnail));
+                baseline.Add(Analyze(candidate, observations, thumbnail: null));
             }
 
             await PersistLockedAsync(cancellationToken).ConfigureAwait(false);
@@ -132,14 +128,48 @@ public sealed class UgcHunterService
             _gate.Release();
         }
 
+        // Only catalog/marketplace-screened candidates appear in the preliminary
+        // board. They are explicitly labeled pending resale analysis by the UI.
+        var preliminary = baseline
+            .OrderByDescending(x => x.ResalePotentialScore)
+            .ThenByDescending(x => x.EntryScore)
+            .ThenBy(x => x.SelloutEta ?? TimeSpan.MaxValue)
+            .ToArray();
+        var preliminarySnapshot = new UgcHunterMarketSnapshot(preliminary, BuildMarketState(preliminary), now);
+        onPreliminary?.Invoke(preliminarySnapshot);
+        var preliminaryMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
         var enriched = await EnrichResaleEvidenceAsync(baseline, cancellationToken).ConfigureAwait(false);
+        var thumbnails = await thumbnailsTask.ConfigureAwait(false);
         var ranked = enriched
+            .Select(item => thumbnails.TryGetValue(item.AssetId, out var thumbnail)
+                ? item with { ThumbnailUrl = thumbnail } : item)
             .OrderByDescending(x => x.ResalePotentialScore)
             .ThenByDescending(x => x.EntryScore)
             .ThenBy(x => x.SelloutEta ?? TimeSpan.MaxValue)
             .ToArray();
 
+        var totalMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        _logger.Info($"UGC scan timing: discovery={discoveryMs:0}ms, first-results={preliminaryMs:0}ms, " +
+            $"resale/thumbnail={totalMs - preliminaryMs:0}ms, total={totalMs:0}ms, " +
+            $"screened={raw.Count}, displayed={ranked.Length}.");
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now);
+    }
+
+    private async Task<IReadOnlyDictionary<long, string>> LoadThumbnailsSafelyAsync(
+        IReadOnlyList<UgcRawCatalogItem> candidates, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _thumbnailService.GetAssetThumbnailUrlsAsync(
+                candidates.Select(x => x.AssetId), cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.Error($"UGC Hunter thumbnail batch unavailable: {ex.Message}");
+            return new Dictionary<long, string>();
+        }
     }
 
     private async Task<IReadOnlyList<UgcHunterItem>> EnrichResaleEvidenceAsync(
