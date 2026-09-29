@@ -155,7 +155,7 @@ public sealed class UgcHunterService
     }
 
     private async Task<IReadOnlyDictionary<long, string>> LoadThumbnailsSafelyAsync(
-        IReadOnlyList<RobloxUgcCatalogCandidate> candidates, CancellationToken cancellationToken)
+        IReadOnlyList<UgcRawCatalogItem> candidates, CancellationToken cancellationToken)
     {
         try
         {
