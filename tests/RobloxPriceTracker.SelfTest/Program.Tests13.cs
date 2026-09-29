@@ -109,6 +109,73 @@ internal static partial class Program
         AssertEqual(99001L, result.Items[0].AssetId);
     }
 
+    static async Task TestResaleLookupSingleFlightAsync()
+    {
+        int calls = 0;
+        const string json = """
+        {"sales":300,"recentAveragePrice":950,
+         "priceDataPoints":[{"value":950,"date":"2026-09-28T00:00:00Z"}],
+         "volumeDataPoints":[{"value":12,"date":"2026-09-28T00:00:00Z"}]}
+        """;
+        using var handler = new DelegateHandler(async (_, token) =>
+        {
+            Interlocked.Increment(ref calls);
+            await Task.Delay(100, token);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json)
+            };
+        });
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+        var logger = new AppLogger(Path.Combine(Path.GetTempPath(), "rpt-resale-flight", Guid.NewGuid().ToString("N"), "app.log"));
+        var service = new RobloxResaleDataService(http, logger);
+
+        var legacy = await Task.WhenAll(
+            Enumerable.Range(0, 10).Select(_ => service.GetAsync(8123456L)));
+        AssertEqual(1, calls);
+        AssertTrue(legacy.All(row => row.IsAvailable && row.AssetId == 8123456L));
+        await service.GetAsync(8123456L);
+        AssertEqual(1, calls);
+
+        var modern = await Task.WhenAll(
+            Enumerable.Range(0, 10).Select(_ => service.GetModernAsync(8123457L, "test-collectible-id")));
+        AssertEqual(2, calls);
+        AssertTrue(modern.All(row => row.IsAvailable && row.AssetId == 8123457L));
+        await service.GetModernAsync(8123457L, "test-collectible-id");
+        AssertEqual(2, calls);
+    }
+
+    static async Task TestResaleLookupIsolatedCancellationAsync()
+    {
+        int calls = 0;
+        const string json = """
+        {"sales":300,"recentAveragePrice":750,
+         "priceDataPoints":[{"value":750,"date":"2026-09-28T00:00:00Z"}],
+         "volumeDataPoints":[{"value":5,"date":"2026-09-28T00:00:00Z"}]}
+        """;
+        using var handler = new DelegateHandler(async (_, token) =>
+        {
+            Interlocked.Increment(ref calls);
+            await Task.Delay(120, token);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) };
+        });
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+        var logger = new AppLogger(Path.Combine(Path.GetTempPath(), "rpt-cancellation", Guid.NewGuid().ToString("N"), "app.log"));
+        var service = new RobloxResaleDataService(http, logger);
+
+        using var cancel = new CancellationTokenSource();
+        var cancelled = service.GetAsync(987654L, cancel.Token);
+        var other = service.GetAsync(987654L);
+        cancel.Cancel();
+        bool observedCancellation = false;
+        try { await cancelled; }
+        catch (OperationCanceledException) { observedCancellation = true; }
+        AssertTrue(observedCancellation);
+        var completed = await other;
+        AssertTrue(completed.IsAvailable);
+        AssertEqual(1, calls);
+    }
+
     private sealed class ResponseGroup : IDisposable
     {
         private readonly HttpResponseMessage[] _responses;

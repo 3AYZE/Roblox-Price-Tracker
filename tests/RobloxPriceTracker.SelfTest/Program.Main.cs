@@ -73,7 +73,9 @@ internal static partial class Program
             ("Permanent EXE version and SHA-256 verification", TestSingleExeReleaseIntegrityAsync),
             ("Adaptive scanner bounds concurrent Roblox requests", TestAdaptiveScannerBoundsConcurrencyAsync),
             ("Adaptive scanner isolates hosts and backs off on HTTP 429", TestAdaptiveScannerBackoffAsync),
-            ("Parallel UGC discovery merges duplicate IDs deterministically", TestParallelDiscoveryKeepsDeduplicationAsync)
+            ("Parallel UGC discovery merges duplicate IDs deterministically", TestParallelDiscoveryKeepsDeduplicationAsync),
+            ("Concurrent resale consumers share one in-flight request", TestResaleLookupSingleFlightAsync),
+            ("One cancelled resale waiter does not abort other consumers", TestResaleLookupIsolatedCancellationAsync)
         };
 
         var failed = 0;

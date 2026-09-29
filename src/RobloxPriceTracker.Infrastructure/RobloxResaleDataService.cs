@@ -61,6 +61,9 @@ public sealed class RobloxResaleDataService
     private readonly SemaphoreSlim _requestGate = new(3, 3);
     private readonly ConcurrentDictionary<long, CacheEntry> _cache = new();
     private readonly ConcurrentDictionary<string, CacheEntry> _modernCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<long, Lazy<Task<RobloxResaleMarketData>>> _legacyFlights = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<RobloxResaleMarketData>>> _modernFlights =
+        new(StringComparer.OrdinalIgnoreCase);
     private string? _anonymousCsrfToken;
 
     public RobloxResaleDataService(HttpClient httpClient, AppLogger logger)
@@ -81,7 +84,31 @@ public sealed class RobloxResaleDataService
         return pairs.ToDictionary(x => x.Key, x => x.Value);
     }
 
-    public async Task<RobloxResaleMarketData> GetAsync(long assetId, CancellationToken cancellationToken = default)
+    public async Task<RobloxResaleMarketData> GetAsync(
+        long assetId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (assetId <= 0) return Unavailable(assetId, "Invalid asset ID.");
+        if (_cache.TryGetValue(assetId, out var cached) && cached.ExpiresAtUtc > DateTimeOffset.UtcNow)
+            return cached.Data;
+
+        // Single-flight: simultaneous Tracker / Hunter / Official Market scans
+        // share one lookup. One caller's cancellation stops its own wait but does
+        // not cancel the other consumers' in-flight Roblox request.
+        var flight = _legacyFlights.GetOrAdd(assetId,
+            id => new Lazy<Task<RobloxResaleMarketData>>(
+                () => FetchAndClearLegacyAsync(id), LazyThreadSafetyMode.ExecutionAndPublication));
+        return await flight.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<RobloxResaleMarketData> FetchAndClearLegacyAsync(long assetId)
+    {
+        try { return await GetLegacyUncoalescedAsync(assetId, CancellationToken.None).ConfigureAwait(false); }
+        finally { _legacyFlights.TryRemove(assetId, out _); }
+    }
+
+    private async Task<RobloxResaleMarketData> GetLegacyUncoalescedAsync(
+        long assetId, CancellationToken cancellationToken)
     {
         if (assetId <= 0)
         {
@@ -162,9 +189,39 @@ public sealed class RobloxResaleDataService
     }
 
     public async Task<RobloxResaleMarketData> GetModernAsync(
+        long assetId, string collectibleItemId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (assetId <= 0 || string.IsNullOrWhiteSpace(collectibleItemId))
+            return Unavailable(assetId, "Collectible item ID is unavailable.", collectibleItemId: collectibleItemId);
+
+        var key = collectibleItemId.Trim();
+        if (_modernCache.TryGetValue(key, out var cached) && cached.ExpiresAtUtc > DateTimeOffset.UtcNow)
+            return cached.Data;
+
+        var flightKey = assetId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + key;
+        var flight = _modernFlights.GetOrAdd(flightKey,
+            _ => new Lazy<Task<RobloxResaleMarketData>>(
+                () => FetchAndClearModernAsync(assetId, key, flightKey),
+                LazyThreadSafetyMode.ExecutionAndPublication));
+        return await flight.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<RobloxResaleMarketData> FetchAndClearModernAsync(
+        long assetId, string collectibleItemId, string flightKey)
+    {
+        try
+        {
+            return await GetModernUncoalescedAsync(
+                assetId, collectibleItemId, CancellationToken.None).ConfigureAwait(false);
+        }
+        finally { _modernFlights.TryRemove(flightKey, out _); }
+    }
+
+    private async Task<RobloxResaleMarketData> GetModernUncoalescedAsync(
         long assetId,
         string collectibleItemId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
         if (assetId <= 0 || string.IsNullOrWhiteSpace(collectibleItemId))
             return Unavailable(assetId, "Collectible item ID is unavailable.", collectibleItemId: collectibleItemId);
