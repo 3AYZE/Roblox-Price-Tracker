@@ -173,7 +173,9 @@ public sealed class RobloxUgcDiscoveryService
 
     public async Task<RobloxUgcDiscoveryResult> DiscoverAsync(CancellationToken cancellationToken = default)
     {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         var discovery = await GetDiscoveryIdsAsync(cancellationToken).ConfigureAwait(false);
+        var feedMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (discovery.Ids.Length == 0)
         {
             _logger.Info("UGC Hunter discovery returned no UGC Collectible asset IDs.");
@@ -255,6 +257,9 @@ public sealed class RobloxUgcDiscoveryService
                 rejectedUnavailable++;
         }
 
+        var totalMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        _logger.Info($"UGC scan stages: feeds={feedMs:0}ms, hydrate/verify={totalMs - feedMs:0}ms, " +
+            $"total={totalMs:0}ms.");
         _logger.Info(
             $"UGC Hunter resilient momentum discovery: {discovery.FeedsUsed} feed(s), {discovery.PagesUsed} page(s), " +
             $"{discovery.Ids.Length} selected IDs{(discovery.FromCache ? " (cached discovery)" : string.Empty)}, " +

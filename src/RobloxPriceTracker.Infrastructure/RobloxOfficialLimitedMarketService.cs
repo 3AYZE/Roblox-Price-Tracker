@@ -97,6 +97,7 @@ public sealed class RobloxOfficialLimitedMarketService
         try
         {
             EnsureHistoryLoaded();
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var observedAt = DateTimeOffset.UtcNow;
             var discovered = new Dictionary<long, MutableCandidate>();
             string? warning = null;
@@ -214,6 +215,9 @@ public sealed class RobloxOfficialLimitedMarketService
             }
 
             PersistHistory();
+            _logger.Info($"Official Limited scan: {catalogItems.Length} discovered, " +
+                $"{enrichedIds.Count} enriched in " +
+                $"{System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:0}ms.");
             return new RobloxOfficialLimitedScanResult(
                 result.OrderByDescending(x => x.HuntScore).ThenByDescending(x => x.EvidenceScore).ToArray(),
                 catalogItems.Length,
