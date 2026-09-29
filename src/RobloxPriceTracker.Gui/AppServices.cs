@@ -134,7 +134,7 @@ public sealed class AppServices : IDisposable
         var forecastEngine = new PriceForecastEngine();
         var forecastHistoryStore = new ForecastHistoryStore(Path.Combine(dataDir, "forecast-history.json"));
         await forecastHistoryStore.InitializeAsync(cancellationToken);
-        var ugcHunterCoreService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir);
+        var ugcHunterCoreService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir, resaleDataService);
         var ugcHunterService = new UgcHunterServiceFacade(ugcHunterCoreService, logger, dataDir);
         await ugcHunterService.InitializeAsync(cancellationToken);
         var paperPortfolioStore = new PaperPortfolioStore(dataDir);

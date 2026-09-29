@@ -80,7 +80,7 @@ internal static partial class Program
                 try
                 {
                     await Task.Delay(100, cancellationToken);
-                    const string ids = """{"data":[{"id":99001,"assetType":8}],"nextPageCursor":null}""";
+                    const string ids = """{"data":[{"id":99001,"itemType":"Asset","assetType":8,"creatorTargetId":987,"itemRestrictions":["Collectible"]}],"nextPageCursor":null}""";
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new StringContent(ids)

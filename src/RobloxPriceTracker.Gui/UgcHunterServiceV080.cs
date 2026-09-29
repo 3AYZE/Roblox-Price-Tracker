@@ -35,12 +35,14 @@ public sealed class UgcHunterService
     private readonly Dictionary<long, List<UgcHunterObservation>> _history = new();
     private bool _initialized;
 
-    public UgcHunterService(HttpClient httpClient, RobloxThumbnailService thumbnailService, AppLogger logger, string dataDirectory)
+    public UgcHunterService(
+        HttpClient httpClient, RobloxThumbnailService thumbnailService, AppLogger logger,
+        string dataDirectory, RobloxResaleDataService? sharedResaleDataService = null)
     {
         _httpClient = httpClient;
         _discoveryService = new RobloxUgcDiscoveryService(httpClient, logger);
         _thumbnailService = thumbnailService;
-        _resaleDataService = new RobloxResaleDataService(httpClient, logger);
+        _resaleDataService = sharedResaleDataService ?? new RobloxResaleDataService(httpClient, logger);
         _resellerDataService = new RobloxResellerDataService(httpClient, logger);
         _logger = logger;
         _historyPath = Path.Combine(dataDirectory, "ugc-hunter-history.json");

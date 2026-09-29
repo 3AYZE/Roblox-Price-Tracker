@@ -6,6 +6,7 @@
 - Replace conservative fixed Official Market pauses with adaptive HTTP pacing; retain exponential Retry-After handling and incomplete-data fallbacks.
 - Start thumbnail lookups alongside market analysis, show preliminary catalog-screened candidates before deeper resale enrichment, and automatically publish completed background scans to the Hunter board.
 - Update Hunter rows incrementally instead of clearing the table, preserving selection and filters.
+- Share cached resale-market data between Tracker, Official Market, Analyzer and Hunter to avoid repeated requests for the same asset.
 - Log discovery, first-result and full-scan timings; test concurrency bounds, per-host backoff and parallel feed deduplication.
 
 ## v0.13.12
