@@ -96,6 +96,9 @@ public sealed class RobloxUgcDiscoveryService
 
     private sealed record DiscoveryIdSet(long[] Ids, int FeedsUsed, int PagesUsed, bool FromCache);
     private sealed record HydrationResult(IReadOnlyList<RobloxUgcCatalogCandidate> Items, int Rows, int Requests);
+    private sealed record FeedObservation(long AssetId, int Rank);
+    private sealed record FeedScanResult(DiscoveryFeed Feed, List<FeedObservation> Observations,
+        int PagesUsed, bool ProducedPage, RobloxUgcDiscoveryException? Failure);
 
     private static readonly DiscoveryFeed[] DiscoveryFeeds =
     [
@@ -147,10 +150,9 @@ public sealed class RobloxUgcDiscoveryService
     private const int MaxMarketplaceBatchSize = 40;
     private const int MaxRateLimitAttempts = 2;
     private static readonly TimeSpan DiscoveryCacheDuration = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan InterPageDelay = TimeSpan.FromMilliseconds(300);
-    private static readonly TimeSpan InterFeedDelay = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan InterPageDelay = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan InterDetailBatchDelay = TimeSpan.FromMilliseconds(350);
-    private static readonly TimeSpan InterMarketplaceBatchDelay = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan InterMarketplaceBatchDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
@@ -348,87 +350,40 @@ public sealed class RobloxUgcDiscoveryService
         IReadOnlyList<DiscoveryFeed> feeds,
         CancellationToken cancellationToken)
     {
+        // Feed pages are sequential (their cursors depend on the previous page),
+        // but distinct feed windows can run in parallel. Merge strictly in original
+        // feed order so scoring and the reserved-recent quota stay deterministic.
+        using var parallelFeeds = new SemaphoreSlim(2, 2);
+        var work = feeds.Select(async feed =>
+        {
+            await parallelFeeds.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try { return await ScanFeedAsync(feed, cancellationToken).ConfigureAwait(false); }
+            finally { parallelFeeds.Release(); }
+        }).ToArray();
+
+        var completed = await Task.WhenAll(work).ConfigureAwait(false);
         var signals = new Dictionary<long, DiscoverySignal>();
         var recentIds = new List<long>(RecentReserve * 2);
         var recentSeen = new HashSet<long>();
-        var feedsUsed = 0;
-        var pagesUsed = 0;
         RobloxUgcDiscoveryException? firstFailure = null;
-
-        foreach (var feed in feeds)
+        var pagesUsed = 0;
+        var feedsUsed = 0;
+        foreach (var result in completed)
         {
-            var activeEndpoint = feed.PrimaryEndpoint;
-            string? cursor = null;
-            var rowsConsidered = 0;
-            var producedPage = false;
-
-            for (var page = 0; page < feed.MaxPages && rowsConsidered < feed.Budget; page++)
+            firstFailure ??= result.Failure;
+            pagesUsed += result.PagesUsed;
+            if (result.ProducedPage) feedsUsed++;
+            foreach (var row in result.Observations)
             {
-                JsonDocument document;
-                try
+                if (!signals.TryGetValue(row.AssetId, out var signal))
                 {
-                    document = await FetchDiscoveryAsync(BuildPageUri(activeEndpoint, cursor), cancellationToken).ConfigureAwait(false);
+                    signal = new DiscoverySignal(row.AssetId);
+                    signals[row.AssetId] = signal;
                 }
-                catch (RobloxUgcDiscoveryException ex) when (
-                    page == 0 &&
-                    feed.FallbackEndpoint is not null &&
-                    ex.Kind == RobloxUgcDiscoveryFailureKind.Protocol)
-                {
-                    firstFailure ??= ex;
-                    activeEndpoint = feed.FallbackEndpoint;
-                    cursor = null;
-                    _logger.Info(
-                        $"UGC Hunter {feed.Name} primary route returned protocol error; retrying with broad Collectibles fallback. " +
-                        ex.Message);
-                    try
-                    {
-                        document = await FetchDiscoveryAsync(activeEndpoint, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (RobloxUgcDiscoveryException fallbackEx)
-                    {
-                        firstFailure ??= fallbackEx;
-                        _logger.Info($"UGC Hunter skipped {feed.Name}: fallback failed: {fallbackEx.Message}");
-                        break;
-                    }
-                }
-                catch (RobloxUgcDiscoveryException ex)
-                {
-                    firstFailure ??= ex;
-                    _logger.Info($"UGC Hunter discovery skipped {feed.Name} page {page + 1}: {ex.Message}");
-                    break;
-                }
-
-                using (document)
-                {
-                    producedPage = true;
-                    pagesUsed++;
-                    var pageIds = RobloxUgcCatalogDiscoveryParser.ParseDiscoveryIds(document.RootElement);
-                    for (var rowIndex = 0; rowIndex < pageIds.Count && rowsConsidered < feed.Budget; rowIndex++)
-                    {
-                        var id = pageIds[rowIndex];
-                        rowsConsidered++;
-                        var rank = page * 30 + rowIndex + 1;
-                        if (!signals.TryGetValue(id, out var signal))
-                        {
-                            signal = new DiscoverySignal(id);
-                            signals[id] = signal;
-                        }
-
-                        signal.Observe(feed.Name, rank, feed.Weight);
-                        if (feed.ReserveRecent && recentSeen.Add(id)) recentIds.Add(id);
-                    }
-
-                    cursor = GetNextPageCursor(document.RootElement);
-                }
-
-                if (string.IsNullOrWhiteSpace(cursor) || rowsConsidered >= feed.Budget)
-                    break;
-
-                await Task.Delay(InterPageDelay, cancellationToken).ConfigureAwait(false);
+                signal.Observe(result.Feed.Name, row.Rank, result.Feed.Weight);
+                if (result.Feed.ReserveRecent && recentSeen.Add(row.AssetId))
+                    recentIds.Add(row.AssetId);
             }
-
-            if (producedPage) feedsUsed++;
-            await Task.Delay(InterFeedDelay, cancellationToken).ConfigureAwait(false);
         }
 
         if (signals.Count == 0 && firstFailure is not null)
@@ -443,16 +398,12 @@ public sealed class RobloxUgcDiscoveryService
             .ToArray();
 
         foreach (var signal in ordered.Take(MomentumQuota))
-        {
             if (selectedSet.Add(signal.AssetId)) selected.Add(signal.AssetId);
-        }
-
         foreach (var id in recentIds)
         {
             if (selected.Count >= MaxDiscoveryIds) break;
             if (selectedSet.Add(id)) selected.Add(id);
         }
-
         foreach (var signal in ordered)
         {
             if (selected.Count >= MaxDiscoveryIds) break;
@@ -460,6 +411,70 @@ public sealed class RobloxUgcDiscoveryService
         }
 
         return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false);
+    }
+
+    private async Task<FeedScanResult> ScanFeedAsync(DiscoveryFeed feed, CancellationToken cancellationToken)
+    {
+        var observations = new List<FeedObservation>(feed.Budget);
+        var activeEndpoint = feed.PrimaryEndpoint;
+        string? cursor = null;
+        var rowsConsidered = 0;
+        var pagesUsed = 0;
+        RobloxUgcDiscoveryException? firstFailure = null;
+
+        for (var page = 0; page < feed.MaxPages && rowsConsidered < feed.Budget; page++)
+        {
+            JsonDocument document;
+            try
+            {
+                document = await FetchDiscoveryAsync(
+                    BuildPageUri(activeEndpoint, cursor), cancellationToken).ConfigureAwait(false);
+            }
+            catch (RobloxUgcDiscoveryException ex) when (
+                page == 0 && feed.FallbackEndpoint is not null &&
+                ex.Kind == RobloxUgcDiscoveryFailureKind.Protocol)
+            {
+                firstFailure ??= ex;
+                activeEndpoint = feed.FallbackEndpoint;
+                cursor = null;
+                _logger.Info($"UGC Hunter {feed.Name} primary route returned protocol error; " +
+                    $"retrying with broad Collectibles fallback. {ex.Message}");
+                try
+                {
+                    document = await FetchDiscoveryAsync(activeEndpoint, cancellationToken).ConfigureAwait(false);
+                }
+                catch (RobloxUgcDiscoveryException fallbackEx)
+                {
+                    firstFailure ??= fallbackEx;
+                    _logger.Info($"UGC Hunter skipped {feed.Name}: fallback failed: {fallbackEx.Message}");
+                    break;
+                }
+            }
+            catch (RobloxUgcDiscoveryException ex)
+            {
+                firstFailure ??= ex;
+                _logger.Info($"UGC Hunter discovery skipped {feed.Name} page {page + 1}: {ex.Message}");
+                break;
+            }
+
+            using (document)
+            {
+                pagesUsed++;
+                var pageIds = RobloxUgcCatalogDiscoveryParser.ParseDiscoveryIds(document.RootElement);
+                for (var rowIndex = 0; rowIndex < pageIds.Count && rowsConsidered < feed.Budget; rowIndex++)
+                {
+                    var id = pageIds[rowIndex];
+                    rowsConsidered++;
+                    observations.Add(new FeedObservation(id, page * 30 + rowIndex + 1));
+                }
+                cursor = GetNextPageCursor(document.RootElement);
+            }
+            if (string.IsNullOrWhiteSpace(cursor) || rowsConsidered >= feed.Budget)
+                break;
+
+            await Task.Delay(InterPageDelay, cancellationToken).ConfigureAwait(false);
+        }
+        return new FeedScanResult(feed, observations, pagesUsed, pagesUsed > 0, firstFailure);
     }
 
     private static Uri BuildPageUri(Uri endpoint, string? cursor)

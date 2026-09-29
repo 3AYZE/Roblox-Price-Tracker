@@ -79,7 +79,7 @@ public sealed class AdaptiveRobloxHttpHandler : DelegatingHandler
         private DateTimeOffset _nextStart = DateTimeOffset.MinValue;
         private DateTimeOffset _cooldownUntil = DateTimeOffset.MinValue;
         private int _spacingMs;
-        private int _parallelism = 1;
+        private int _parallelism;
         private int _active;
         private int _healthyResponses;
         private long _requests;
@@ -89,6 +89,7 @@ public sealed class AdaptiveRobloxHttpHandler : DelegatingHandler
         public Lane(int maximumParallelism)
         {
             _maximumParallelism = maximumParallelism;
+            _parallelism = maximumParallelism;
             _minimumSpacingMs = maximumParallelism == 2 ? 150 : 100;
             _spacingMs = _minimumSpacingMs;
             _capacity = new SemaphoreSlim(maximumParallelism, maximumParallelism);

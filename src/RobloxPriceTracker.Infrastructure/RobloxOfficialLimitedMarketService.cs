@@ -69,7 +69,7 @@ public sealed class RobloxOfficialLimitedMarketService
     private const int MaxDiscoveredItems = 180;
     private const int MaxEnrichedItems = 36;
     private const int MaxCatalogAttempts = 3;
-    private static readonly TimeSpan InterRequestDelay = TimeSpan.FromMilliseconds(900);
+    private static readonly TimeSpan InterRequestDelay = TimeSpan.FromMilliseconds(170);
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
