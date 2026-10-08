@@ -1,5 +1,12 @@
 # Roblox Price Tracker changelog
 
+## v0.14.2 — V2 Phase 1: stability instrumentation
+- Add local fatal-error reporting, best-effort unobserved task diagnostics and previous-session unclean exit detection.
+- Record UGC scan discovery, thumbnails, resale analysis and end-to-end duration, plus Official Market duration; separate bounded local metrics files.
+- Keep the v0.14.1 scanner, request pacing, UI refresh behavior, cache semantics, updater and user data unchanged.
+- Add deterministic tests for success, failure, cancellation, marker lifecycle and sensitive-value redaction.
+- Document gated future modernization phases; no experimental parallel scanner is enabled.
+
 ## v0.14.1 — Stability recovery
 - Restore the v0.13.12 scanner, request pacing, resale cache, and Hunter UI update path after reports of slower scans and crashes in v0.14.0.
 - Withdraw v0.14.0's adaptive shared network scheduler, parallel feed discovery, preliminary Hunter notifications and in-flight resale request coalescing pending separate diagnosis and measured testing.

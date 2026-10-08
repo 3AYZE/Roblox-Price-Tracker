@@ -70,7 +70,10 @@ internal static partial class Program
             ("Live rollback is repaired before any partial save", TestTrackerInSessionRollbackGuardAsync),
             ("Startup restores from immutable checkpoint after both rolling files regress", TestTrackerCheckpointRecoveryAsync),
             ("User-data snapshot captures JSON state", TestUserDataSnapshotCapturesJsonAsync),
-            ("Permanent EXE version and SHA-256 verification", TestSingleExeReleaseIntegrityAsync)
+            ("Permanent EXE version and SHA-256 verification", TestSingleExeReleaseIntegrityAsync),
+            ("Scan diagnostics records success, failure and cancellation", TestScanDiagnosticsOutcomesAsync),
+            ("Crash diagnostics redacts secrets and closes clean sessions", TestCrashDiagnosticsSessionAndRedactionAsync),
+            ("Crash diagnostics flags abnormal previous session", TestCrashDiagnosticsAbnormalTerminationAsync)
         };
 
         var failed = 0;

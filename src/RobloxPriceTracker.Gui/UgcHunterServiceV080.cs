@@ -30,13 +30,15 @@ public sealed class UgcHunterService
     private readonly RobloxResaleDataService _resaleDataService;
     private readonly RobloxResellerDataService _resellerDataService;
     private readonly AppLogger _logger;
+    private readonly ScanDiagnostics? _scanDiagnostics;
     private readonly string _historyPath;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<long, List<UgcHunterObservation>> _history = new();
     private bool _initialized;
 
-    public UgcHunterService(HttpClient httpClient, RobloxThumbnailService thumbnailService, AppLogger logger, string dataDirectory)
+    public UgcHunterService(HttpClient httpClient, RobloxThumbnailService thumbnailService, AppLogger logger, string dataDirectory, ScanDiagnostics? scanDiagnostics = null)
     {
+        _scanDiagnostics = scanDiagnostics;
         _httpClient = httpClient;
         _discoveryService = new RobloxUgcDiscoveryService(httpClient, logger);
         _thumbnailService = thumbnailService;
@@ -76,16 +78,28 @@ public sealed class UgcHunterService
         }
     }
 
-    public async Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
+    public Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+        _scanDiagnostics is null
+            ? RefreshCoreAsync(cancellationToken)
+            : _scanDiagnostics.MeasureAsync("ugc-full", RefreshCoreAsync, cancellationToken);
+
+    private async Task<UgcHunterMarketSnapshot> RefreshCoreAsync(CancellationToken cancellationToken)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         var now = DateTimeOffset.UtcNow;
-        var raw = await FetchCandidatesAsync(now, cancellationToken).ConfigureAwait(false);
+        var raw = _scanDiagnostics is null
+            ? await FetchCandidatesAsync(now, cancellationToken).ConfigureAwait(false)
+            : await _scanDiagnostics.MeasureAsync("ugc-discovery-verify",
+                token => FetchCandidatesAsync(now, token), cancellationToken).ConfigureAwait(false);
 
         IReadOnlyDictionary<long, string> thumbnails;
         try
         {
-            thumbnails = await _thumbnailService.GetAssetThumbnailUrlsAsync(raw.Select(x => x.AssetId), cancellationToken).ConfigureAwait(false);
+            thumbnails = _scanDiagnostics is null
+                ? await _thumbnailService.GetAssetThumbnailUrlsAsync(raw.Select(x => x.AssetId), cancellationToken).ConfigureAwait(false)
+                : await _scanDiagnostics.MeasureAsync("ugc-thumbnails",
+                    token => _thumbnailService.GetAssetThumbnailUrlsAsync(raw.Select(x => x.AssetId), token),
+                    cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -132,7 +146,10 @@ public sealed class UgcHunterService
             _gate.Release();
         }
 
-        var enriched = await EnrichResaleEvidenceAsync(baseline, cancellationToken).ConfigureAwait(false);
+        var enriched = _scanDiagnostics is null
+            ? await EnrichResaleEvidenceAsync(baseline, cancellationToken).ConfigureAwait(false)
+            : await _scanDiagnostics.MeasureAsync("ugc-resale-analysis",
+                token => EnrichResaleEvidenceAsync(baseline, token), cancellationToken).ConfigureAwait(false);
         var ranked = enriched
             .OrderByDescending(x => x.ResalePotentialScore)
             .ThenByDescending(x => x.EntryScore)

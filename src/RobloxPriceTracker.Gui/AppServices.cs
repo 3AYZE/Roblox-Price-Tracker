@@ -18,6 +18,7 @@ public sealed class AppServices : IDisposable
         GuiNotificationSink notificationSink,
         NotificationDispatcher notificationDispatcher,
         AppLogger logger,
+        ScanDiagnostics scanDiagnostics,
         AppSettingsStore settingsStore,
         AppSettings settings,
         RobloxThumbnailService thumbnailService,
@@ -38,6 +39,7 @@ public sealed class AppServices : IDisposable
         NotificationSink = notificationSink;
         NotificationDispatcher = notificationDispatcher;
         Logger = logger;
+        ScanDiagnostics = scanDiagnostics;
         SettingsStore = settingsStore;
         Settings = settings;
         ThumbnailService = thumbnailService;
@@ -59,6 +61,7 @@ public sealed class AppServices : IDisposable
     public GuiNotificationSink NotificationSink { get; }
     public NotificationDispatcher NotificationDispatcher { get; }
     public AppLogger Logger { get; }
+    public ScanDiagnostics ScanDiagnostics { get; }
     public AppSettingsStore SettingsStore { get; }
     public AppSettings Settings { get; }
     public RobloxThumbnailService ThumbnailService { get; }
@@ -86,6 +89,7 @@ public sealed class AppServices : IDisposable
 
         Directory.CreateDirectory(dataDir);
         var logger = new AppLogger(Path.Combine(dataDir, "logs", "app.log"));
+        var scanDiagnostics = new ScanDiagnostics(dataDir);
 
         try
         {
@@ -134,7 +138,7 @@ public sealed class AppServices : IDisposable
         var forecastEngine = new PriceForecastEngine();
         var forecastHistoryStore = new ForecastHistoryStore(Path.Combine(dataDir, "forecast-history.json"));
         await forecastHistoryStore.InitializeAsync(cancellationToken);
-        var ugcHunterCoreService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir);
+        var ugcHunterCoreService = new UgcHunterService(httpClient, thumbnailService, logger, dataDir, scanDiagnostics);
         var ugcHunterService = new UgcHunterServiceFacade(ugcHunterCoreService, logger, dataDir);
         await ugcHunterService.InitializeAsync(cancellationToken);
         var paperPortfolioStore = new PaperPortfolioStore(dataDir);
@@ -151,6 +155,7 @@ public sealed class AppServices : IDisposable
             notificationSink,
             dispatcher,
             logger,
+            scanDiagnostics,
             settingsStore,
             settings,
             thumbnailService,
