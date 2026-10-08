@@ -73,6 +73,7 @@ public sealed class RobloxOfficialLimitedMarketService
 
     private readonly HttpClient _httpClient;
     private readonly AppLogger _logger;
+    private readonly ScanDiagnostics? _scanDiagnostics;
     private readonly RobloxResaleDataService _resaleDataService;
     private readonly string? _statePath;
     private readonly SemaphoreSlim _scanGate = new(1, 1);
@@ -83,15 +84,22 @@ public sealed class RobloxOfficialLimitedMarketService
         HttpClient httpClient,
         AppLogger logger,
         RobloxResaleDataService resaleDataService,
-        string? statePath = null)
+        string? statePath = null,
+        ScanDiagnostics? scanDiagnostics = null)
     {
+        _scanDiagnostics = scanDiagnostics;
         _httpClient = httpClient;
         _logger = logger;
         _resaleDataService = resaleDataService;
         _statePath = statePath;
     }
 
-    public async Task<RobloxOfficialLimitedScanResult> ScanAsync(CancellationToken cancellationToken = default)
+    public Task<RobloxOfficialLimitedScanResult> ScanAsync(CancellationToken cancellationToken = default) =>
+        _scanDiagnostics is null
+            ? ScanCoreAsync(cancellationToken)
+            : _scanDiagnostics.MeasureAsync("official-full", ScanCoreAsync, cancellationToken);
+
+    private async Task<RobloxOfficialLimitedScanResult> ScanCoreAsync(CancellationToken cancellationToken)
     {
         await _scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try

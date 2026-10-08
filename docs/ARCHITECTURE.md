@@ -18,3 +18,7 @@ Tracker records, alerts and price history are persisted locally. The repository 
 ## Release process
 
 GitHub Actions builds, tests and smoke-tests the Windows EXE before updating the fixed `latest` release. That release has **one** downloadable `RobloxPriceTracker.exe`; the client validates GitHub's asset SHA-256 digest before installation. Older `v0.13.9` and `main-latest` release files remain available only to migrate existing updaters.
+
+## Diagnostic files
+
+The app keeps local crash details in `logs/crash.log` and scan-stage measurements in `logs/scan-metrics.jsonl` within the same local data directory. These rotate at 1 MiB, keep one prior file, and are never transmitted automatically. An `logs/session.active` marker records whether the prior process reached normal shutdown; an unexpected exit is not necessarily an app crash. Review local logs before sharing them. See [V2 modernization plan](V2_MODERNIZATION.md) for the guarded rollout.

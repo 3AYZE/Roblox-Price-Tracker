@@ -80,7 +80,8 @@ public partial class MainWindow
             _services.HttpClient,
             _services.Logger,
             _services.ResaleDataService,
-            Path.Combine(_services.DataDirectory, "official-limited-history.json"));
+            Path.Combine(_services.DataDirectory, "official-limited-history.json"),
+            _services.ScanDiagnostics);
 
         if (DashboardNav.Parent is StackPanel navStack)
         {
