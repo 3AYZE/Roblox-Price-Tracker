@@ -184,7 +184,10 @@ public sealed class UgcHunterService
             .ThenBy(x => x.SelloutEta ?? TimeSpan.MaxValue)
             .ToArray();
 
-        return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now);
+        return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
+        {
+            PriceIntegrityPolicyVersion = 1
+        };
     }
 
     private UgcHunterItem ApplyPriceIntegrity(UgcHunterItem item, DateTimeOffset now)
@@ -830,7 +833,12 @@ public readonly record struct UgcHunterObservation(
 public sealed record UgcHunterMarketSnapshot(
     IReadOnlyList<UgcHunterItem> Items,
     UgcMarketState Market,
-    DateTimeOffset ObservedAtUtc);
+    DateTimeOffset ObservedAtUtc)
+{
+    // Old snapshots predate price-integrity exclusions. Never restore their
+    // historical BUY labels or numeric scores as if they were screened.
+    public int PriceIntegrityPolicyVersion { get; init; }
+}
 
 public sealed record UgcMarketState(
     string Regime,
