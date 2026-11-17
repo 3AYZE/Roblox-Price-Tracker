@@ -34,3 +34,7 @@ Current safe production baseline: v0.14.1. Prior v0.14.0 adaptive request schedu
 ## Release gates (all phases)
 
 Each phase is independently reviewable. Pass existing regression tests, Windows packaging, isolated EXE startup, icon integrity and saved-data recovery. Diagnose actual user crash logs and measure performance before labeling a scanner optimization faster. Keep the permanent GitHub single EXE and older updater migration bridges.
+
+## v0.14.3 scope note
+
+The category-aware original-price feature uses a **current-scan observed low**, not a purported global or official floor. Treat the latter as unverified until a documented, permitted, appropriately scoped source becomes available. Future enhancements can support official floor data only with explicit authenticated access and user consent; never collect .ROBLOSECURITY from users. No adaptive networking reintroduction in this update.

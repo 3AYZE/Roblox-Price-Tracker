@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private TextBox? _hunterSearchBox;
     private ComboBox? _hunterCategoryCombo;
     private ComboBox? _hunterOpportunityCombo;
+    private ComboBox? _hunterPrimaryPriceCombo;
     private TextBlock? _hunterRegimeText;
     private TextBlock? _hunterRegimeDetailText;
     private TextBlock? _hunterLiveCountText;
@@ -33,6 +34,7 @@ public partial class MainWindow : Window
     private TextBlock? _hunterInspectorTitle;
     private TextBlock? _hunterInspectorCreator;
     private TextBlock? _hunterInspectorPrice;
+    private TextBlock? _hunterInspectorPrimaryReference;
     private TextBlock? _hunterInspectorPhase;
     private TextBlock? _hunterInspectorOpportunity;
     private TextBlock? _hunterInspectorEntry;
@@ -140,11 +142,13 @@ public partial class MainWindow : Window
             Margin = new Thickness(16, 14, 16, 16),
             Background = Brushes.Transparent
         };
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(58) });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(88) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var top = new Grid();
+        top.RowDefinitions.Add(new RowDefinition { Height = new GridLength(42) });
+        top.RowDefinitions.Add(new RowDefinition { Height = new GridLength(42) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.Children.Add(top);
@@ -164,7 +168,7 @@ public partial class MainWindow : Window
         marketStack.Children.Add(_hunterRegimeText);
         _hunterRegimeDetailText = new TextBlock
         {
-            Text = "Scanning buyable UGC Limited drops",
+            Text = "Original-stock prices · category comparison from verified items only",
             Foreground = TerminalMuted,
             FontSize = 9,
             Margin = new Thickness(16, 1, 0, 0),
@@ -173,15 +177,16 @@ public partial class MainWindow : Window
         marketStack.Children.Add(_hunterRegimeDetailText);
 
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        Grid.SetColumn(toolbar, 1);
+        Grid.SetRow(toolbar, 1);
+        Grid.SetColumnSpan(toolbar, 2);
         top.Children.Add(toolbar);
 
-        _hunterSearchBox = new TextBox { Width = 210, ToolTip = "Search drop or creator" };
+        _hunterSearchBox = new TextBox { Width = 185, ToolTip = "Search item, creator or ID" };
         _hunterSearchBox.TextChanged += (_, _) => _hunterView?.Refresh();
         toolbar.Children.Add(_hunterSearchBox);
 
         _hunterCategoryCombo = new ComboBox { Width = 125, Margin = new Thickness(7, 0, 0, 0), SelectedIndex = 0 };
-        foreach (var category in new[] { "All categories", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" })
+        foreach (var category in new[] { "All categories", "Emote", "Dance? (name)", "Emissive? (name)", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" })
             _hunterCategoryCombo.Items.Add(category);
         _hunterCategoryCombo.SelectionChanged += (_, _) => _hunterView?.Refresh();
         toolbar.Children.Add(_hunterCategoryCombo);
@@ -191,6 +196,27 @@ public partial class MainWindow : Window
             _hunterOpportunityCombo.Items.Add(item);
         _hunterOpportunityCombo.SelectionChanged += (_, _) => _hunterView?.Refresh();
         toolbar.Children.Add(_hunterOpportunityCombo);
+
+        _hunterPrimaryPriceCombo = new ComboBox
+        {
+            Width = 172,
+            Margin = new Thickness(7, 0, 0, 0),
+            ToolTip = "An observed low is the cheapest Marketplace-verified ORIGINAL sale in this scan for the exact asset type. It is NOT Roblox's official category price floor.",
+            SelectedIndex = 0
+        };
+        foreach (var mode in new[]
+        {
+            "Observed low (by type)",
+            "All verified originals",
+            "All original candidates"
+        })
+            _hunterPrimaryPriceCombo.Items.Add(mode);
+        _hunterPrimaryPriceCombo.SelectionChanged += (_, _) =>
+        {
+            _hunterView?.Refresh();
+            UpdateHunterVisibleCounts();
+        };
+        toolbar.Children.Add(_hunterPrimaryPriceCombo);
 
         var refresh = new Button
         {
@@ -327,6 +353,15 @@ public partial class MainWindow : Window
         _hunterInspectorVelocity = AddInspectorMetric(stack, "Primary sales", "—");
         _hunterInspectorEta = AddInspectorMetric(stack, "Demand / ETA", "—");
         _hunterInspectorSupply = AddInspectorMetric(stack, "Supply / source", "—");
+        _hunterInspectorPrimaryReference = AddInspectorMetric(stack, "Original-sale comparison", "—");
+        stack.Children.Add(new TextBlock
+        {
+            Text = "Observed category low is NOT Roblox's official floor. Category floors require authenticated access.",
+            FontSize = 8,
+            Foreground = TerminalMuted,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 7, 0, 0)
+        });
 
         stack.Children.Add(MakeSeparator(15, 13));
         stack.Children.Add(MakeSmallLabel("RESALE MARKET + MODEL"));
@@ -443,10 +478,12 @@ public partial class MainWindow : Window
     private void AddHunterColumns(DataGrid grid)
     {
         grid.Columns.Add(CreateHunterAssetColumn());
-        grid.Columns.Add(HunterTextColumn("PRICE", nameof(UgcHunterItem.PriceText), 0.68, TerminalText, true));
+        grid.Columns.Add(HunterTextColumn("ORIGINAL", nameof(UgcHunterItem.OriginalPriceText), 0.76, TerminalText, true));
+        grid.Columns.Add(HunterTextColumn("OBS. LOW", nameof(UgcHunterItem.ObservedCategoryLowText), 0.73, TerminalBlue));
+        grid.Columns.Add(HunterTextColumn("PRICE STATUS", nameof(UgcHunterItem.PrimaryPriceStatusText), 0.96, TerminalAmber));
         grid.Columns.Add(HunterTextColumn("SOLD", nameof(UgcHunterItem.PurchaseCountText), 0.62, TerminalMuted));
         grid.Columns.Add(HunterTextColumn("LEFT", nameof(UgcHunterItem.RemainingText), 0.88, TerminalMuted));
-        grid.Columns.Add(HunterTextColumn("FLOOR", nameof(UgcHunterItem.CurrentResaleText), 0.70, TerminalGreen, true));
+        grid.Columns.Add(HunterTextColumn("RESALE FLOOR", nameof(UgcHunterItem.CurrentResaleText), 0.83, TerminalGreen, true));
         grid.Columns.Add(HunterTextColumn("RAP", nameof(UgcHunterItem.RapText), 0.66, TerminalText));
         grid.Columns.Add(HunterTextColumn("RESALES", nameof(UgcHunterItem.SalesText), 1.00, TerminalMuted));
         grid.Columns.Add(HunterTextColumn("NET ROI", nameof(UgcHunterItem.NetRoiText), 0.66, TerminalAmber, true));
@@ -558,7 +595,13 @@ public partial class MainWindow : Window
             !row.AssetId.ToString().Contains(query, StringComparison.OrdinalIgnoreCase)) return false;
 
         var category = _hunterCategoryCombo?.SelectedItem as string;
-        if (!string.IsNullOrWhiteSpace(category) && category != "All categories" && !row.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!string.IsNullOrWhiteSpace(category) && category != "All categories")
+        {
+            if (category == "Dance? (name)" && !row.PossibleDanceByName) return false;
+            else if (category == "Emissive? (name)" && !row.PossibleEmissiveByName) return false;
+            else if (category is not ("Dance? (name)" or "Emissive? (name)") &&
+                     !row.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) return false;
+        }
 
         var scoreIndex = _hunterOpportunityCombo?.SelectedIndex ?? 0;
         var minimum = scoreIndex switch { 1 => 70, 2 => 80, 3 => 90, _ => 0 };
@@ -763,7 +806,8 @@ public partial class MainWindow : Window
 
         if (_hunterInspectorTitle is not null) _hunterInspectorTitle.Text = item.Name;
         if (_hunterInspectorCreator is not null) _hunterInspectorCreator.Text = $"{item.CreatorName} · {item.Category} · Asset {item.AssetId}";
-        if (_hunterInspectorPrice is not null) _hunterInspectorPrice.Text = item.PriceText;
+        if (_hunterInspectorPrice is not null)
+            _hunterInspectorPrice.Text = $"{item.OriginalPriceText} · ORIGINAL STOCK";
         if (_hunterInspectorPhase is not null)
         {
             _hunterInspectorPhase.Text = $"{item.Phase}  ·  ENTRY {item.EntryWindow}";
@@ -776,6 +820,9 @@ public partial class MainWindow : Window
         if (_hunterInspectorVelocity is not null) _hunterInspectorVelocity.Text = $"{item.PurchaseCountText} sold · {item.FavoriteCountText} favorites";
         if (_hunterInspectorEta is not null) _hunterInspectorEta.Text = $"{item.VelocityText} · {item.VelocityLabel} · ETA {item.EtaText}";
         if (_hunterInspectorSupply is not null) _hunterInspectorSupply.Text = $"{item.RemainingText} remaining / {item.SupplyText} total · {item.VerificationText}";
+        if (_hunterInspectorPrimaryReference is not null)
+            _hunterInspectorPrimaryReference.Text =
+                $"{item.ObservedCategoryLowText} observed · {item.PrimaryPriceStatusText}\nOfficial category minimum: UNVERIFIED";
         if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"FLOOR {item.CurrentResaleText} · RAP {item.RapText} · SELLERS {item.ResellersText}\nSALES {item.SalesText} · BREAK-EVEN {item.BreakEvenText}\nMODEL {item.ForecastText} · BASE {item.BaseValueText} · NET ROI {item.NetRoiText}";
         if (_hunterInspectorReasons is not null) _hunterInspectorReasons.Text = string.Join("\n", item.Reasons.Select(x => $"+ {x}"));
         if (_hunterInspectorRisks is not null) _hunterInspectorRisks.Text = string.Join("\n", item.Risks.Select(x => $"• {x}"));

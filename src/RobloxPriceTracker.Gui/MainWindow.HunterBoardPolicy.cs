@@ -35,8 +35,20 @@ public partial class MainWindow
     {
         if (!FilterHunterRow(item)) return false;
         if (item is not UgcHunterItem row) return true;
-        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price)) return false;
-        return !_hunterPriceSpikeHidden.Contains(row.AssetId);
+        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price) ||
+            row.UnitsAvailable is not > 0 || _hunterPriceSpikeHidden.Contains(row.AssetId))
+            return false;
+
+        var mode = _hunterPrimaryPriceCombo?.SelectedIndex ?? 0;
+        return mode switch
+        {
+            // During an upgrade, old validated cached rows remain visible but
+            // marked "NO COMPARISON" until a new scan supplies per-type prices.
+            0 => row.IsLowestObservedOriginalSale ||
+                 (row.AssetType == 0 && row.PrimaryMarketVerified),
+            1 => row.PrimaryMarketVerified,
+            _ => true
+        };
     }
 
     private void HunterRows_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -78,12 +90,9 @@ public partial class MainWindow
         _hunterPriceAnchors[item.AssetId] = anchor;
 
         var localSpike = UgcHunterPrimaryPricePolicy.IsLargeIncrease(item.Price, anchor.LowestObservedPrice);
-        var marketSpike = UgcHunterPrimaryPricePolicy.IsMarketReferenceIncrease(
-            item.Price,
-            item.RecentAveragePrice,
-            item.CurrentResaleFloor);
+        // Primary listing eligibility must not depend on reseller floors or RAP.
         var nonUgcPublisher = UgcHunterPrimaryPricePolicy.IsClearlyNonUgcPublisher(item.CreatorId, item.CreatorName);
-        var shouldHide = localSpike || marketSpike || nonUgcPublisher;
+        var shouldHide = localSpike || nonUgcPublisher;
         var wasHidden = _hunterPriceSpikeHidden.Contains(item.AssetId);
 
         if (shouldHide)
@@ -93,9 +102,7 @@ public partial class MainWindow
             {
                 var reason = nonUgcPublisher
                     ? $"publisher {item.CreatorName} ({item.CreatorId}) is not UGC"
-                    : marketSpike
-                        ? $"current primary price {item.Price:N0} R$ is a large jump over Roblox market reference (RAP {item.RecentAveragePrice?.ToString("N0") ?? "—"} R$, floor {(item.CurrentResaleFloor is > 0 ? item.CurrentResaleFloor.Value.ToString("N0") : "—")} R$)"
-                        : $"primary price rose from observed low {anchor.LowestObservedPrice:N0} R$ to {item.Price:N0} R$";
+                    : $"original-sale price rose from its own observed low {anchor.LowestObservedPrice:N0} R$ to {item.Price:N0} R$";
                 _services.Logger.Info($"UGC Hunter hid asset {item.AssetId}: {reason}.");
             }
         }
@@ -157,10 +164,7 @@ public partial class MainWindow
 
     private void UpdateHunterVisibleCounts()
     {
-        var visible = _hunterRows
-            .Where(x => UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(x.Price))
-            .Where(x => !_hunterPriceSpikeHidden.Contains(x.AssetId))
-            .ToArray();
+        var visible = _hunterRows.Where(x => FilterHunterBoardRow(x)).ToArray();
         if (_hunterLiveCountText is not null)
             _hunterLiveCountText.Text = visible.Length.ToString("N0");
         if (_hunterStrongCountText is not null)

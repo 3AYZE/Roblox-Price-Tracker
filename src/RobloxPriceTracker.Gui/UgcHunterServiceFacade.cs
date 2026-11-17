@@ -70,8 +70,7 @@ public sealed class UgcHunterServiceFacade : IDisposable
                     else
                     {
                         _logger.Info(
-                            $"UGC Hunter ignored a cached snapshot that does not match the current " +
-                            $"{UgcHunterEntryPricePolicy.MinimumPrimaryPrice:N0} R$ minimum-entry policy.");
+                            "UGC Hunter ignored a cached snapshot containing an invalid original-sale price.");
                     }
                 }
             }
