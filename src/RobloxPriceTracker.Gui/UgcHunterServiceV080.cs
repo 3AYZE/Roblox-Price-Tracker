@@ -168,14 +168,16 @@ public sealed class UgcHunterService
                 token => EnrichResaleEvidenceAsync(baseline, token), cancellationToken).ConfigureAwait(false);
         // The observed primary low is scoped to this scan, per exact asset type.
         // Never substitute seller floor/RAP, or call it Roblox's official floor.
-        var lowest = UgcCategoryPrimaryPricePolicy.FindLowestObservedOriginalPrices(
+        var lowest = UgcCategoryPrimaryPricePolicy.FindLowestObservedOriginalPricesByMaterial(
             enriched.Select(x => new UgcCategoryPrimaryPricePolicy.OriginalOffer(
-                x.AssetId, x.AssetType, x.Price, x.PrimaryMarketVerified, x.UnitsAvailable)));
+                x.AssetId, x.AssetType, x.Price, x.PrimaryMarketVerified, x.UnitsAvailable,
+                x.IsEmissive, x.IsPbr)));
         var ranked = enriched
             .Select(x => x with
             {
-                LowestObservedPrimaryByType = lowest.TryGetValue(x.AssetType, out var low)
-                    ? low : null
+                LowestObservedPrimaryByType = lowest.TryGetValue(
+                    new UgcCategoryPrimaryPricePolicy.MaterialCategory(x.AssetType, x.MaterialClass),
+                    out var low) ? low : null
             })
             .Select(x => ApplyPriceIntegrity(x, now))
             .OrderBy(x => x.PriceIntegrityClassification == UgcPriceIntegrityPolicy.Excluded ? 1 : 0)
@@ -186,7 +188,7 @@ public sealed class UgcHunterService
 
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
-            PriceIntegrityPolicyVersion = 1
+            PriceIntegrityPolicyVersion = 2
         };
     }
 
@@ -314,7 +316,9 @@ public sealed class UgcHunterService
             item.CollectibleItemId,
             item.LowestResalePrice,
             item.HasResellers,
-            item.PrimaryMarketVerified)).ToList();
+            item.PrimaryMarketVerified,
+            item.IsEmissive,
+            item.IsPbr)).ToList();
     }
     private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync(string url, CancellationToken cancellationToken)
     {
@@ -613,7 +617,9 @@ public sealed class UgcHunterService
             Recommendation = score.Recommendation,
             HasLiveResaleMarket = market?.IsAvailable == true || book?.IsAvailable == true,
             ObservationCount = observationCount,
-            AssetType = item.AssetType
+            AssetType = item.AssetType,
+            IsEmissive = item.IsEmissive,
+            IsPbr = item.IsPbr
         };
     }
 
@@ -825,7 +831,9 @@ public sealed class UgcHunterService
         string? CollectibleItemId = null,
         long? CurrentResaleFloor = null,
         bool HasResellers = false,
-        bool PrimaryMarketVerified = false);
+        bool PrimaryMarketVerified = false,
+        bool? IsEmissive = null,
+        bool? IsPbr = null);
 }
 
 public readonly record struct UgcHunterObservation(
@@ -919,6 +927,21 @@ public sealed record UgcHunterItem(
         _ => "PASSED"
     };
     public int AssetType { get; init; }
+    public bool? IsEmissive { get; init; }
+    public bool? IsPbr { get; init; }
+    public string MaterialClass => UgcCategoryPrimaryPricePolicy.MaterialClass(IsEmissive, IsPbr);
+    public string MaterialText => MaterialClass switch
+    {
+        UgcCategoryPrimaryPricePolicy.Emissive => "EMISSIVE VERIFIED",
+        UgcCategoryPrimaryPricePolicy.Pbr => "PBR VERIFIED",
+        UgcCategoryPrimaryPricePolicy.Standard => "STANDARD VERIFIED",
+        _ => "MATERIAL UNKNOWN"
+    };
+    public int? HistoricalTypicalOriginalReference =>
+        UgcCategoryPrimaryPricePolicy.October2026TypicalOriginalReference(AssetType, MaterialClass);
+    public string HistoricalReferenceText =>
+        HistoricalTypicalOriginalReference is { } value
+            ? $"{value:N0} R$ (Oct 2026 research, not official floor)" : "No matched research benchmark";
     public int? LowestObservedPrimaryByType { get; init; }
 
     public bool IsLowestObservedOriginalSale =>
@@ -928,7 +951,7 @@ public sealed record UgcHunterItem(
     public string OriginalPriceText => $"{Price:N0} R$";
     public string ObservedCategoryLowText =>
         LowestObservedPrimaryByType is > 0
-            ? $"{LowestObservedPrimaryByType:N0} R$" : "—";
+            ? $"{LowestObservedPrimaryByType:N0} R$ ({MaterialClass.ToLowerInvariant()})" : "—";
     public string PrimaryPriceStatusText =>
         !PrimaryMarketVerified ? "CATALOG ONLY" :
         LowestObservedPrimaryByType is not > 0 ? "NO COMPARISON" :
