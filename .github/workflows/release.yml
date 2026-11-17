@@ -19,14 +19,41 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # Release copy changes should not rebuild or replace a working EXE.
+      # On true code pushes and manual dispatch, retain all existing release validation.
+      - name: Detect metadata-only release update
+        id: change_scope
+        shell: pwsh
+        run: |
+          $metadataOnly = $false
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $changed = @(git diff --name-only HEAD^ HEAD)
+            if ($LASTEXITCODE -ne 0) { throw 'Could not classify release changes.' }
+            $metadataPaths = @(
+              'README.md',
+              '.github/workflows/release.yml',
+              '.github/workflows/windows-build.yml',
+              'tools/Update-ReleasePresentation.ps1'
+            )
+            $metadataOnly = $changed.Count -gt 0 -and @($changed | Where-Object { $_ -notin $metadataPaths }).Count -eq 0
+          }
+          "metadata_only=$($metadataOnly.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Write-Host "Release metadata-only: $metadataOnly"
+
       - uses: actions/setup-dotnet@v4
+        if: steps.change_scope.outputs.metadata_only != 'true'
         with:
           dotnet-version: 9.0.x
       - name: Build, test and smoke-test EXE
+        if: steps.change_scope.outputs.metadata_only != 'true'
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
 
       - name: Publish and validate one EXE
+        if: steps.change_scope.outputs.metadata_only != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,6 +104,7 @@ jobs:
           & ./tools/Verify-EmbeddedIcon.ps1 -ExecutablePath (Join-Path $verifyDir 'RobloxPriceTracker.exe') -IconPath 'src/RobloxPriceTracker.Gui/Assets/mouse_app.ico'
 
       - name: Preserve one-time legacy auto-update path
+        if: steps.change_scope.outputs.metadata_only != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -115,3 +143,9 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $legacy.tag_name -ne $bridge) {
             throw 'Old Stable updater must see the numeric bridge through /releases/latest.'
           }
+
+      - name: Clarify current versus legacy release names and descriptions
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./tools/Update-ReleasePresentation.ps1
