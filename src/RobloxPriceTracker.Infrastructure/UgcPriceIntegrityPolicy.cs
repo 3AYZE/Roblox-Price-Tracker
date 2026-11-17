@@ -18,6 +18,10 @@ public static class UgcPriceIntegrityPolicy
         public int MinCreatorPriceIncreaseRobux { get; init; } = 100;
         public int MinimumObservationSeparationMinutes { get; init; } = 15;
         public int MaxHistoryAgeDays { get; init; } = 180;
+        // Roblox can restrict resale for up to 30 days after original purchase.
+        // Earliest locally verified creator offer is only a conservative lower
+        // bound on eligibility age, NOT a guaranteed release-date timestamp.
+        public int MinimumResaleEligibilityDays { get; init; } = 30;
         public double MaximumResaleAskToCreatorRatio { get; init; } = 0.80;
         public double MaximumUnsupportedResales30d { get; init; } = 2;
         public double IndependentSupportMinimumResales30d { get; init; } = 8;
@@ -32,6 +36,7 @@ public static class UgcPriceIntegrityPolicy
             MinCreatorPriceIncreaseRobux is >= 25 and <= 10000 &&
             MinimumObservationSeparationMinutes is >= 5 and <= 1440 &&
             MaxHistoryAgeDays is >= 7 and <= 730 &&
+            MinimumResaleEligibilityDays is >= 14 and <= 60 &&
             MaximumResaleAskToCreatorRatio is >= 0.2 and < 1 &&
             MaximumUnsupportedResales30d is >= 0 and <= 15 &&
             IndependentSupportMinimumResales30d is >= 3 and <= 100 &&
@@ -139,6 +144,21 @@ public static class UgcPriceIntegrityPolicy
         if (prior.OriginalUnitsRemaining is > 0 && current.OriginalUnitsRemaining is > 0 &&
             current.OriginalUnitsRemaining < prior.OriginalUnitsRemaining)
             reasonCodes.Add("PRICE_RISE_DURING_INVENTORY_DECLINE");
+
+        // A new Limited may have almost no resales solely because original
+        // purchasers cannot yet resell. Since the app has no authoritative
+        // per-copy release/lock-until feed, avoid HARD exclusions until at least
+        // 30 days after the earliest trusted original-price observation.
+        if (current.ObservedAtUtc - prior.ObservedAtUtc <
+            TimeSpan.FromDays(rules.MinimumResaleEligibilityDays))
+        {
+            reasonCodes.Add("RESALE_HOLDING_PERIOD_UNMATURED");
+            return new Decision(Insufficient, reasonCodes.ToArray(),
+                $"Creator price rose {multiple:0.0}×, but the earliest verified original-sale " +
+                "observation is too recent to use low resale volume as evidence: " +
+                "Roblox may hold originally purchased Limiteds for up to 30 days.",
+                prior.PrimaryPrice, multiple);
+        }
 
         if (creatorAnchorBargain && (weakTransactions || confirmedLowerTradePrices || comparableDivergence))
             return new Decision(Excluded, reasonCodes.ToArray(),

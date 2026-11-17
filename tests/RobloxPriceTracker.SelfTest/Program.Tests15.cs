@@ -19,7 +19,7 @@ internal static partial class Program
     // the real asset is NOT hardcoded or deemed verified by this test.
     static Task TestUgcPriceIntegrityVerifiedInflationAsync()
     {
-        var low = Original(65, ReferenceTime.AddDays(-12));
+        var low = Original(65, ReferenceTime.AddDays(-45));
         var current = Original(1080, ReferenceTime, supply: 38);
         var result = UgcPriceIntegrityPolicy.Evaluate(current, [low],
             Market(ask: 500, rap: 65, completed: 1, dailyMedian: 145, days: 3));
@@ -125,7 +125,7 @@ internal static partial class Program
 
     static Task TestUgcPriceIntegrityComparableDivergenceAsync()
     {
-        var earlier = Original(70, ReferenceTime.AddDays(-5));
+        var earlier = Original(70, ReferenceTime.AddDays(-45));
         var current = Original(700, ReferenceTime);
         var comparable = UgcPriceIntegrityPolicy.Evaluate(current, [earlier],
             Market(ask: 200, completed: null, comparableCount: 4, comparableMedian: 130));
@@ -166,9 +166,28 @@ internal static partial class Program
         }
     }
 
+    static Task TestUgcHoldingPeriodPreventsFalseExclusionsAsync()
+    {
+        var first = Original(65, ReferenceTime.AddDays(-5));
+        var repriced = Original(1080, ReferenceTime, supply: 8);
+        var decision = UgcPriceIntegrityPolicy.Evaluate(repriced, [first],
+            Market(ask: 500, completed: 0, dailyMedian: null));
+        AssertEqual(UgcPriceIntegrityPolicy.Insufficient, decision.Classification);
+        AssertTrue(decision.ReasonCodes.Contains("RESALE_HOLDING_PERIOD_UNMATURED"));
+
+        // Once that *observed* original-stock history has spanned enough time
+        // (not just a newly created listing), the same multi-signal evidence
+        // can trigger exclusion. No Roblox asset ID is hardcoded.
+        var aged = UgcPriceIntegrityPolicy.Evaluate(repriced,
+            [first with { ObservedAtUtc = ReferenceTime.AddDays(-45) }],
+            Market(ask: 500, completed: 0));
+        AssertEqual(UgcPriceIntegrityPolicy.Excluded, aged.Classification);
+        return Task.CompletedTask;
+    }
+
     static Task TestUgcPriceIntegrityInvalidConfigAsync()
     {
-        var prior = Original(65, ReferenceTime.AddDays(-10));
+        var prior = Original(65, ReferenceTime.AddDays(-45));
         var now = Original(1080, ReferenceTime);
         var bad = new UgcPriceIntegrityPolicy.Configuration { MinCreatorPriceMultiple = 0 };
         AssertTrue(!bad.IsValid);

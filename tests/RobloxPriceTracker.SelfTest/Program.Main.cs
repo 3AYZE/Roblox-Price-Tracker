@@ -67,6 +67,7 @@ internal static partial class Program
             ("Three independent comparable resale observations can corroborate repricing", TestUgcPriceIntegrityComparableDivergenceAsync),
             ("Price-integrity evidence ledger persists only verified primary observations", TestUgcIntegrityLedgerPersistenceAsync),
             ("Config rejects unsafe threshold values", TestUgcPriceIntegrityInvalidConfigAsync),
+            ("UGC resale holding period prevents premature distortion exclusions", TestUgcHoldingPeriodPreventsFalseExclusionsAsync),
             ("UGC Hunter hides large primary-price increases", TestUgcHunterLargePrimaryPriceIncreasePolicyAsync),
             ("Marketplace item parser matches White Heart Aura reference", TestMarketplaceItemParserUsesWhiteHeartAuraReferenceAsync),
             ("White Heart Aura reference is unprofitable", TestWhiteHeartAuraReferenceIsUnprofitableAsync),
