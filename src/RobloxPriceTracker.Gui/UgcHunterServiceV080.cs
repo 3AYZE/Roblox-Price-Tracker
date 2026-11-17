@@ -216,6 +216,18 @@ public sealed class UgcHunterService
             EarliestVerifiedOriginalPrice = decision.EarliestVerifiedPrimaryPrice,
             VerifiedCreatorPriceMultiple = decision.CreatorPriceMultiple
         };
+        // Catalog search/detail quotes are useful for research, not verified
+        // original-stock costs. Never advertise these as actionable deals.
+        if (!item.PrimaryMarketVerified)
+            return updated with
+            {
+                Recommendation = "DATA REVIEW",
+                OpportunityScore = Math.Min(updated.OpportunityScore, 49),
+                ResalePotentialScore = Math.Min(updated.ResalePotentialScore, 49),
+                EntryScore = Math.Min(updated.EntryScore, 49),
+                EntryWindow = "VERIFY"
+            };
+
         if (decision.IsExcluded)
         {
             _logger.Info($"UGC excluded from investment ranking: asset {item.AssetId}; " +
@@ -948,7 +960,7 @@ public sealed record UgcHunterItem(
         PrimaryMarketVerified && UnitsAvailable is > 0 &&
         LowestObservedPrimaryByType is > 0 && Price == LowestObservedPrimaryByType;
 
-    public string OriginalPriceText => $"{Price:N0} R$";
+    public string OriginalPriceText => PrimaryMarketVerified ? $"{Price:N0} R$" : $"{Price:N0} R$ (catalog-only, unverified)";
     public string ObservedCategoryLowText =>
         LowestObservedPrimaryByType is > 0
             ? $"{LowestObservedPrimaryByType:N0} R$ ({MaterialClass.ToLowerInvariant()})" : "—";
