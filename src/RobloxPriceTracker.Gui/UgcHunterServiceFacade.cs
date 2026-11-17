@@ -70,7 +70,8 @@ public sealed class UgcHunterServiceFacade : IDisposable
                     else
                     {
                         _logger.Info(
-                            "UGC Hunter ignored a cached snapshot containing an invalid original-sale price.");
+                            "UGC Hunter ignored an old or invalid snapshot; " +
+                            "a fresh price-integrity evaluation is required.");
                     }
                 }
             }
@@ -171,7 +172,11 @@ public sealed class UgcHunterServiceFacade : IDisposable
     }
 
     private static bool SnapshotMatchesEntryPricePolicy(UgcHunterMarketSnapshot snapshot) =>
-        snapshot.Items.All(item => UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price));
+        snapshot.PriceIntegrityPolicyVersion >= 1 &&
+        snapshot.Items.All(item =>
+            UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price) &&
+            item.PriceIntegrityClassification is
+                (UgcPriceIntegrityPolicy.Passed or UgcPriceIntegrityPolicy.Insufficient or UgcPriceIntegrityPolicy.Excluded));
 
     private void ThrowIfDisposed()
     {

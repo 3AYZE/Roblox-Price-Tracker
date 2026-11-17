@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private TextBlock? _hunterInspectorCreator;
     private TextBlock? _hunterInspectorPrice;
     private TextBlock? _hunterInspectorPrimaryReference;
+    private TextBlock? _hunterInspectorIntegrity;
     private TextBlock? _hunterInspectorPhase;
     private TextBlock? _hunterInspectorOpportunity;
     private TextBlock? _hunterInspectorEntry;
@@ -208,7 +209,8 @@ public partial class MainWindow : Window
         {
             "Observed low (by type)",
             "All verified originals",
-            "All original candidates"
+            "All original candidates",
+            "All + excluded (research)"
         })
             _hunterPrimaryPriceCombo.Items.Add(mode);
         _hunterPrimaryPriceCombo.SelectionChanged += (_, _) =>
@@ -354,6 +356,7 @@ public partial class MainWindow : Window
         _hunterInspectorEta = AddInspectorMetric(stack, "Demand / ETA", "—");
         _hunterInspectorSupply = AddInspectorMetric(stack, "Supply / source", "—");
         _hunterInspectorPrimaryReference = AddInspectorMetric(stack, "Original-sale comparison", "—");
+        _hunterInspectorIntegrity = AddInspectorMetric(stack, "PRICE INTEGRITY", "—");
         stack.Children.Add(new TextBlock
         {
             Text = "Observed category low is NOT Roblox's official floor. Category floors require authenticated access.",
@@ -481,6 +484,7 @@ public partial class MainWindow : Window
         grid.Columns.Add(HunterTextColumn("ORIGINAL", nameof(UgcHunterItem.OriginalPriceText), 0.76, TerminalText, true));
         grid.Columns.Add(HunterTextColumn("OBS. LOW", nameof(UgcHunterItem.ObservedCategoryLowText), 0.73, TerminalBlue));
         grid.Columns.Add(HunterTextColumn("PRICE STATUS", nameof(UgcHunterItem.PrimaryPriceStatusText), 0.96, TerminalAmber));
+        grid.Columns.Add(HunterTextColumn("INTEGRITY", nameof(UgcHunterItem.PriceIntegrityText), 1.1, TerminalAmber));
         grid.Columns.Add(HunterTextColumn("SOLD", nameof(UgcHunterItem.PurchaseCountText), 0.62, TerminalMuted));
         grid.Columns.Add(HunterTextColumn("LEFT", nameof(UgcHunterItem.RemainingText), 0.88, TerminalMuted));
         grid.Columns.Add(HunterTextColumn("RESALE FLOOR", nameof(UgcHunterItem.CurrentResaleText), 0.83, TerminalGreen, true));
@@ -801,7 +805,8 @@ public partial class MainWindow : Window
         var item = _hunterGrid?.SelectedItem as UgcHunterItem;
         var enabled = item is not null;
         if (_hunterOpenRobloxButton is not null) _hunterOpenRobloxButton.IsEnabled = enabled;
-        if (_hunterTrackButton is not null) _hunterTrackButton.IsEnabled = enabled;
+        if (_hunterTrackButton is not null)
+            _hunterTrackButton.IsEnabled = enabled && item?.IsExcludedPriceDistortion != true;
         if (item is null) return;
 
         if (_hunterInspectorTitle is not null) _hunterInspectorTitle.Text = item.Name;
@@ -823,9 +828,18 @@ public partial class MainWindow : Window
         if (_hunterInspectorPrimaryReference is not null)
             _hunterInspectorPrimaryReference.Text =
                 $"{item.ObservedCategoryLowText} observed · {item.PrimaryPriceStatusText}\nOfficial category minimum: UNVERIFIED";
+        if (_hunterInspectorIntegrity is not null)
+            _hunterInspectorIntegrity.Text = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}";
         if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"FLOOR {item.CurrentResaleText} · RAP {item.RapText} · SELLERS {item.ResellersText}\nSALES {item.SalesText} · BREAK-EVEN {item.BreakEvenText}\nMODEL {item.ForecastText} · BASE {item.BaseValueText} · NET ROI {item.NetRoiText}";
-        if (_hunterInspectorReasons is not null) _hunterInspectorReasons.Text = string.Join("\n", item.Reasons.Select(x => $"+ {x}"));
-        if (_hunterInspectorRisks is not null) _hunterInspectorRisks.Text = string.Join("\n", item.Risks.Select(x => $"• {x}"));
+        if (_hunterInspectorReasons is not null)
+            _hunterInspectorReasons.Text = item.IsExcludedPriceDistortion
+                ? "INVESTMENT RECOMMENDATION BLOCKED. Creator listing price is not independent fair value."
+                : string.Join("\n", item.Reasons.Select(x => $"+ {x}"));
+        if (_hunterInspectorRisks is not null)
+            _hunterInspectorRisks.Text = item.PriceIntegrityReasonCodes.Count == 0
+                ? string.Join("\n", item.Risks.Select(x => $"• {x}"))
+                : string.Join("\n", item.PriceIntegrityReasonCodes.Select(x => $"• {x}")) +
+                  "\n" + string.Join("\n", item.Risks.Select(x => $"• {x}"));
 
         if (_hunterInspectorImage is not null)
         {
@@ -846,6 +860,12 @@ public partial class MainWindow : Window
     private async Task TrackSelectedHunterAsync()
     {
         if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
+        if (item.IsExcludedPriceDistortion)
+        {
+            ShowBanner("Excluded from investment selections",
+                item.PriceIntegrityExplanation);
+            return;
+        }
         await _services.PaperPortfolioStore.AddAsync(item, 1);
         ShowBanner("Paper entry recorded", $"1 × {item.Name} at {item.Price:N0} R$. No Robux was spent.");
         await RefreshPaperPortfolioAsync();

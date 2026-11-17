@@ -35,11 +35,15 @@ public partial class MainWindow
     {
         if (!FilterHunterRow(item)) return false;
         if (item is not UgcHunterItem row) return true;
-        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price) ||
-            row.UnitsAvailable is not > 0 || _hunterPriceSpikeHidden.Contains(row.AssetId))
-            return false;
-
         var mode = _hunterPrimaryPriceCombo?.SelectedIndex ?? 0;
+        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price) ||
+            row.UnitsAvailable is not > 0)
+            return false;
+        // Older UI price anchors may include unverified catalog quotes. They
+        // are informational only; hard investment exclusion is controlled by
+        // the new evidence-verified policy, never this legacy 1.75x heuristic.
+        if (mode != 3 && row.IsExcludedPriceDistortion)
+            return false;
         return mode switch
         {
             // During an upgrade, old validated cached rows remain visible but
@@ -47,7 +51,9 @@ public partial class MainWindow
             0 => row.IsLowestObservedOriginalSale ||
                  (row.AssetType == 0 && row.PrimaryMarketVerified),
             1 => row.PrimaryMarketVerified,
-            _ => true
+            2 => true,
+            3 => true,
+            _ => false
         };
     }
 
@@ -70,7 +76,7 @@ public partial class MainWindow
 
     private void ObserveHunterPrimaryPrice(UgcHunterItem item)
     {
-        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price)) return;
+        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price) || !item.PrimaryMarketVerified) return;
         var now = item.ObservedAtUtc == default ? DateTimeOffset.UtcNow : item.ObservedAtUtc;
 
         if (!_hunterPriceAnchors.TryGetValue(item.AssetId, out var anchor))
@@ -103,7 +109,7 @@ public partial class MainWindow
                 var reason = nonUgcPublisher
                     ? $"publisher {item.CreatorName} ({item.CreatorId}) is not UGC"
                     : $"original-sale price rose from its own observed low {anchor.LowestObservedPrice:N0} R$ to {item.Price:N0} R$";
-                _services.Logger.Info($"UGC Hunter hid asset {item.AssetId}: {reason}.");
+                _services.Logger.Info($"UGC historical creator-price warning for asset {item.AssetId}: {reason} (does not override verified integrity classification).");
             }
         }
         else
@@ -169,7 +175,9 @@ public partial class MainWindow
             _hunterLiveCountText.Text = visible.Length.ToString("N0");
         if (_hunterStrongCountText is not null)
         {
-            var strong = visible.Count(x => x.ResalePotentialScore >= 75 && x.EntryScore >= 55 && x.Recommendation != "AVOID");
+            var strong = visible.Count(x => !x.IsExcludedPriceDistortion &&
+                x.ResalePotentialScore >= 75 && x.EntryScore >= 55 &&
+                x.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW"));
             _hunterStrongCountText.Text = strong.ToString("N0");
         }
     }
