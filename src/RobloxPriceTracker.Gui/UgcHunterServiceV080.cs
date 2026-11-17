@@ -625,7 +625,7 @@ public sealed class UgcHunterService
     }
 
     private static bool IsAvatarAccessory(int assetType) =>
-        assetType == 8 ||
+        assetType == 8 || assetType == 61 ||
         assetType is >= 41 and <= 47 ||
         assetType is >= 64 and <= 72 ||
         assetType is 76 or 77 or 79 ||
@@ -634,6 +634,7 @@ public sealed class UgcHunterService
     private static string CategoryName(int assetType) => assetType switch
     {
         8 => "Hat",
+        61 => "Emote",
         41 => "Hair",
         42 => "Face",
         43 => "Neck",
