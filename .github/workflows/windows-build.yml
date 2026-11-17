@@ -15,6 +15,19 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Validate release presentation PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'tools/Update-ReleasePresentation.ps1').Path,
+            [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if (@($parseErrors).Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Host $_.ToString() }
+            throw 'Release presentation script has syntax errors.'
+          }
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
