@@ -11,8 +11,8 @@ internal static partial class Program
     private static UgcPriceIntegrityPolicy.ResaleEvidence Market(
         long? ask = null, double? rap = null, double? completed = null,
         double? dailyMedian = null, int days = 0, int comparableCount = 0,
-        double? comparableMedian = null) =>
-        new(ask, rap, completed, dailyMedian, days, comparableCount, comparableMedian);
+        double? comparableMedian = null, int volumeDays = 0) =>
+        new(ask, rap, completed, dailyMedian, days, comparableCount, comparableMedian, volumeDays);
 
     // The numbers mirror the user-reported Angelic Valkyrie scenario, but the
     // observed 1080 R$ and low secondary-market volume are SYNTHETIC here;
@@ -22,7 +22,7 @@ internal static partial class Program
         var low = Original(65, ReferenceTime.AddDays(-45));
         var current = Original(1080, ReferenceTime, supply: 38);
         var result = UgcPriceIntegrityPolicy.Evaluate(current, [low],
-            Market(ask: 500, rap: 65, completed: 1, dailyMedian: 145, days: 3));
+            Market(ask: 500, rap: 65, completed: 1, dailyMedian: 145, days: 3, volumeDays: 20));
         AssertEqual(UgcPriceIntegrityPolicy.Excluded, result.Classification);
         AssertEqual(65, result.EarliestVerifiedPrimaryPrice);
         AssertTrue(result.CreatorPriceMultiple > 16);
@@ -39,7 +39,7 @@ internal static partial class Program
         {
             var before = Original(95, ReferenceTime.AddDays(-30), type: category, assetId: 8100 + category);
             var after = Original(495, ReferenceTime, type: category, assetId: 8100 + category, supply: 75);
-            var result = UgcPriceIntegrityPolicy.Evaluate(after, [before], Market(ask: 180, completed: 0));
+            var result = UgcPriceIntegrityPolicy.Evaluate(after, [before], Market(ask: 180, completed: 0, volumeDays: 20));
             AssertEqual(UgcPriceIntegrityPolicy.Excluded, result.Classification);
         }
         return Task.CompletedTask;
@@ -180,8 +180,23 @@ internal static partial class Program
         // can trigger exclusion. No Roblox asset ID is hardcoded.
         var aged = UgcPriceIntegrityPolicy.Evaluate(repriced,
             [first with { ObservedAtUtc = ReferenceTime.AddDays(-45) }],
-            Market(ask: 500, completed: 0));
+            Market(ask: 500, completed: 0, volumeDays: 20));
         AssertEqual(UgcPriceIntegrityPolicy.Excluded, aged.Classification);
+        return Task.CompletedTask;
+    }
+
+    static Task TestUgcShortVolumeWindowNeverProvesNoDemandAsync()
+    {
+        var earlier = Original(65, ReferenceTime.AddDays(-60));
+        var current = Original(1080, ReferenceTime);
+        var onlyOneZeroDay = UgcPriceIntegrityPolicy.Evaluate(
+            current, [earlier], Market(ask: 500, completed: 0, volumeDays: 1));
+        AssertEqual(UgcPriceIntegrityPolicy.Insufficient, onlyOneZeroDay.Classification);
+        AssertTrue(!onlyOneZeroDay.ReasonCodes.Contains("INSUFFICIENT_COMPLETED_RESALES"));
+
+        var sustainedWeakDemand = UgcPriceIntegrityPolicy.Evaluate(
+            current, [earlier], Market(ask: 500, completed: 0, volumeDays: 21));
+        AssertEqual(UgcPriceIntegrityPolicy.Excluded, sustainedWeakDemand.Classification);
         return Task.CompletedTask;
     }
 
@@ -192,7 +207,7 @@ internal static partial class Program
         var bad = new UgcPriceIntegrityPolicy.Configuration { MinCreatorPriceMultiple = 0 };
         AssertTrue(!bad.IsValid);
         var decision = UgcPriceIntegrityPolicy.Evaluate(now, [prior],
-            Market(ask: 500, completed: 1), bad);
+            Market(ask: 500, completed: 1, volumeDays: 20), bad);
         AssertEqual(UgcPriceIntegrityPolicy.Excluded, decision.Classification);
         return Task.CompletedTask;
     }

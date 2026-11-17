@@ -201,7 +201,8 @@ public sealed class UgcHunterService
             item.RecentAveragePrice,
             item.VerifiedCompletedResales30d,
             item.VerifiedDailyAverageResaleMedian30d,
-            item.ResalePriceEvidenceDays);
+            item.ResalePriceEvidenceDays,
+            VolumeEvidenceDays: item.ResaleVolumeEvidenceDays);
         var decision = UgcPriceIntegrityPolicy.Evaluate(
             current, _integrityLedger.History(item.AssetId),
             market, _integrityLedger.Configuration);
@@ -534,6 +535,8 @@ public sealed class UgcHunterService
             SalesLast7d = market.SalesLast7d,
             SalesLast30d = sales30,
             VerifiedCompletedResales30d = VerifiedResales30d(market),
+            ResaleVolumeEvidenceDays = RelevantResaleVolumePoints30d(market)
+                .Select(x => x.Date.UtcDateTime.Date).Distinct().Count(),
             VerifiedDailyAverageResaleMedian30d = VerifiedDailyResalePriceMedian30d(market),
             ResalePriceEvidenceDays = RelevantDailyPricePoints30d(market).Length,
             LiquidityLabel = score.LiquidityLabel,
@@ -665,11 +668,14 @@ public sealed class UgcHunterService
     private static double? VerifiedResales30d(RobloxResaleMarketData market)
     {
         var latest = DateTimeOffset.UtcNow.AddDays(-30);
-        var valid = market.VolumeDataPoints
-            .Where(x => x.Date >= latest && x.Date <= DateTimeOffset.UtcNow.AddDays(1) && x.Value >= 0)
-            .ToArray();
+        var valid = RelevantResaleVolumePoints30d(market);
         return valid.Length == 0 ? null : valid.Sum(x => x.Value);
     }
+
+    private static ResaleDataPoint[] RelevantResaleVolumePoints30d(RobloxResaleMarketData market) =>
+        market.VolumeDataPoints.Where(x =>
+            x.Date >= DateTimeOffset.UtcNow.AddDays(-30) &&
+            x.Date <= DateTimeOffset.UtcNow.AddDays(1) && x.Value >= 0).ToArray();
 
     private static ResaleDataPoint[] RelevantDailyPricePoints30d(RobloxResaleMarketData market) =>
         market.PriceDataPoints.Where(x =>
@@ -902,6 +908,7 @@ public sealed record UgcHunterItem(
     public int? EarliestVerifiedOriginalPrice { get; init; }
     public double? VerifiedCreatorPriceMultiple { get; init; }
     public double? VerifiedCompletedResales30d { get; init; }
+    public int ResaleVolumeEvidenceDays { get; init; }
     public double? VerifiedDailyAverageResaleMedian30d { get; init; }
     public int ResalePriceEvidenceDays { get; init; }
     public bool IsExcludedPriceDistortion => PriceIntegrityClassification == UgcPriceIntegrityPolicy.Excluded;

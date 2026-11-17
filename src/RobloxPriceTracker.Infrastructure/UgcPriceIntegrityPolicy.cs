@@ -24,6 +24,7 @@ public static class UgcPriceIntegrityPolicy
         public int MinimumResaleEligibilityDays { get; init; } = 30;
         public double MaximumResaleAskToCreatorRatio { get; init; } = 0.80;
         public double MaximumUnsupportedResales30d { get; init; } = 2;
+        public int MinimumVolumeEvidenceDays { get; init; } = 7;
         public double IndependentSupportMinimumResales30d { get; init; } = 8;
         public double IndependentSupportDailyPriceRatio { get; init; } = 0.70;
         public double MaximumUnsupportedDailyPriceRatio { get; init; } = 0.60;
@@ -39,6 +40,7 @@ public static class UgcPriceIntegrityPolicy
             MinimumResaleEligibilityDays is >= 14 and <= 60 &&
             MaximumResaleAskToCreatorRatio is >= 0.2 and < 1 &&
             MaximumUnsupportedResales30d is >= 0 and <= 15 &&
+            MinimumVolumeEvidenceDays is >= 3 and <= 30 &&
             IndependentSupportMinimumResales30d is >= 3 and <= 100 &&
             IndependentSupportDailyPriceRatio is >= .25 and <= 1.5 &&
             MaximumUnsupportedDailyPriceRatio is >= .1 and < 1 &&
@@ -59,7 +61,8 @@ public static class UgcPriceIntegrityPolicy
         double? DailyAveragePriceMedian30d,
         int PriceEvidenceDays,
         int ComparableCount = 0,
-        double? ComparableVerifiedResaleMedian = null);
+        double? ComparableVerifiedResaleMedian = null,
+        int VolumeEvidenceDays = 0);
 
     public sealed record Decision(
         string Classification, IReadOnlyList<string> ReasonCodes,
@@ -124,7 +127,11 @@ public static class UgcPriceIntegrityPolicy
 
         var creatorAnchorBargain = market.LowestResaleAsk is > 0 &&
             market.LowestResaleAsk.Value <= current.PrimaryPrice * rules.MaximumResaleAskToCreatorRatio;
-        var weakTransactions = market.CompletedResales30d is >= 0 &&
+        // Low turnover is probative only with enough observed secondary-sales
+        // days. A single reported zero or a partial feed is NOT a measured month
+        // of no sales; missing observations stay unknown.
+        var weakTransactions = market.VolumeEvidenceDays >= rules.MinimumVolumeEvidenceDays &&
+            market.CompletedResales30d is >= 0 &&
             market.CompletedResales30d <= rules.MaximumUnsupportedResales30d;
         var confirmedLowerTradePrices =
             market.CompletedResales30d is >= 3 &&
