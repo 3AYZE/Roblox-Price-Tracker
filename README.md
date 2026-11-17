@@ -2,9 +2,11 @@
 
 <img src="src/RobloxPriceTracker.Gui/Assets/roblox_price_tracker.svg" alt="Roblox Price Tracker icon" width="88">
 
-A Windows app for monitoring Roblox Limited resale prices, finding qualifying UGC Limited drops, and getting price alerts. Built by [3AYZE](https://github.com/3AYZE).
+A Windows desktop application for tracking Roblox Limited resale prices, setting alerts, researching UGC Limited original-stock prices and evaluating market opportunities. Includes verified-versus-resale price distinctions, emissive/PBR comparisons and Limited animation-pack research. Built by [3AYZE](https://github.com/3AYZE).
 
-**[Download RobloxPriceTracker.exe](https://github.com/3AYZE/Roblox-Price-Tracker/releases/download/latest/RobloxPriceTracker.exe)** · [Current release](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/latest)
+**CURRENT WINDOWS DOWNLOAD:** [RobloxPriceTracker.exe](https://github.com/3AYZE/Roblox-Price-Tracker/releases/download/latest/RobloxPriceTracker.exe) · [Current app release (tag: latest)](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/latest)
+
+**Important:** GitHub may display its **Latest** badge on the older v0.13.9 release for backwards-compatible automatic upgrades. **That bridge is not the current app.** For new installations, use the CURRENT WINDOWS DOWNLOAD above.
 
 Requires **Windows 10/11 (64-bit)** and the [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
 
@@ -23,11 +25,19 @@ Forecasts and opportunity scores are estimates, not guarantees. A creator's orig
 
 For methodology, sampled item findings, limitations, and evidence standards, see the [UGC price-integrity research report](docs/UGC_PRICE_INTEGRITY_RESEARCH_2026-11-17.md).
 
+## Which release should I download?
+
+| GitHub tag | Intended use | Download manually? |
+| --- | --- | --- |
+| [latest](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/latest) | **CURRENT Windows app** — the permanent, single-EXE release | **Yes** — download RobloxPriceTracker.exe |
+| [v0.13.9](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/v0.13.9) | **Legacy updater bridge** for v0.13.8-and-older installations | **No** — automatic migration only |
+| [main-latest](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/main-latest) | **Legacy Latest-channel migration bridge** | **No** — automatic migration only |
+
+GitHub's **Latest** badge is reserved for the v0.13.9 bridge because older clients use GitHub's generic releases/latest API. The current app's release tag is literally **latest**. Keeping those distinct avoids breaking existing update installations.
+
 ## Updates
 
-There is **one current Windows EXE**. The app checks the [permanent Latest release](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/latest) for updates, downloads a newer build, checks GitHub's SHA-256 asset digest, then offers to restart and install it. No separate checksum download or manual reinstall is needed.
-
-Existing users of older versions can migrate through the retained compatibility release. These older files are not intended for new installations.
+The current app checks the [permanent current-app release](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/latest), downloads a newer build, verifies the SHA-256 digest, and offers to restart and install it. The current release contains **one** Windows EXE; no separate checksum download or manual reinstall is needed. Legacy migration files are retained for compatibility, not for new installs.
 
 ## Privacy and your data
 
