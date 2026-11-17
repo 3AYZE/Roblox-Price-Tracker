@@ -69,6 +69,7 @@ internal static partial class Program
             ("Config rejects unsafe threshold values", TestUgcPriceIntegrityInvalidConfigAsync),
             ("UGC resale holding period prevents premature distortion exclusions", TestUgcHoldingPeriodPreventsFalseExclusionsAsync),
             ("Insufficient secondary-volume day coverage prevents false hard exclusions", TestUgcShortVolumeWindowNeverProvesNoDemandAsync),
+            ("Concurrent price-integrity history reads and backups remain safe", TestUgcLedgerConcurrentReadersWritersAsync),
             ("UGC Hunter hides large primary-price increases", TestUgcHunterLargePrimaryPriceIncreasePolicyAsync),
             ("Marketplace item parser matches White Heart Aura reference", TestMarketplaceItemParserUsesWhiteHeartAuraReferenceAsync),
             ("White Heart Aura reference is unprofitable", TestWhiteHeartAuraReferenceIsUnprofitableAsync),

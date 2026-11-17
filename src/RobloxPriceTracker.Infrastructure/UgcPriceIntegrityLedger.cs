@@ -18,6 +18,8 @@ public sealed class UgcPriceIntegrityLedger
     private readonly string _configPath;
     private readonly AppLogger? _logger;
     private readonly Dictionary<long, List<UgcPriceIntegrityPolicy.PrimaryPriceObservation>> _timeline = new();
+    private readonly object _timelineGate = new();
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
     private bool _initialized;
     private bool _dirty;
 
@@ -58,11 +60,14 @@ public sealed class UgcPriceIntegrityLedger
             _logger?.Error($"Could not load UGC price-integrity evidence: {ex.Message}");
             _initialized = true;
         }
-        _dirty = false;
+        lock (_timelineGate) _dirty = false;
     }
 
-    public IReadOnlyList<UgcPriceIntegrityPolicy.PrimaryPriceObservation> History(long assetId) =>
-        _timeline.TryGetValue(assetId, out var data) ? data.ToArray() : [];
+    public IReadOnlyList<UgcPriceIntegrityPolicy.PrimaryPriceObservation> History(long assetId)
+    {
+        lock (_timelineGate)
+            return _timeline.TryGetValue(assetId, out var data) ? data.ToArray() : [];
+    }
 
     public void Observe(UgcPriceIntegrityPolicy.PrimaryPriceObservation observation) =>
         Observe(observation, markDirty: true);
@@ -70,45 +75,65 @@ public sealed class UgcPriceIntegrityLedger
     private void Observe(UgcPriceIntegrityPolicy.PrimaryPriceObservation point, bool markDirty)
     {
         if (!UgcPriceIntegrityPolicy.IsVerifiedOriginal(point)) return;
-        if (!_timeline.TryGetValue(point.AssetId, out var records))
-            _timeline[point.AssetId] = records = [];
-
-        if (records.Count > 0)
+        lock (_timelineGate)
         {
-            var latest = records[^1];
-            // Avoid manufacturing new historical price points on every 45s refresh.
-            // A repricing always gets a new point regardless of elapsed time.
-            if (latest.PrimaryPrice == point.PrimaryPrice &&
-                point.ObservedAtUtc - latest.ObservedAtUtc <= TimeSpan.FromHours(24))
-                return;
-            if (point.ObservedAtUtc < latest.ObservedAtUtc) return;
-        }
+            if (!_timeline.TryGetValue(point.AssetId, out var records))
+                _timeline[point.AssetId] = records = [];
 
-        records.Add(point);
-        var cutoff = point.ObservedAtUtc.AddDays(-Configuration.MaxHistoryAgeDays);
-        records.RemoveAll(x => x.ObservedAtUtc < cutoff);
-        if (records.Count > 36) records.RemoveRange(0, records.Count - 36);
-        if (markDirty) _dirty = true;
+            if (records.Count > 0)
+            {
+                var latest = records[^1];
+                // A stable creator price is recorded at most once per day.
+                // A genuine repricing always creates a new timestamped point.
+                if (latest.PrimaryPrice == point.PrimaryPrice &&
+                    point.ObservedAtUtc - latest.ObservedAtUtc <= TimeSpan.FromHours(24))
+                    return;
+                if (point.ObservedAtUtc < latest.ObservedAtUtc) return;
+            }
+
+            records.Add(point);
+            var cutoff = point.ObservedAtUtc.AddDays(-Configuration.MaxHistoryAgeDays);
+            records.RemoveAll(x => x.ObservedAtUtc < cutoff);
+            if (records.Count > 36) records.RemoveRange(0, records.Count - 36);
+            if (markDirty) _dirty = true;
+        }
     }
 
     public async Task SaveIfChangedAsync(CancellationToken cancellationToken = default)
     {
-        if (!_dirty) return;
+        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var cutoff = DateTimeOffset.UtcNow.AddDays(-Configuration.MaxHistoryAgeDays);
-            var all = _timeline.Values.SelectMany(x => x)
-                .Where(x => x.ObservedAtUtc >= cutoff)
-                .OrderByDescending(x => x.ObservedAtUtc)
-                .Take(5000)
-                .OrderBy(x => x.ObservedAtUtc)
-                .ToArray();
+            UgcPriceIntegrityPolicy.PrimaryPriceObservation[] snapshot;
+            lock (_timelineGate)
+            {
+                if (!_dirty) return;
+                var cutoff = DateTimeOffset.UtcNow.AddDays(-Configuration.MaxHistoryAgeDays);
+                snapshot = _timeline.Values.SelectMany(x => x)
+                    .Where(x => x.ObservedAtUtc >= cutoff)
+                    .OrderByDescending(x => x.ObservedAtUtc)
+                    .Take(5000)
+                    .OrderBy(x => x.ObservedAtUtc)
+                    .ToArray();
+                _dirty = false; // A concurrent new observation sets this back to true.
+            }
 
-            await SafeJsonStore.SaveWithBackupAsync(_dataPath, all, JsonOptions, cancellationToken)
-                .ConfigureAwait(false);
-            _dirty = false;
+            try
+            {
+                await SafeJsonStore.SaveWithBackupAsync(_dataPath, snapshot, JsonOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                lock (_timelineGate) _dirty = true;
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lock (_timelineGate) _dirty = true;
+                _logger?.Error($"Could not save UGC verified price history: {ex.Message}");
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch (Exception ex) { _logger?.Error($"Could not save UGC verified price history: {ex.Message}"); }
+        finally { _saveGate.Release(); }
     }
 }

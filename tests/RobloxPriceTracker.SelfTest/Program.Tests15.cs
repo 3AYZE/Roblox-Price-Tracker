@@ -200,6 +200,35 @@ internal static partial class Program
         return Task.CompletedTask;
     }
 
+    static async Task TestUgcLedgerConcurrentReadersWritersAsync()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "rpt-integrity-concurrent", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new UgcPriceIntegrityLedger(path);
+            await store.InitializeAsync();
+            var readersAndWriters = Enumerable.Range(0, 8).Select(i => Task.Run(() =>
+            {
+                for (var j = 0; j < 100; j++)
+                {
+                    store.Observe(Original(65 + j, ReferenceTime.AddMinutes(i * 200 + j),
+                        assetId: 22222 + i));
+                    var snapshot = store.History(22222 + i);
+                    AssertTrue(snapshot.Count <= 36);
+                }
+            })).ToArray();
+            await Task.WhenAll(readersAndWriters);
+            await Task.WhenAll(store.SaveIfChangedAsync(), store.SaveIfChangedAsync());
+            var restored = new UgcPriceIntegrityLedger(path);
+            await restored.InitializeAsync();
+            AssertTrue(Enumerable.Range(0, 8).All(i => restored.History(22222 + i).Count > 0));
+        }
+        finally
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, true);
+        }
+    }
+
     static Task TestUgcPriceIntegrityInvalidConfigAsync()
     {
         var prior = Original(65, ReferenceTime.AddDays(-45));
