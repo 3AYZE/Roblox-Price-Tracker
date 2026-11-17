@@ -823,13 +823,13 @@ public partial class MainWindow : Window
         var enabled = item is not null;
         if (_hunterOpenRobloxButton is not null) _hunterOpenRobloxButton.IsEnabled = enabled;
         if (_hunterTrackButton is not null)
-            _hunterTrackButton.IsEnabled = enabled && item?.IsExcludedPriceDistortion != true;
+            _hunterTrackButton.IsEnabled = enabled && item?.PrimaryMarketVerified == true && item.IsExcludedPriceDistortion != true && item.Recommendation != "DATA REVIEW";
         if (item is null) return;
 
         if (_hunterInspectorTitle is not null) _hunterInspectorTitle.Text = item.Name;
         if (_hunterInspectorCreator is not null) _hunterInspectorCreator.Text = $"{item.CreatorName} · {item.Category} · Asset {item.AssetId}";
         if (_hunterInspectorPrice is not null)
-            _hunterInspectorPrice.Text = $"{item.OriginalPriceText} · ORIGINAL STOCK";
+            _hunterInspectorPrice.Text = $"{item.OriginalPriceText} · {(item.PrimaryMarketVerified ? "ORIGINAL STOCK VERIFIED" : "NOT VERIFIED")}";
         if (_hunterInspectorPhase is not null)
         {
             _hunterInspectorPhase.Text = $"{item.Phase}  ·  ENTRY {item.EntryWindow}";
@@ -877,6 +877,11 @@ public partial class MainWindow : Window
     private async Task TrackSelectedHunterAsync()
     {
         if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
+        if (!item.PrimaryMarketVerified || item.Recommendation == "DATA REVIEW")
+        {
+            ShowBanner("Original-stock price not verified", "Marketplace primary-stock evidence is required before recording an entry.");
+            return;
+        }
         if (item.IsExcludedPriceDistortion)
         {
             ShowBanner("Excluded from investment selections",
