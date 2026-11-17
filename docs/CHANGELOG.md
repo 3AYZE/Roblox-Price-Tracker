@@ -1,5 +1,13 @@
 # Roblox Price Tracker changelog
 
+## v0.15.0 — Research-backed UGC price integrity
+- Add a trusted, timestamped and backed-up local timeline of Marketplace-verified original creator prices; catalog-only snapshots do not qualify as confirmed creator price history.
+- Classify UGC Hunter items as PASSED, INSUFFICIENT_PRICE_DATA, or EXCLUDED_PRICE_DISTORTION using configurable multi-signal rules rather than hardcoded item IDs, creator prices, resale asks or RAP alone.
+- Hard exclusion requires verified large creator repricing, a reseller-to-creator anchor discount, and corroborating low completed resale demand, supported lower traded prices or valid independent comparables. Strong independently observed resale activity protects legitimate price rises.
+- Remove legacy unverified 1.75× anchor as an exclusion gate. Excluded entries are absent from default investment rankings and paper entry selections, but remain searchable in the explicit research view.
+- Use only existing resale API data; no new network requests, credentials or dependencies. Add synthetic regression coverage for source completeness, price corrections, categories and independent-demand overrides.
+- Publish an evidence-labeled multi-item research report with direct public item links and documented gaps: docs/UGC_PRICE_INTEGRITY_RESEARCH_2026-11-17.md.
+
 ## v0.14.3 — UGC Primary Market category coverage
 - Include eligible paid Limited emotes (asset type 61) using a single paced discovery feed while retaining the existing 120-item scan limit.
 - Remove the invalid fixed 95 Robux restriction so shoulder, hat, emote and clothing Limiteds can each retain their actual verified original-sale price.
