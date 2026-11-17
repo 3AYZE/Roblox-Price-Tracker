@@ -187,7 +187,7 @@ public partial class MainWindow : Window
         toolbar.Children.Add(_hunterSearchBox);
 
         _hunterCategoryCombo = new ComboBox { Width = 125, Margin = new Thickness(7, 0, 0, 0), SelectedIndex = 0 };
-        foreach (var category in new[] { "All categories", "Emote", "Dance? (name)", "Emissive? (name)", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" })
+        foreach (var category in new[] { "All categories", "Emote", "Dance? (name)", "Emissive (verified)", "PBR (verified)", "Emissive? (name)", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" })
             _hunterCategoryCombo.Items.Add(category);
         _hunterCategoryCombo.SelectionChanged += (_, _) => _hunterView?.Refresh();
         toolbar.Children.Add(_hunterCategoryCombo);
@@ -202,12 +202,12 @@ public partial class MainWindow : Window
         {
             Width = 172,
             Margin = new Thickness(7, 0, 0, 0),
-            ToolTip = "An observed low is the cheapest Marketplace-verified ORIGINAL sale in this scan for the exact asset type. It is NOT Roblox's official category price floor.",
+            ToolTip = "Observed lows compare Marketplace-verified ORIGINAL stock only within the same asset type and material class. Not an official Roblox floor.",
             SelectedIndex = 0
         };
         foreach (var mode in new[]
         {
-            "Observed low (by type)",
+            "Observed low (material + type)",
             "All verified originals",
             "All original candidates",
             "All + excluded (research)"
@@ -228,6 +228,16 @@ public partial class MainWindow : Window
         };
         refresh.Click += async (_, _) => await RefreshHunterAsync(silent: false);
         toolbar.Children.Add(refresh);
+
+        var bundles = new Button
+        {
+            Content = "ANIMATION PACKS",
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "Research Limited animation bundles separately from asset/emote investment scoring.",
+            Margin = new Thickness(7, 0, 0, 0)
+        };
+        bundles.Click += (_, _) => new AnimationBundleResearchWindow(_services) { Owner = this }.Show();
+        toolbar.Children.Add(bundles);
 
         var main = new Grid();
         Grid.SetRow(main, 2);
@@ -603,7 +613,9 @@ public partial class MainWindow : Window
         {
             if (category == "Dance? (name)" && !row.PossibleDanceByName) return false;
             else if (category == "Emissive? (name)" && !row.PossibleEmissiveByName) return false;
-            else if (category is not ("Dance? (name)" or "Emissive? (name)") &&
+            else if (category == "Emissive (verified)" && row.IsEmissive != true) return false;
+            else if (category == "PBR (verified)" && row.IsPbr != true) return false;
+            else if (category is not ("Dance? (name)" or "Emissive? (name)" or "Emissive (verified)" or "PBR (verified)") &&
                      !row.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) return false;
         }
 
@@ -800,19 +812,24 @@ public partial class MainWindow : Window
         }
     }
 
+    private static string FormatHunterPrimaryReference(UgcHunterItem item) =>
+        $"{item.ObservedCategoryLowText} observed · {item.MaterialText} · {item.PrimaryPriceStatusText}\n" +
+        $"Historical category reference: {item.HistoricalReferenceText}\n" +
+        "Live official category floor: UNVERIFIED";
+
     private void UpdateHunterInspector()
     {
         var item = _hunterGrid?.SelectedItem as UgcHunterItem;
         var enabled = item is not null;
         if (_hunterOpenRobloxButton is not null) _hunterOpenRobloxButton.IsEnabled = enabled;
         if (_hunterTrackButton is not null)
-            _hunterTrackButton.IsEnabled = enabled && item?.IsExcludedPriceDistortion != true;
+            _hunterTrackButton.IsEnabled = enabled && item?.PrimaryMarketVerified == true && item.IsExcludedPriceDistortion != true && item.Recommendation != "DATA REVIEW";
         if (item is null) return;
 
         if (_hunterInspectorTitle is not null) _hunterInspectorTitle.Text = item.Name;
         if (_hunterInspectorCreator is not null) _hunterInspectorCreator.Text = $"{item.CreatorName} · {item.Category} · Asset {item.AssetId}";
         if (_hunterInspectorPrice is not null)
-            _hunterInspectorPrice.Text = $"{item.OriginalPriceText} · ORIGINAL STOCK";
+            _hunterInspectorPrice.Text = $"{item.OriginalPriceText} · {(item.PrimaryMarketVerified ? "ORIGINAL STOCK VERIFIED" : "NOT VERIFIED")}";
         if (_hunterInspectorPhase is not null)
         {
             _hunterInspectorPhase.Text = $"{item.Phase}  ·  ENTRY {item.EntryWindow}";
@@ -827,7 +844,7 @@ public partial class MainWindow : Window
         if (_hunterInspectorSupply is not null) _hunterInspectorSupply.Text = $"{item.RemainingText} remaining / {item.SupplyText} total · {item.VerificationText}";
         if (_hunterInspectorPrimaryReference is not null)
             _hunterInspectorPrimaryReference.Text =
-                $"{item.ObservedCategoryLowText} observed · {item.PrimaryPriceStatusText}\nOfficial category minimum: UNVERIFIED";
+                FormatHunterPrimaryReference(item);
         if (_hunterInspectorIntegrity is not null)
             _hunterInspectorIntegrity.Text = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}";
         if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"FLOOR {item.CurrentResaleText} · RAP {item.RapText} · SELLERS {item.ResellersText}\nSALES {item.SalesText} · BREAK-EVEN {item.BreakEvenText}\nMODEL {item.ForecastText} · BASE {item.BaseValueText} · NET ROI {item.NetRoiText}";
@@ -860,6 +877,11 @@ public partial class MainWindow : Window
     private async Task TrackSelectedHunterAsync()
     {
         if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
+        if (!item.PrimaryMarketVerified || item.Recommendation == "DATA REVIEW")
+        {
+            ShowBanner("Original-stock price not verified", "Marketplace primary-stock evidence is required before recording an entry.");
+            return;
+        }
         if (item.IsExcludedPriceDistortion)
         {
             ShowBanner("Excluded from investment selections",

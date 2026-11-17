@@ -515,8 +515,10 @@ public partial class MainWindow
     }
 
     private static bool IsUgcBoardCandidate(UgcHunterItem item) =>
-        item.Recommendation is "HIGH RESALE" or "STRONG" ||
-        (item.Recommendation != "AVOID" && item.ResalePotentialScore >= 72 && item.EntryScore >= 55 && item.RiskScore < 70);
+        item.PrimaryMarketVerified && !item.IsExcludedPriceDistortion &&
+        (item.Recommendation is "HIGH RESALE" or "STRONG" ||
+         (item.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW") &&
+          item.ResalePotentialScore >= 72 && item.EntryScore >= 55 && item.RiskScore < 70));
 
     private static string OfficialStockSignal(OfficialLimitedRow row) => row.Status switch
     {

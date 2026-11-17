@@ -9,7 +9,8 @@ namespace RobloxPriceTracker.Infrastructure;
 public static class UgcCategoryPrimaryPricePolicy
 {
     public readonly record struct OriginalOffer(
-        long AssetId, int AssetType, int Price, bool MarketplaceVerified, long? OriginalUnitsAvailable);
+        long AssetId, int AssetType, int Price, bool MarketplaceVerified, long? OriginalUnitsAvailable,
+        bool? IsEmissive = null, bool? IsPbr = null);
 
     public static IReadOnlyDictionary<int, int> FindLowestObservedOriginalPrices(
         IEnumerable<OriginalOffer> offers) =>
@@ -23,6 +24,44 @@ public static class UgcCategoryPrimaryPricePolicy
     public static bool IsAtObservedLow(OriginalOffer item, IReadOnlyDictionary<int, int> lowest) =>
         item.MarketplaceVerified && item.OriginalUnitsAvailable is > 0 &&
         lowest.TryGetValue(item.AssetType, out var price) && price == item.Price;
+
+    // Classify by explicitly supplied marketplace metadata. A missing field is UNKNOWN,
+    // never evidence that an item is non-emissive or uses standard materials.
+    public const string Standard = "STANDARD";
+    public const string Emissive = "EMISSIVE";
+    public const string Pbr = "PBR";
+    public const string Unknown = "UNKNOWN";
+
+    public readonly record struct MaterialCategory(int AssetType, string MaterialClass);
+
+    public static string MaterialClass(bool? isEmissive, bool? isPbr) =>
+        isEmissive == true ? Emissive :
+        isPbr == true ? Pbr :
+        isEmissive == false && isPbr == false ? Standard : Unknown;
+
+    public static IReadOnlyDictionary<MaterialCategory, int> FindLowestObservedOriginalPricesByMaterial(
+        IEnumerable<OriginalOffer> offers) =>
+        offers.Where(x => x.AssetId > 0 && x.AssetType > 0 &&
+                          x.MarketplaceVerified && x.OriginalUnitsAvailable is > 0 &&
+                          UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(x.Price))
+            .GroupBy(x => new MaterialCategory(x.AssetType, MaterialClass(x.IsEmissive, x.IsPbr)))
+            .ToDictionary(x => x.Key, x => x.Min(y => y.Price));
+
+    // Research benchmarks are historical observations, NOT official/dynamic floors.
+    // Do not feed them to ROI scoring, item verification, or price-distortion gates.
+    public static int? October2026TypicalOriginalReference(int assetType, string materialClass) =>
+        (assetType, materialClass) switch
+        {
+            (8 or 42, Standard) => 95,
+            (41 or 47, Standard) => 65,
+            (43 or 44 or 45, Standard) => 55,
+            (46, Standard) => 140,
+            (61, Standard) => 50,
+            (8 or 42 or 46, Emissive) => 500,
+            (41, Emissive) => 350,
+            (44, Emissive) => 300,
+            _ => null
+        };
 
     // Discovery-only visual hints: no item is "confirmed emissive" or "confirmed
     // dance" solely from a title. These never affect a price floor.

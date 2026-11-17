@@ -47,7 +47,9 @@ public sealed record RobloxUgcCatalogCandidate(
     string? CollectibleItemId = null,
     long? LowestResalePrice = null,
     bool HasResellers = false,
-    bool PrimaryMarketVerified = false);
+    bool PrimaryMarketVerified = false,
+    bool? IsEmissive = null,
+    bool? IsPbr = null);
 
 public sealed record RobloxUgcDiscoveryResult(
     IReadOnlyList<RobloxUgcCatalogCandidate> Items,
@@ -832,7 +834,12 @@ public static class RobloxUgcCatalogDiscoveryParser
             unitsAvailable,
             totalQuantity,
             favorites,
-            GetString(row, "collectibleItemId"));
+            GetString(row, "collectibleItemId"))
+        {
+            IsEmissive = TryGetBoolean(row, "isEmissive", out var emissive) ? emissive : null,
+            IsPbr = TryGetBoolean(row, "isPbr", out var pbr) ||
+                    TryGetBoolean(row, "isAdvancedMaterials", out pbr) ? pbr : null
+        };
         return true;
     }
 

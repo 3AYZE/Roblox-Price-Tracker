@@ -1,5 +1,14 @@
 # Roblox Price Tracker changelog
 
+## v0.15.1 — Material-aware original-price research and animation packs
+- Compare current Marketplace-verified original-stock lows **by asset type and explicit material classification** (standard, PBR, emissive or unknown). Missing material metadata is never treated as confirmed standard; titles are only search hints.
+- Keep historical October–November 2026 typical category prices explicitly informational, separate from scanned observed lows and from inaccessible live official Roblox dynamic floors. Do not substitute these references for actual purchase costs, resale asks, RAP, or completed trades.
+- Add an on-demand **Animation Packs** research window with separate Limited animation-bundle discovery (BundleType.Animations = 2), bounded sequential detail queries, and Marketplace Items verification for original-stock amounts. No bundle asset-ID conflation, automatic investment recommendation, Tracker alert, or paper-position action.
+- Harden Market signal picks so excluded and creator-repricing evidence-review items cannot slip into the investment shortlist. Invalidate cached Hunter rows from older material-free policy versions.
+- Preserve stable scanner request pacing, all user data, backup behavior, privacy, and permanent one-EXE update stream. Extend deterministic material, bundle parsing and Marketplace-verification tests.
+- Source and limitations: docs/PRIMARY_PRICE_CATEGORY_RESEARCH_2026-11-17.md.
+
+
 ## v0.15.0 — Research-backed UGC price integrity
 - Add a trusted, timestamped and backed-up local timeline of Marketplace-verified original creator prices; catalog-only snapshots do not qualify as confirmed creator price history.
 - Classify UGC Hunter items as PASSED, INSUFFICIENT_PRICE_DATA, or EXCLUDED_PRICE_DISTORTION using configurable multi-signal rules rather than hardcoded item IDs, creator prices, resale asks or RAP alone.
