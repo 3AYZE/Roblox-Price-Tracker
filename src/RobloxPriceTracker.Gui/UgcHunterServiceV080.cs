@@ -32,6 +32,7 @@ public sealed class UgcHunterService
     private readonly AppLogger _logger;
     private readonly ScanDiagnostics? _scanDiagnostics;
     private readonly string _historyPath;
+    private readonly UgcPriceIntegrityLedger _integrityLedger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<long, List<UgcHunterObservation>> _history = new();
     private bool _initialized;
@@ -46,6 +47,7 @@ public sealed class UgcHunterService
         _resellerDataService = new RobloxResellerDataService(httpClient, logger);
         _logger = logger;
         _historyPath = Path.Combine(dataDirectory, "ugc-hunter-history.json");
+        _integrityLedger = new UgcPriceIntegrityLedger(dataDirectory, logger);
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -70,6 +72,7 @@ public sealed class UgcHunterService
                     _logger.Error($"UGC Hunter history could not be loaded: {ex.Message}");
                 }
             }
+            await _integrityLedger.InitializeAsync(cancellationToken).ConfigureAwait(false);
             _initialized = true;
         }
         finally
@@ -140,6 +143,19 @@ public sealed class UgcHunterService
             }
 
             await PersistLockedAsync(cancellationToken).ConfigureAwait(false);
+            // Only marketplace-verified original listings enter the trusted
+            // long-term history. Catalog-only quotes and prior UI price anchors
+            // are NOT retroactively treated as verified creator prices.
+            foreach (var candidate in raw)
+            {
+                if (!candidate.PrimaryMarketVerified || candidate.UnitsAvailable is not > 0)
+                    continue;
+                _integrityLedger.Observe(new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
+                    candidate.AssetId, candidate.CreatorId, candidate.AssetType,
+                    candidate.Price, candidate.UnitsAvailable, now, true,
+                    "RobloxMarketplacePrimary"));
+            }
+            await _integrityLedger.SaveIfChangedAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -161,12 +177,68 @@ public sealed class UgcHunterService
                 LowestObservedPrimaryByType = lowest.TryGetValue(x.AssetType, out var low)
                     ? low : null
             })
-            .OrderByDescending(x => x.ResalePotentialScore)
+            .Select(x => ApplyPriceIntegrity(x, now))
+            .OrderBy(x => x.PriceIntegrityClassification == UgcPriceIntegrityPolicy.Excluded ? 1 : 0)
+            .ThenByDescending(x => x.ResalePotentialScore)
             .ThenByDescending(x => x.EntryScore)
             .ThenBy(x => x.SelloutEta ?? TimeSpan.MaxValue)
             .ToArray();
 
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now);
+    }
+
+    private UgcHunterItem ApplyPriceIntegrity(UgcHunterItem item, DateTimeOffset now)
+    {
+        var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
+            item.AssetId, item.CreatorId, item.AssetType, item.Price,
+            item.UnitsAvailable, now, item.PrimaryMarketVerified,
+            "RobloxMarketplacePrimary");
+        var market = new UgcPriceIntegrityPolicy.ResaleEvidence(
+            item.CurrentResaleFloor,
+            item.RecentAveragePrice,
+            item.VerifiedCompletedResales30d,
+            item.VerifiedDailyAverageResaleMedian30d,
+            item.ResalePriceEvidenceDays);
+        var decision = UgcPriceIntegrityPolicy.Evaluate(
+            current, _integrityLedger.History(item.AssetId),
+            market, _integrityLedger.Configuration);
+        var updated = item with
+        {
+            PriceIntegrityClassification = decision.Classification,
+            PriceIntegrityReasonCodes = decision.ReasonCodes,
+            PriceIntegrityExplanation = decision.Explanation,
+            EarliestVerifiedOriginalPrice = decision.EarliestVerifiedPrimaryPrice,
+            VerifiedCreatorPriceMultiple = decision.CreatorPriceMultiple
+        };
+        if (decision.IsExcluded)
+        {
+            _logger.Info($"UGC excluded from investment ranking: asset {item.AssetId}; " +
+                $"reason codes {string.Join(",", decision.ReasonCodes)}");
+            return updated with
+            {
+                Recommendation = "EXCLUDED",
+                OpportunityScore = 0,
+                ResalePotentialScore = 0,
+                EntryScore = 0,
+                ProfitabilityScore = 0,
+                ProjectedNetRoi = 0,
+                EntryWindow = "EXCLUDED"
+            };
+        }
+
+        // Large observed repricing without enough corroboration must never
+        // produce a creator-anchor-based BUY label, while remaining searchable.
+        if (decision.Classification == UgcPriceIntegrityPolicy.Insufficient &&
+            decision.ReasonCodes.Contains("LARGE_VERIFIED_REPRICING"))
+            return updated with
+            {
+                Recommendation = "DATA REVIEW",
+                OpportunityScore = Math.Min(updated.OpportunityScore, 49),
+                ResalePotentialScore = Math.Min(updated.ResalePotentialScore, 49),
+                EntryWindow = "REVIEW"
+            };
+
+        return updated;
     }
 
     private async Task<IReadOnlyList<UgcHunterItem>> EnrichResaleEvidenceAsync(
@@ -458,6 +530,9 @@ public sealed class UgcHunterService
             ResellerBookTruncated = book?.HasMoreListings ?? false,
             SalesLast7d = market.SalesLast7d,
             SalesLast30d = sales30,
+            VerifiedCompletedResales30d = VerifiedResales30d(market),
+            VerifiedDailyAverageResaleMedian30d = VerifiedDailyResalePriceMedian30d(market),
+            ResalePriceEvidenceDays = RelevantDailyPricePoints30d(market).Length,
             LiquidityLabel = score.LiquidityLabel,
             Recommendation = score.Recommendation,
             HasLiveResaleMarket = hasMarket,
@@ -582,6 +657,30 @@ public sealed class UgcHunterService
         return delta / elapsed.TotalMinutes;
     }
 
+    // Roblox resale-data volume points are secondary transactions, unlike the
+    // catalog's primary purchaseCount. No reported days means UNKNOWN, not zero.
+    private static double? VerifiedResales30d(RobloxResaleMarketData market)
+    {
+        var latest = DateTimeOffset.UtcNow.AddDays(-30);
+        var valid = market.VolumeDataPoints
+            .Where(x => x.Date >= latest && x.Date <= DateTimeOffset.UtcNow.AddDays(1) && x.Value >= 0)
+            .ToArray();
+        return valid.Length == 0 ? null : valid.Sum(x => x.Value);
+    }
+
+    private static ResaleDataPoint[] RelevantDailyPricePoints30d(RobloxResaleMarketData market) =>
+        market.PriceDataPoints.Where(x =>
+            x.Date >= DateTimeOffset.UtcNow.AddDays(-30) &&
+            x.Date <= DateTimeOffset.UtcNow.AddDays(1) && x.Value > 0).ToArray();
+
+    private static double? VerifiedDailyResalePriceMedian30d(RobloxResaleMarketData market)
+    {
+        var prices = RelevantDailyPricePoints30d(market).Select(x => x.Value).OrderBy(x => x).ToArray();
+        if (prices.Length == 0) return null;
+        var half = prices.Length / 2;
+        return prices.Length % 2 == 1 ? prices[half] : (prices[half - 1] + prices[half]) / 2;
+    }
+
     private static double SalesLast30d(RobloxResaleMarketData market)
     {
         var valid = market.VolumeDataPoints.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
@@ -595,9 +694,14 @@ public sealed class UgcHunterService
         if (items.Count == 0)
             return new UgcMarketState("QUIET", 0, 0, 0, "No qualifying paid catalog-buyable UGC Limiteds found in the current scan.");
 
-        var average = items.Average(x => x.ResalePotentialScore);
-        var averageVelocity = items.Average(x => x.VelocityPerMinute);
-        var strong = items.Count(x => x.ResalePotentialScore >= 75 && x.EntryScore >= 55 && x.Recommendation != "AVOID");
+        var eligible = items.Where(x => x.PriceIntegrityClassification != UgcPriceIntegrityPolicy.Excluded).ToArray();
+        if (eligible.Length == 0)
+            return new UgcMarketState("QUIET", 0, 0, 0,
+                "All scanned candidates are excluded from investment rankings by verified price integrity.");
+        var average = eligible.Average(x => x.ResalePotentialScore);
+        var averageVelocity = eligible.Average(x => x.VelocityPerMinute);
+        var strong = eligible.Count(x => x.ResalePotentialScore >= 75 && x.EntryScore >= 55 &&
+            x.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW"));
         var regime = average >= 76 || strong >= 5 ? "VERY HOT"
             : average >= 66 || strong >= 3 ? "HOT"
             : average >= 54 ? "NORMAL"
@@ -784,6 +888,21 @@ public sealed record UgcHunterItem(
     public bool HasLiveResaleMarket { get; init; }
     public int ObservationCount { get; init; }
     public bool PrimaryMarketVerified { get; init; }
+    public string PriceIntegrityClassification { get; init; } = UgcPriceIntegrityPolicy.Insufficient;
+    public IReadOnlyList<string> PriceIntegrityReasonCodes { get; init; } = [];
+    public string PriceIntegrityExplanation { get; init; } = "Verified creator price history has not been evaluated.";
+    public int? EarliestVerifiedOriginalPrice { get; init; }
+    public double? VerifiedCreatorPriceMultiple { get; init; }
+    public double? VerifiedCompletedResales30d { get; init; }
+    public double? VerifiedDailyAverageResaleMedian30d { get; init; }
+    public int ResalePriceEvidenceDays { get; init; }
+    public bool IsExcludedPriceDistortion => PriceIntegrityClassification == UgcPriceIntegrityPolicy.Excluded;
+    public string PriceIntegrityText => PriceIntegrityClassification switch
+    {
+        UgcPriceIntegrityPolicy.Excluded => "EXCLUDED · PRICE",
+        UgcPriceIntegrityPolicy.Insufficient => "DATA INCOMPLETE",
+        _ => "PASSED"
+    };
     public int AssetType { get; init; }
     public int? LowestObservedPrimaryByType { get; init; }
 
