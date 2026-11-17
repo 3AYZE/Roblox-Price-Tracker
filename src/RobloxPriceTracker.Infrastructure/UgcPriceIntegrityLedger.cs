@@ -79,7 +79,7 @@ public sealed class UgcPriceIntegrityLedger
             // Avoid manufacturing new historical price points on every 45s refresh.
             // A repricing always gets a new point regardless of elapsed time.
             if (latest.PrimaryPrice == point.PrimaryPrice &&
-                point.ObservedAtUtc - latest.ObservedAtUtc < TimeSpan.FromHours(24))
+                point.ObservedAtUtc - latest.ObservedAtUtc <= TimeSpan.FromHours(24))
                 return;
             if (point.ObservedAtUtc < latest.ObservedAtUtc) return;
         }
