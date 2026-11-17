@@ -58,18 +58,11 @@ public sealed class AnimationBundleResearchWindow : Window
         root.Children.Add(toolbar);
         _search = new TextBox { Width = 290, Height = 30, VerticalContentAlignment = VerticalAlignment.Center,
             ToolTip = "Filter bundle name, creator or numeric bundle ID" };
-        _search.TextChanged += (_, _) => _view.Refresh();
         toolbar.Children.Add(_search);
         _refresh = new Button { Content = "REFRESH BUNDLES", Width = 148, Margin = new Thickness(10, 0, 0, 0) };
         _refresh.Click += async (_, _) => await RefreshAsync();
         toolbar.Children.Add(_refresh);
         var open = new Button { Content = "OPEN ON ROBLOX", Width = 150, Margin = new Thickness(10, 0, 0, 0) };
-        open.Click += (_, _) =>
-        {
-            if (_grid.SelectedItem is not RobloxAnimationBundleOffer selected) return;
-            try { Process.Start(new ProcessStartInfo(selected.RobloxUrl) { UseShellExecute = true }); }
-            catch (Exception ex) { _status.Text = $"Cannot open Roblox: {ex.Message}"; }
-        };
         toolbar.Children.Add(open);
 
         _status = new TextBlock
@@ -104,6 +97,14 @@ public sealed class AnimationBundleResearchWindow : Window
         _view = CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = Filter;
         _grid.ItemsSource = _view;
+        // Subscribe only after all referenced controls have been initialized.
+        _search.TextChanged += (_, _) => _view.Refresh();
+        open.Click += (_, _) =>
+        {
+            if (_grid.SelectedItem is not RobloxAnimationBundleOffer selected) return;
+            try { Process.Start(new ProcessStartInfo(selected.RobloxUrl) { UseShellExecute = true }); }
+            catch (Exception ex) { _status.Text = $"Cannot open Roblox: {ex.Message}"; }
+        };
 
         Loaded += async (_, _) => await RefreshAsync();
         Closed += (_, _) =>
