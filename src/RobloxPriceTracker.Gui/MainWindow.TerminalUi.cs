@@ -187,7 +187,7 @@ public partial class MainWindow : Window
         toolbar.Children.Add(_hunterSearchBox);
 
         _hunterCategoryCombo = new ComboBox { Width = 125, Margin = new Thickness(7, 0, 0, 0), SelectedIndex = 0 };
-        foreach (var category in new[] { "All categories", "Emote", "Dance? (name)", "Emissive? (name)", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" })
+        foreach (var category in new[] { "All categories", "Emote", "Dance? (name)", "Emissive (verified)", "PBR (verified)", "Emissive? (name)", "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "T-Shirt", "Shirt", "Pants", "Jacket", "Sweater", "Shorts", "Shoes", "Dress / Skirt", "Eyebrow", "Eyelash", "Dynamic Head", "Face Makeup", "Lip Makeup", "Eye Makeup" })
             _hunterCategoryCombo.Items.Add(category);
         _hunterCategoryCombo.SelectionChanged += (_, _) => _hunterView?.Refresh();
         toolbar.Children.Add(_hunterCategoryCombo);
@@ -202,12 +202,12 @@ public partial class MainWindow : Window
         {
             Width = 172,
             Margin = new Thickness(7, 0, 0, 0),
-            ToolTip = "An observed low is the cheapest Marketplace-verified ORIGINAL sale in this scan for the exact asset type. It is NOT Roblox's official category price floor.",
+            ToolTip = "Observed lows compare Marketplace-verified ORIGINAL stock only within the same asset type and material class. Not an official Roblox floor.",
             SelectedIndex = 0
         };
         foreach (var mode in new[]
         {
-            "Observed low (by type)",
+            "Observed low (material + type)",
             "All verified originals",
             "All original candidates",
             "All + excluded (research)"
@@ -603,7 +603,9 @@ public partial class MainWindow : Window
         {
             if (category == "Dance? (name)" && !row.PossibleDanceByName) return false;
             else if (category == "Emissive? (name)" && !row.PossibleEmissiveByName) return false;
-            else if (category is not ("Dance? (name)" or "Emissive? (name)") &&
+            else if (category == "Emissive (verified)" && row.IsEmissive != true) return false;
+            else if (category == "PBR (verified)" && row.IsPbr != true) return false;
+            else if (category is not ("Dance? (name)" or "Emissive? (name)" or "Emissive (verified)" or "PBR (verified)") &&
                      !row.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) return false;
         }
 
@@ -800,6 +802,11 @@ public partial class MainWindow : Window
         }
     }
 
+    private static string FormatHunterPrimaryReference(UgcHunterItem item) =>
+        $"{item.ObservedCategoryLowText} observed · {item.MaterialText} · {item.PrimaryPriceStatusText}\n" +
+        $"Historical category reference: {item.HistoricalReferenceText}\n" +
+        "Live official category floor: UNVERIFIED";
+
     private void UpdateHunterInspector()
     {
         var item = _hunterGrid?.SelectedItem as UgcHunterItem;
@@ -827,7 +834,7 @@ public partial class MainWindow : Window
         if (_hunterInspectorSupply is not null) _hunterInspectorSupply.Text = $"{item.RemainingText} remaining / {item.SupplyText} total · {item.VerificationText}";
         if (_hunterInspectorPrimaryReference is not null)
             _hunterInspectorPrimaryReference.Text =
-                $"{item.ObservedCategoryLowText} observed · {item.PrimaryPriceStatusText}\nOfficial category minimum: UNVERIFIED";
+                FormatHunterPrimaryReference(item);
         if (_hunterInspectorIntegrity is not null)
             _hunterInspectorIntegrity.Text = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}";
         if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"FLOOR {item.CurrentResaleText} · RAP {item.RapText} · SELLERS {item.ResellersText}\nSALES {item.SalesText} · BREAK-EVEN {item.BreakEvenText}\nMODEL {item.ForecastText} · BASE {item.BaseValueText} · NET ROI {item.NetRoiText}";
