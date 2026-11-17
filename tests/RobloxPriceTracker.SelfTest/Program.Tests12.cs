@@ -169,11 +169,11 @@ internal static partial class Program
 
     static Task TestUgcHunterMinimumPrimaryPricePolicyAsync()
     {
-        AssertEqual(95, UgcHunterEntryPricePolicy.MinimumPrimaryPrice);
         AssertTrue(UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(95));
-        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(94));
-        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(96));
-        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(150));
+        AssertTrue(UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(50));
+        AssertTrue(UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(150));
+        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(0));
+        AssertTrue(!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(-1));
         return Task.CompletedTask;
     }
 
