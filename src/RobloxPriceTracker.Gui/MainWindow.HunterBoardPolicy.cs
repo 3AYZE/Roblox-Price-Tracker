@@ -35,11 +35,12 @@ public partial class MainWindow
     {
         if (!FilterHunterRow(item)) return false;
         if (item is not UgcHunterItem row) return true;
-        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price) ||
-            row.UnitsAvailable is not > 0 || _hunterPriceSpikeHidden.Contains(row.AssetId))
-            return false;
-
         var mode = _hunterPrimaryPriceCombo?.SelectedIndex ?? 0;
+        if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price) ||
+            row.UnitsAvailable is not > 0)
+            return false;
+        if (mode != 3 && (row.IsExcludedPriceDistortion || _hunterPriceSpikeHidden.Contains(row.AssetId)))
+            return false;
         return mode switch
         {
             // During an upgrade, old validated cached rows remain visible but
@@ -47,7 +48,9 @@ public partial class MainWindow
             0 => row.IsLowestObservedOriginalSale ||
                  (row.AssetType == 0 && row.PrimaryMarketVerified),
             1 => row.PrimaryMarketVerified,
-            _ => true
+            2 => true,
+            3 => true,
+            _ => false
         };
     }
 
@@ -169,7 +172,9 @@ public partial class MainWindow
             _hunterLiveCountText.Text = visible.Length.ToString("N0");
         if (_hunterStrongCountText is not null)
         {
-            var strong = visible.Count(x => x.ResalePotentialScore >= 75 && x.EntryScore >= 55 && x.Recommendation != "AVOID");
+            var strong = visible.Count(x => !x.IsExcludedPriceDistortion &&
+                x.ResalePotentialScore >= 75 && x.EntryScore >= 55 &&
+                x.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW"));
             _hunterStrongCountText.Text = strong.ToString("N0");
         }
     }
