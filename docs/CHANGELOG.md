@@ -1,5 +1,12 @@
 # Roblox Price Tracker changelog
 
+## v0.14.3 — UGC Primary Market category coverage
+- Include eligible paid Limited emotes (asset type 61) using a single paced discovery feed while retaining the existing 120-item scan limit.
+- Remove the invalid fixed 95 Robux restriction so shoulder, hat, emote and clothing Limiteds can each retain their actual verified original-sale price.
+- Compute an explicitly labeled **lowest observed original-sale price per asset type in the current scan**, only using Marketplace-verified original stock; never confuse it with official Roblox category price floors, RAP or lowest resale listings.
+- Add category-aware price screening, name-hint filters for possible emissive items and dance emotes, and separate original price versus resale floor labels.
+- Preserve existing backoff, caching, resale scoring, state backups and crash diagnostics. The documented official price-floor endpoint requires authentication, so no anonymous app claim of a verified official floor is made.
+
 ## v0.14.2 — V2 Phase 1: stability instrumentation
 - Add local fatal-error reporting, best-effort unobserved task diagnostics and previous-session unclean exit detection.
 - Record UGC scan discovery, thumbnails, resale analysis and end-to-end duration, plus Official Market duration; separate bounded local metrics files.

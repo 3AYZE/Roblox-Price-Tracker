@@ -150,7 +150,17 @@ public sealed class UgcHunterService
             ? await EnrichResaleEvidenceAsync(baseline, cancellationToken).ConfigureAwait(false)
             : await _scanDiagnostics.MeasureAsync("ugc-resale-analysis",
                 token => EnrichResaleEvidenceAsync(baseline, token), cancellationToken).ConfigureAwait(false);
+        // The observed primary low is scoped to this scan, per exact asset type.
+        // Never substitute seller floor/RAP, or call it Roblox's official floor.
+        var lowest = UgcCategoryPrimaryPricePolicy.FindLowestObservedOriginalPrices(
+            enriched.Select(x => new UgcCategoryPrimaryPricePolicy.OriginalOffer(
+                x.AssetId, x.AssetType, x.Price, x.PrimaryMarketVerified, x.UnitsAvailable)));
         var ranked = enriched
+            .Select(x => x with
+            {
+                LowestObservedPrimaryByType = lowest.TryGetValue(x.AssetType, out var low)
+                    ? low : null
+            })
             .OrderByDescending(x => x.ResalePotentialScore)
             .ThenByDescending(x => x.EntryScore)
             .ThenBy(x => x.SelloutEta ?? TimeSpan.MaxValue)
@@ -210,11 +220,7 @@ public sealed class UgcHunterService
             .ToArray();
         var excludedByEntryPrice = discovery.Items.Count - eligible.Length;
         if (excludedByEntryPrice > 0)
-        {
-            _logger.Info(
-                $"UGC Hunter excluded {excludedByEntryPrice} item(s) outside the required minimum primary entry price " +
-                $"of {UgcHunterEntryPricePolicy.MinimumPrimaryPrice:N0} R$.");
-        }
+            _logger.Info($"UGC Hunter excluded {excludedByEntryPrice} items without a positive original-sale price.");
 
         return eligible.Select(item => new UgcRawCatalogItem(
             item.AssetId,
@@ -525,7 +531,8 @@ public sealed class UgcHunterService
             LiquidityLabel = score.LiquidityLabel,
             Recommendation = score.Recommendation,
             HasLiveResaleMarket = market?.IsAvailable == true || book?.IsAvailable == true,
-            ObservationCount = observationCount
+            ObservationCount = observationCount,
+            AssetType = item.AssetType
         };
     }
 
@@ -776,6 +783,26 @@ public sealed record UgcHunterItem(
     public bool HasLiveResaleMarket { get; init; }
     public int ObservationCount { get; init; }
     public bool PrimaryMarketVerified { get; init; }
+    public int AssetType { get; init; }
+    public int? LowestObservedPrimaryByType { get; init; }
+
+    public bool IsLowestObservedOriginalSale =>
+        PrimaryMarketVerified && UnitsAvailable is > 0 &&
+        LowestObservedPrimaryByType is > 0 && Price == LowestObservedPrimaryByType;
+
+    public string OriginalPriceText => $"{Price:N0} R$";
+    public string ObservedCategoryLowText =>
+        LowestObservedPrimaryByType is > 0
+            ? $"{LowestObservedPrimaryByType:N0} R$" : "—";
+    public string PrimaryPriceStatusText =>
+        !PrimaryMarketVerified ? "CATALOG ONLY" :
+        LowestObservedPrimaryByType is not > 0 ? "NO COMPARISON" :
+        IsLowestObservedOriginalSale ? "OBSERVED LOW" : "ABOVE OBSERVED";
+    public string OfficialCategoryFloorText => "Unverified (authentication required)";
+    public bool PossibleEmissiveByName =>
+        UgcCategoryPrimaryPricePolicy.HasEmissiveNameHint(Name);
+    public bool PossibleDanceByName => AssetType == 61 &&
+        UgcCategoryPrimaryPricePolicy.HasDanceNameHint(Name);
 
     public int DataQualityScore
     {

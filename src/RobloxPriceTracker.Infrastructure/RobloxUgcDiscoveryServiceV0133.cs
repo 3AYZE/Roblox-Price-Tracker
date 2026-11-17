@@ -70,7 +70,8 @@ public sealed class RobloxUgcDiscoveryService
         int MaxPages,
         int Budget,
         double Weight,
-        bool ReserveRecent = false);
+        bool ReserveRecent = false,
+        bool ReserveEmotes = false);
 
     private sealed class DiscoverySignal
     {
@@ -134,7 +135,17 @@ public sealed class RobloxUgcDiscoveryService
             MaxPages: 1,
             Budget: 30,
             Weight: 0.20d,
-            ReserveRecent: true)
+            ReserveRecent: true),
+        // Dedicated single-page emote coverage, paced sequentially just like the
+        // existing feeds; do not expand the scanner's 120-ID cap.
+        new(
+            "recent-limited-emotes",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=12&Subcategory=39&salesTypeFilter=2&SortType=3&Limit=30"),
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&Subcategory=39&salesTypeFilter=2&SortType=3&Limit=30"),
+            MaxPages: 1,
+            Budget: 30,
+            Weight: 0.35d,
+            ReserveEmotes: true)
     ];
 
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
@@ -351,6 +362,8 @@ public sealed class RobloxUgcDiscoveryService
         var signals = new Dictionary<long, DiscoverySignal>();
         var recentIds = new List<long>(RecentReserve * 2);
         var recentSeen = new HashSet<long>();
+        var emoteIds = new List<long>(16);
+        var emoteSeen = new HashSet<long>();
         var feedsUsed = 0;
         var pagesUsed = 0;
         RobloxUgcDiscoveryException? firstFailure = null;
@@ -416,6 +429,7 @@ public sealed class RobloxUgcDiscoveryService
 
                         signal.Observe(feed.Name, rank, feed.Weight);
                         if (feed.ReserveRecent && recentSeen.Add(id)) recentIds.Add(id);
+                        if (feed.ReserveEmotes && emoteSeen.Add(id)) emoteIds.Add(id);
                     }
 
                     cursor = GetNextPageCursor(document.RootElement);
@@ -441,6 +455,11 @@ public sealed class RobloxUgcDiscoveryService
             .ThenByDescending(x => x.FeedHits)
             .ThenBy(x => x.BestRank)
             .ToArray();
+
+        // Reserve only a small fixed portion for emotes so they cannot vanish
+        // behind popular hats, without increasing network hydration fan-out.
+        foreach (var id in emoteIds.Take(10))
+            if (selectedSet.Add(id)) selected.Add(id);
 
         foreach (var signal in ordered.Take(MomentumQuota))
         {
@@ -816,6 +835,7 @@ public static class RobloxUgcCatalogDiscoveryParser
 
     public static bool IsSupportedUgcAssetType(int assetType) =>
         assetType == 8 ||
+        assetType == 61 ||
         assetType is >= 41 and <= 47 ||
         assetType is >= 64 and <= 72 ||
         assetType is 76 or 77 or 79 ||
@@ -824,6 +844,7 @@ public static class RobloxUgcCatalogDiscoveryParser
     public static string CategoryName(int assetType) => assetType switch
     {
         8 => "Hat",
+        61 => "Emote",
         41 => "Hair",
         42 => "Face",
         43 => "Neck",
