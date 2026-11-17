@@ -73,7 +73,7 @@ internal static partial class Program
 
     static Task TestUgcPriceIntegrityUnknownVolumeAsync()
     {
-        var earlier = Original(65, ReferenceTime.AddDays(-25));
+        var earlier = Original(65, ReferenceTime.AddDays(-45));
         var current = Original(1080, ReferenceTime);
         var noKnownCompletedTransactions = UgcPriceIntegrityPolicy.Evaluate(
             current, [earlier], Market(ask: 500, rap: 65));
