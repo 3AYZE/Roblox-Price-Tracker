@@ -229,6 +229,16 @@ public partial class MainWindow : Window
         refresh.Click += async (_, _) => await RefreshHunterAsync(silent: false);
         toolbar.Children.Add(refresh);
 
+        var bundles = new Button
+        {
+            Content = "ANIMATION PACKS",
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "Research Limited animation bundles separately from asset/emote investment scoring.",
+            Margin = new Thickness(7, 0, 0, 0)
+        };
+        bundles.Click += (_, _) => new AnimationBundleResearchWindow(_services) { Owner = this }.Show();
+        toolbar.Children.Add(bundles);
+
         var main = new Grid();
         Grid.SetRow(main, 2);
         main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
