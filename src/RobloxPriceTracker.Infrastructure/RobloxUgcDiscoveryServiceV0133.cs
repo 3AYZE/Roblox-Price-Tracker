@@ -804,6 +804,9 @@ public static class RobloxUgcCatalogDiscoveryParser
         long? unitsAvailable = TryGetInt64(row, "unitsAvailableForConsumption", out var units)
             ? Math.Max(0, units)
             : null;
+        // An explicit zero means original stock has sold out, even when resale
+        // listings still have a positive price. Do not present it as a primary sale.
+        if (unitsAvailable is 0) return false;
         long? totalQuantity = TryGetInt64(row, "totalQuantity", out var total) && total > 0
             ? total
             : null;
