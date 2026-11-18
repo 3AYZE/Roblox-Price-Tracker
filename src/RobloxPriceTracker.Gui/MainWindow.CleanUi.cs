@@ -32,6 +32,10 @@ public partial class MainWindow
     private Border? _cleanPortfolioEmpty;
     private Border? _cleanHuntEmpty;
     private Border? _cleanOfficialEmpty;
+    private RowDefinition? _cleanInlineAlertsRow;
+    private Border? _cleanInlineAlertsPanel;
+    private Button? _cleanAlertsToggleButton;
+    private bool _cleanAlertsExpanded;
 
     internal void InitializeCleanUi()
     {
@@ -39,6 +43,7 @@ public partial class MainWindow
         _cleanUiInitialized = true;
 
         ConfigureCleanSidebar();
+        BuildCleanTrackerAlertsSection();
         BuildCleanWorkspaceBar();
         ApplyCleanTables();
         ConfigureCleanEmptyStates();
@@ -132,6 +137,70 @@ public partial class MainWindow
         if (IsLoaded && !_cleanSyncingSidebar) await NavigateCleanAsync("Settings");
     }
 
+    private void BuildCleanTrackerAlertsSection()
+    {
+        // Keep the original AlertsPage and its bound data intact for compatibility.
+        // The visible My Items workspace shows the same alert feed below Tracker.
+        if (WatchlistPage.RowDefinitions.Count != 3) return;
+
+        WatchlistPage.RowDefinitions.Add(new RowDefinition { Height = new GridLength(34) });
+        _cleanInlineAlertsRow = new RowDefinition { Height = new GridLength(0) };
+        WatchlistPage.RowDefinitions.Add(_cleanInlineAlertsRow);
+
+        _cleanAlertsToggleButton = new Button
+        {
+            Content = "RECENT ALERTS (0)  ▸",
+            Style = (Style)FindResource("LinkButtonStyle"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TerminalMuted
+        };
+        _cleanAlertsToggleButton.Click += (_, _) =>
+        {
+            _cleanAlertsExpanded = !_cleanAlertsExpanded;
+            _cleanInlineAlertsRow.Height = _cleanAlertsExpanded
+                ? new GridLength(175) : new GridLength(0);
+            if (_cleanInlineAlertsPanel is not null)
+                _cleanInlineAlertsPanel.Visibility = _cleanAlertsExpanded
+                    ? Visibility.Visible : Visibility.Collapsed;
+            UpdateCleanTrackerAlertCount();
+        };
+        Grid.SetRow(_cleanAlertsToggleButton, 3);
+        WatchlistPage.Children.Add(_cleanAlertsToggleButton);
+
+        _cleanInlineAlertsPanel = MakePanel();
+        _cleanInlineAlertsPanel.Visibility = Visibility.Collapsed;
+        Grid.SetRow(_cleanInlineAlertsPanel, 4);
+        WatchlistPage.Children.Add(_cleanInlineAlertsPanel);
+        var list = new DataGrid
+        {
+            ItemsSource = _alertRows,
+            AutoGenerateColumns = false,
+            IsReadOnly = true,
+            EnableRowVirtualization = true,
+            RowHeight = 34,
+            Background = Brushes.Transparent,
+            Foreground = TerminalText,
+            HeadersVisibility = DataGridHeadersVisibility.Column,
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal
+        };
+        list.Columns.Add(HunterTextColumn("TIME", nameof(AlertRow.Time), 1.0, TerminalMuted));
+        list.Columns.Add(HunterTextColumn("ITEM", nameof(AlertRow.ItemName), 1.8, TerminalText));
+        list.Columns.Add(HunterTextColumn("EVENT", nameof(AlertRow.Event), 1.1, TerminalText));
+        list.Columns.Add(HunterTextColumn("PRICE", nameof(AlertRow.Price), 0.9, TerminalText));
+        list.Columns.Add(HunterTextColumn("PREVIOUS", nameof(AlertRow.PreviousPrice), 1.0, TerminalMuted));
+        _cleanInlineAlertsPanel.Child = list;
+        _alertRows.CollectionChanged += (_, _) => UpdateCleanTrackerAlertCount();
+        UpdateCleanTrackerAlertCount();
+    }
+
+    private void UpdateCleanTrackerAlertCount()
+    {
+        if (_cleanAlertsToggleButton is null) return;
+        _cleanAlertsToggleButton.Content = $"RECENT ALERTS ({_alertRows.Count:N0})  " +
+            (_cleanAlertsExpanded ? "▾" : "▸");
+    }
+
     private void BuildCleanWorkspaceBar()
     {
         if (DashboardPage.Parent is not Grid contentHost || contentHost.Parent is not Grid shell) return;
@@ -207,8 +276,7 @@ public partial class MainWindow
             "MyItems" => new (string, string)[]
             {
                 ("Tracker", "Watchlist"),
-                ("Portfolio", "Portfolio"),
-                ("Alerts", "Alerts")
+                ("Portfolio", "Portfolio")
             },
             "Research" => new (string, string)[]
             {
