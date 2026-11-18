@@ -758,14 +758,12 @@ public partial class MainWindow
 
     private void UpdateStockVersionText()
     {
-        foreach (var text in FindVisualChildren<TextBlock>(this))
-        {
-            if (text.Text.Contains("3AYZE", StringComparison.OrdinalIgnoreCase) &&
-                text.Text.TrimStart().StartsWith("v0.", StringComparison.OrdinalIgnoreCase))
-            {
-                text.Text = "v0.11.1 · 3AYZE";
-            }
-        }
+        // Derive the displayed version from the built assembly. It must never
+        // advertise a stale number from XAML or a hardcoded UI string.
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        if (version is null) return;
+        AboutVersionText.Text =
+            $"Roblox Price Tracker v{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
     }
 
     private sealed record StockSignalRow(
