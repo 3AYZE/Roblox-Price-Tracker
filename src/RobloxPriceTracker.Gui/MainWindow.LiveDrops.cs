@@ -481,6 +481,14 @@ public partial class MainWindow
         await RefreshPaperPortfolioAsync();
     }
 
+    private async Task OpenLiveDropTypeAsync(string filter)
+    {
+        await NavigateCleanAsync("LiveDrops");
+        if (_liveDropTypeFilter is not null &&
+            _liveDropTypeFilter.Items.Contains(filter))
+            _liveDropTypeFilter.SelectedItem = filter;
+    }
+
     private async Task RefreshLiveDropsAsync(bool force)
     {
         if (_liveDropBusy) return;
