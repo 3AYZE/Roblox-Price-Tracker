@@ -213,4 +213,40 @@ internal static partial class Program
             }
         }
     }
+
+    static async Task TestAnimationBundleRateLimitPreservesCacheContractAsync()
+    {
+        const string search = """
+        {"data":[{"id":901,"itemType":"Bundle","bundleType":2,
+        "creatorTargetId":123,"name":"Rate Limited Pack",
+        "itemRestrictions":["Limited"],"collectibleItemId":"rl-bundle"}]}
+        """;
+        var calls = 0;
+        using var http = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            var isSearch = request.RequestUri?.AbsolutePath.Contains("/search/items/details") == true;
+            return Task.FromResult(isSearch
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(search) }
+                : new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+        }));
+        var root = Path.Combine(Path.GetTempPath(), "rpt-bundle-ratelimit", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxAnimationBundleResearchService(http,
+                new AppLogger(Path.Combine(root, "test.log")));
+            bool rateLimited = false;
+            try { await service.DiscoverAsync(); }
+            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                rateLimited = true;
+            }
+            AssertTrue(rateLimited);
+            AssertEqual(2, calls); // No Marketplace call after 429.
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
 }
