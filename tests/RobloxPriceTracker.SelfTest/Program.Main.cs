@@ -66,6 +66,7 @@ internal static partial class Program
             ("Animation packs reject invalid non-Limited detail responses", TestAnimationBundleDetailRejectionDoesNotFallbackAsync),
             ("Animation pack search pagination deduplicates and stays bounded", TestAnimationBundlePagedDiscoveryDeduplicatesAsync),
             ("Animation packs with unconfirmed Limited status do not enter live scan", TestAnimationBundleUnconfirmedNeverDisplayedAsync),
+            ("Sparse bundle collectibles require matching verified Marketplace ID", TestAnimationBundleMarketplaceRecoversSparseCollectibleAsync),
             ("Creator-price 65 to 1080 with weak resale evidence is excluded", TestUgcPriceIntegrityVerifiedInflationAsync),
             ("Other verified creator repricing is excluded without item-ID rules", TestUgcPriceIntegrityAcrossCategoriesAsync),
             ("Legitimate valuable resale market overrides creator repricing", TestUgcPriceIntegrityIndependentDemandProtectionAsync),
