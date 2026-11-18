@@ -90,14 +90,7 @@ public partial class MainWindow
         HideLegacyNavigation(_huntNav, HuntNav_Checked, "Hunt");
         HideLegacyNavigation(_officialMarketNav, OfficialMarketNav_Checked, "OfficialMarket");
 
-        foreach (var text in FindVisualChildren<TextBlock>(this))
-        {
-            if (text.Text.Contains("3AYZE", StringComparison.OrdinalIgnoreCase) &&
-                text.Text.TrimStart().StartsWith("v0.", StringComparison.OrdinalIgnoreCase))
-            {
-                text.Text = "v0.11.0 · 3AYZE";
-            }
-        }
+
     }
 
     private void HideLegacyNavigation(RadioButton? nav, RoutedEventHandler oldHandler, string page)
