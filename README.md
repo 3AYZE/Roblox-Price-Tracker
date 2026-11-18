@@ -2,7 +2,7 @@
 
 <img src="src/RobloxPriceTracker.Gui/Assets/roblox_price_tracker.svg" alt="Roblox Price Tracker icon" width="88">
 
-A Windows desktop application for tracking Roblox Limited resale prices, setting alerts, researching UGC Limited original-stock prices and evaluating market opportunities. Includes verified-versus-resale price distinctions, emissive/PBR comparisons and Limited animation-pack research. Built by [3AYZE](https://github.com/3AYZE).
+**Roblox Price Tracker** is a Windows app for tracking Roblox Limited prices and discovering UGC Limited items. Set price alerts, compare original creator prices with resale prices, research special-effect accessories and animation packs, and test ideas without spending Robux. Created by [3AYZE](https://github.com/3AYZE).
 
 **[Download RobloxPriceTracker.exe](https://github.com/3AYZE/Roblox-Price-Tracker/releases/download/latest/RobloxPriceTracker.exe)** · [Release v0.15.1](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/latest)
 
