@@ -73,8 +73,9 @@ public sealed class RobloxAnimationBundleResearchService
             if (searchResponse.StatusCode == HttpStatusCode.TooManyRequests)
             {
                 if (page == 0) throw new HttpRequestException("Roblox rate-limited animation pack discovery (HTTP 429).");
-                _logger.Info("Animation bundle pagination rate limited; keeping first-page results.");
-                break;
+                throw new HttpRequestException(
+                    "Roblox rate-limited animation bundle pagination (HTTP 429). Keeping last successful scan.",
+                    null, HttpStatusCode.TooManyRequests);
             }
             searchResponse.EnsureSuccessStatusCode();
             await using var searchStream = await searchResponse.Content.ReadAsStreamAsync(cancellationToken)
@@ -104,11 +105,9 @@ public sealed class RobloxAnimationBundleResearchService
                 $"https://catalog.roblox.com/v1/bundles/{candidate.BundleId}/details",
                 HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                _logger.Info("Animation bundle details rate limited; stopping this batch.");
-                hydrated.Add(candidate);
-                break;
-            }
+                throw new HttpRequestException(
+                    "Roblox rate-limited animation bundle details (HTTP 429). Keeping last successful scan.",
+                    null, HttpStatusCode.TooManyRequests);
             if (!response.IsSuccessStatusCode)
             {
                 hydrated.Add(candidate);
