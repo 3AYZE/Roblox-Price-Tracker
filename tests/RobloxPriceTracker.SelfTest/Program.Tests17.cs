@@ -150,4 +150,67 @@ internal static partial class Program
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
+
+    static async Task TestAnimationBundleMarketplaceRecoversSparseCollectibleAsync()
+    {
+        const string search = """
+        {"data":[{"id":801,"itemType":"Bundle","bundleType":2,
+        "creatorTargetId":123,"name":"Sparse Collectible","price":0,
+        "collectibleItemId":"sparse-collectible"}]}
+        """;
+        const string details = """
+        {"id":801,"itemType":"Bundle","bundleType":2,
+        "creatorTargetId":123,"name":"Sparse Collectible","price":300,
+        "collectibleItemId":"sparse-collectible"}
+        """;
+        const string validMarket = """
+        [{"collectibleItemId":"sparse-collectible","itemTargetId":801,
+        "price":300,"unitsAvailableForConsumption":10,
+        "saleLocationType":"ShopAndAllExperiences","lowestResalePrice":500}]
+        """;
+        const string invalidMarket = """
+        [{"collectibleItemId":"sparse-collectible","itemTargetId":999,
+        "price":300,"unitsAvailableForConsumption":10,
+        "saleLocationType":"ShopAndAllExperiences"}]
+        """;
+
+        foreach (var correct in new[] { true, false })
+        {
+            var calls = 0;
+            using var http = new HttpClient(new DelegateHandler((request, _) =>
+            {
+                Interlocked.Increment(ref calls);
+                var uri = request.RequestUri?.AbsolutePath ?? "";
+                var data = uri.Contains("/search/items/details", StringComparison.Ordinal) ? search :
+                    uri.Contains("/bundles/801/details", StringComparison.Ordinal) ? details :
+                    uri.Contains("/marketplace-items/v1/items/details", StringComparison.Ordinal)
+                        ? (correct ? validMarket : invalidMarket) :
+                    throw new InvalidOperationException("Unexpected endpoint: " + uri);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(data)
+                });
+            }));
+            var root = Path.Combine(Path.GetTempPath(), "rpt-sparse-collectible", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var service = new RobloxAnimationBundleResearchService(http,
+                    new AppLogger(Path.Combine(root, "test.log")));
+                var data = await service.DiscoverAsync();
+                AssertEqual(correct ? 1 : 0, data.Count);
+                if (correct)
+                {
+                    AssertTrue(data[0].LimitedVerified);
+                    AssertTrue(data[0].PrimaryMarketVerified);
+                    AssertEqual(300, data[0].VerifiedOriginalPrice);
+                    AssertEqual(500L, data[0].LowestResaleAsk);
+                }
+                AssertEqual(3, calls);
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            }
+        }
+    }
 }
