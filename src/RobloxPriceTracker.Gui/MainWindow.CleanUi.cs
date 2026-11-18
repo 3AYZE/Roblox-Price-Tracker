@@ -202,9 +202,7 @@ public partial class MainWindow
             "Discover" => new (string, string)[]
             {
                 ("Overview", "Dashboard"),
-                ("Official Hunt", "Hunt"),
-                ("Official Market", "OfficialMarket"),
-                ("UGC Hunter", "Hunter")
+                ("Live Drops", "LiveDrops")
             },
             "MyItems" => new (string, string)[]
             {
@@ -288,6 +286,10 @@ public partial class MainWindow
                 if (_officialLastRefreshUtc is null || DateTimeOffset.UtcNow - _officialLastRefreshUtc > TimeSpan.FromMinutes(2))
                     await RefreshOfficialLimitedAsync(silent: _officialRows.Count > 0);
                 break;
+            case "LiveDrops":
+                ShowPage("LiveDrops");
+                await RefreshLiveDropsAsync(force: false);
+                break;
             case "Hunter":
                 ShowPage("Hunter");
                 if (_hunterLastRefreshUtc is null || DateTimeOffset.UtcNow - _hunterLastRefreshUtc > TimeSpan.FromSeconds(45))
@@ -317,6 +319,7 @@ public partial class MainWindow
         AttachCleanPageObserver(ReportsPage, "Reports");
         AttachCleanPageObserver(SettingsPage, "Settings");
         AttachCleanPageObserver(_hunterPage, "Hunter");
+        AttachCleanPageObserver(_liveDropPage, "LiveDrops");
         AttachCleanPageObserver(_portfolioPage, "Portfolio");
         AttachCleanPageObserver(_analyzerPage, "Analyzer");
         AttachCleanPageObserver(_huntPage, "Hunt");
@@ -336,6 +339,7 @@ public partial class MainWindow
     {
         var page = _huntPage?.IsVisible == true ? "Hunt"
             : _officialMarketPage?.IsVisible == true ? "OfficialMarket"
+            : _liveDropPage?.IsVisible == true ? "LiveDrops"
             : _hunterPage?.IsVisible == true ? "Hunter"
             : _portfolioPage?.IsVisible == true ? "Portfolio"
             : _analyzerPage?.IsVisible == true ? "Analyzer"
@@ -375,7 +379,7 @@ public partial class MainWindow
 
     private static string CleanSectionFor(string page) => page switch
     {
-        "Dashboard" or "Hunt" or "OfficialMarket" or "Hunter" => "Discover",
+        "Dashboard" or "Hunt" or "OfficialMarket" or "Hunter" or "LiveDrops" => "Discover",
         "Watchlist" or "Portfolio" or "Alerts" => "MyItems",
         "Analyzer" or "Reports" => "Research",
         _ => "Settings"
@@ -389,6 +393,7 @@ public partial class MainWindow
             "Hunt" => ("Official Hunt", "Only Roblox Limiteds that currently pass the value, liquidity, and evidence checks."),
             "OfficialMarket" => ("Official Market", "Browse Roblox-published Limiteds with the essential market numbers."),
             "Hunter" => ("UGC Hunter", "Find active UGC Limited drops with resale potential and reasonable entry risk."),
+            "LiveDrops" => ("Live Drops", "Browse verified UGC original-stock offers, Roblox Limited resales, and research-only animation bundles."),
             "Watchlist" => ("Tracker", "Your saved Limiteds, current prices, targets, and monitoring status."),
             "Portfolio" => ("Portfolio", "Paper positions used to validate ideas without spending Robux."),
             "Alerts" => ("Alerts", "Only price and target events that need attention."),
