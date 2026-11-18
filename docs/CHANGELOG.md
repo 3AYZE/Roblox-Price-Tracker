@@ -3,7 +3,7 @@
 ## v0.15.2 — Unified Live Drop Scanner and simpler navigation
 - Combine Roblox-published Limiteds, UGC Limited assets, emotes and verified Limited animation packs into one **Discover → Live Drops** table with type search, verified-material filters, and an evidence-backed **Opportunities only** switch.
 - Replace three overlapping Discover scanner tabs with one Live Drops tab; preserve the overview signal board and the existing specialized scanners behind the shared view. Signal-board navigation now selects the relevant Live Drops source.
-- Scan animation bundles with a separate bundle-ID pipeline, bounded pagination and paced detail requests. Recover candidates whose search rows omit Limited restrictions **only after authoritative details verify Limited status**. Never display a rejected or off-sale detail as active.
+- Scan animation bundles with a separate bundle-ID pipeline, bounded pagination, paced detail requests and safe HTTP 429 backoff. Recover sparse candidates only when detail metadata **or matching Marketplace collectible-stock verification** confirms Limited status. Never display a rejected or off-sale detail as active.
 - Preserve the original-stock/resale-ask distinction. Bundle rows are research-only: no model score, asset analyzer, tracker misuse, or paper entry. Only verified qualifying UGC asset opportunities enable paper entry.
 - Keep all user data, alerts, analysis, backup and updater behavior intact. Simplify the README and release description.
 - Extend deterministic regression coverage for sparse bundle metadata, invalid detail rejection and bounded duplicate-safe pagination.
