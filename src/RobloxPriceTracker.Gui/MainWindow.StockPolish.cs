@@ -151,16 +151,16 @@ public partial class MainWindow
         root.Children.Add(body);
 
         var officialPanel = BuildStockOpportunityPanel(
-            "OFFICIAL HUNT",
-            "Roblox-published Limiteds currently passing the buy checks.",
+            "ROBLOX LIMITED PICKS",
+            "Roblox-published Limiteds meeting value and evidence checks.",
             _stockOfficialSignals,
             out _stockOfficialEmpty,
             async () => await OpenLiveDropTypeAsync("Roblox Limiteds"));
         body.Children.Add(officialPanel);
 
         var ugcPanel = BuildStockOpportunityPanel(
-            "UGC HUNTER",
-            "Active UGC Limited drops with the strongest resale setup.",
+            "UGC LIMITED PICKS",
+            "Verified UGC Limited opportunities from Live Drops.",
             _stockUgcSignals,
             out _stockUgcEmpty,
             async () => await OpenLiveDropTypeAsync("UGC Limiteds"));
