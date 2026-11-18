@@ -54,6 +54,7 @@ public partial class MainWindow : Window
         ConfigureTerminalUi();
         ConfigureIntelligenceUi();
         InitializeOfficialLimitedUi();
+        ConfigureLiveDropUi();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -123,6 +124,7 @@ public partial class MainWindow : Window
         _monitoringCts?.Cancel();
         _notificationTimer?.Stop();
         _hunterTimer?.Stop();
+        _liveDropTimer?.Stop();
         _analyzerCts?.Cancel();
         StopUpdateChecks();
         DisposeTrayIcon();
@@ -148,12 +150,14 @@ public partial class MainWindow : Window
         SettingsPage.Visibility = page == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         SetTerminalPageVisibility(page);
         SetIntelligencePageVisibility(page);
+        SetLiveDropPageVisibility(page);
 
         (PageTitleText.Text, PageSubtitleText.Text) = page switch
         {
             "Hunt" => ("Hunt", "Evidence-backed Roblox official Limited buy opportunities, ranked by value, liquidity, stability, and market confidence."),
             "OfficialMarket" => ("Official Market", "Browse Roblox-published Limiteds with floor, RAP, sales, trend, evidence, and Hunt context."),
             "Hunter" => ("UGC Hunter", "Live Limited UGC scanner with verified market evidence, resale economics, data quality, and entry timing."),
+            "LiveDrops" => ("Live Drops", "UGC Limiteds, Roblox Limiteds and animation packs in one scanner, with clearly labeled original and resale prices."),
             "Analyzer" => ("Analyzer", "Deep-dive any Roblox catalog item with direct market evidence, break-even economics, and creator track record."),
             "Portfolio" => ("Portfolio", "Paper-trade and validate Hunter opportunities before committing Robux."),
             "Watchlist" => ("Price Tracker", "Live quotes, forecast, sales velocity, target distance, and market signals."),

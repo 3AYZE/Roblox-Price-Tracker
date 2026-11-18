@@ -32,6 +32,10 @@ public partial class MainWindow
     private Border? _cleanPortfolioEmpty;
     private Border? _cleanHuntEmpty;
     private Border? _cleanOfficialEmpty;
+    private RowDefinition? _cleanInlineAlertsRow;
+    private Border? _cleanInlineAlertsPanel;
+    private Button? _cleanAlertsToggleButton;
+    private bool _cleanAlertsExpanded;
 
     internal void InitializeCleanUi()
     {
@@ -39,6 +43,7 @@ public partial class MainWindow
         _cleanUiInitialized = true;
 
         ConfigureCleanSidebar();
+        BuildCleanTrackerAlertsSection();
         BuildCleanWorkspaceBar();
         ApplyCleanTables();
         ConfigureCleanEmptyStates();
@@ -85,14 +90,7 @@ public partial class MainWindow
         HideLegacyNavigation(_huntNav, HuntNav_Checked, "Hunt");
         HideLegacyNavigation(_officialMarketNav, OfficialMarketNav_Checked, "OfficialMarket");
 
-        foreach (var text in FindVisualChildren<TextBlock>(this))
-        {
-            if (text.Text.Contains("3AYZE", StringComparison.OrdinalIgnoreCase) &&
-                text.Text.TrimStart().StartsWith("v0.", StringComparison.OrdinalIgnoreCase))
-            {
-                text.Text = "v0.11.0 · 3AYZE";
-            }
-        }
+
     }
 
     private void HideLegacyNavigation(RadioButton? nav, RoutedEventHandler oldHandler, string page)
@@ -130,6 +128,70 @@ public partial class MainWindow
     private async void CleanSettingsNav_Checked(object sender, RoutedEventArgs e)
     {
         if (IsLoaded && !_cleanSyncingSidebar) await NavigateCleanAsync("Settings");
+    }
+
+    private void BuildCleanTrackerAlertsSection()
+    {
+        // Keep the original AlertsPage and its bound data intact for compatibility.
+        // The visible My Items workspace shows the same alert feed below Tracker.
+        if (WatchlistPage.RowDefinitions.Count != 3) return;
+
+        WatchlistPage.RowDefinitions.Add(new RowDefinition { Height = new GridLength(34) });
+        _cleanInlineAlertsRow = new RowDefinition { Height = new GridLength(0) };
+        WatchlistPage.RowDefinitions.Add(_cleanInlineAlertsRow);
+
+        _cleanAlertsToggleButton = new Button
+        {
+            Content = "RECENT ALERTS (0)  ▸",
+            Style = (Style)FindResource("LinkButtonStyle"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = TerminalMuted
+        };
+        _cleanAlertsToggleButton.Click += (_, _) =>
+        {
+            _cleanAlertsExpanded = !_cleanAlertsExpanded;
+            _cleanInlineAlertsRow.Height = _cleanAlertsExpanded
+                ? new GridLength(175) : new GridLength(0);
+            if (_cleanInlineAlertsPanel is not null)
+                _cleanInlineAlertsPanel.Visibility = _cleanAlertsExpanded
+                    ? Visibility.Visible : Visibility.Collapsed;
+            UpdateCleanTrackerAlertCount();
+        };
+        Grid.SetRow(_cleanAlertsToggleButton, 3);
+        WatchlistPage.Children.Add(_cleanAlertsToggleButton);
+
+        _cleanInlineAlertsPanel = MakePanel();
+        _cleanInlineAlertsPanel.Visibility = Visibility.Collapsed;
+        Grid.SetRow(_cleanInlineAlertsPanel, 4);
+        WatchlistPage.Children.Add(_cleanInlineAlertsPanel);
+        var list = new DataGrid
+        {
+            ItemsSource = _alertRows,
+            AutoGenerateColumns = false,
+            IsReadOnly = true,
+            EnableRowVirtualization = true,
+            RowHeight = 34,
+            Background = Brushes.Transparent,
+            Foreground = TerminalText,
+            HeadersVisibility = DataGridHeadersVisibility.Column,
+            GridLinesVisibility = DataGridGridLinesVisibility.Horizontal
+        };
+        list.Columns.Add(HunterTextColumn("TIME", nameof(AlertRow.Time), 1.0, TerminalMuted));
+        list.Columns.Add(HunterTextColumn("ITEM", nameof(AlertRow.ItemName), 1.8, TerminalText));
+        list.Columns.Add(HunterTextColumn("EVENT", nameof(AlertRow.Event), 1.1, TerminalText));
+        list.Columns.Add(HunterTextColumn("PRICE", nameof(AlertRow.Price), 0.9, TerminalText));
+        list.Columns.Add(HunterTextColumn("PREVIOUS", nameof(AlertRow.PreviousPrice), 1.0, TerminalMuted));
+        _cleanInlineAlertsPanel.Child = list;
+        _alertRows.CollectionChanged += (_, _) => UpdateCleanTrackerAlertCount();
+        UpdateCleanTrackerAlertCount();
+    }
+
+    private void UpdateCleanTrackerAlertCount()
+    {
+        if (_cleanAlertsToggleButton is null) return;
+        _cleanAlertsToggleButton.Content = $"RECENT ALERTS ({_alertRows.Count:N0})  " +
+            (_cleanAlertsExpanded ? "▾" : "▸");
     }
 
     private void BuildCleanWorkspaceBar()
@@ -202,15 +264,12 @@ public partial class MainWindow
             "Discover" => new (string, string)[]
             {
                 ("Overview", "Dashboard"),
-                ("Official Hunt", "Hunt"),
-                ("Official Market", "OfficialMarket"),
-                ("UGC Hunter", "Hunter")
+                ("Live Drops", "LiveDrops")
             },
             "MyItems" => new (string, string)[]
             {
                 ("Tracker", "Watchlist"),
-                ("Portfolio", "Portfolio"),
-                ("Alerts", "Alerts")
+                ("Portfolio", "Portfolio")
             },
             "Research" => new (string, string)[]
             {
@@ -288,6 +347,10 @@ public partial class MainWindow
                 if (_officialLastRefreshUtc is null || DateTimeOffset.UtcNow - _officialLastRefreshUtc > TimeSpan.FromMinutes(2))
                     await RefreshOfficialLimitedAsync(silent: _officialRows.Count > 0);
                 break;
+            case "LiveDrops":
+                ShowPage("LiveDrops");
+                await RefreshLiveDropsAsync(force: false);
+                break;
             case "Hunter":
                 ShowPage("Hunter");
                 if (_hunterLastRefreshUtc is null || DateTimeOffset.UtcNow - _hunterLastRefreshUtc > TimeSpan.FromSeconds(45))
@@ -317,6 +380,7 @@ public partial class MainWindow
         AttachCleanPageObserver(ReportsPage, "Reports");
         AttachCleanPageObserver(SettingsPage, "Settings");
         AttachCleanPageObserver(_hunterPage, "Hunter");
+        AttachCleanPageObserver(_liveDropPage, "LiveDrops");
         AttachCleanPageObserver(_portfolioPage, "Portfolio");
         AttachCleanPageObserver(_analyzerPage, "Analyzer");
         AttachCleanPageObserver(_huntPage, "Hunt");
@@ -336,6 +400,7 @@ public partial class MainWindow
     {
         var page = _huntPage?.IsVisible == true ? "Hunt"
             : _officialMarketPage?.IsVisible == true ? "OfficialMarket"
+            : _liveDropPage?.IsVisible == true ? "LiveDrops"
             : _hunterPage?.IsVisible == true ? "Hunter"
             : _portfolioPage?.IsVisible == true ? "Portfolio"
             : _analyzerPage?.IsVisible == true ? "Analyzer"
@@ -375,7 +440,7 @@ public partial class MainWindow
 
     private static string CleanSectionFor(string page) => page switch
     {
-        "Dashboard" or "Hunt" or "OfficialMarket" or "Hunter" => "Discover",
+        "Dashboard" or "Hunt" or "OfficialMarket" or "Hunter" or "LiveDrops" => "Discover",
         "Watchlist" or "Portfolio" or "Alerts" => "MyItems",
         "Analyzer" or "Reports" => "Research",
         _ => "Settings"
@@ -389,6 +454,7 @@ public partial class MainWindow
             "Hunt" => ("Official Hunt", "Only Roblox Limiteds that currently pass the value, liquidity, and evidence checks."),
             "OfficialMarket" => ("Official Market", "Browse Roblox-published Limiteds with the essential market numbers."),
             "Hunter" => ("UGC Hunter", "Find active UGC Limited drops with resale potential and reasonable entry risk."),
+            "LiveDrops" => ("Live Drops", "Browse verified UGC original-stock offers, Roblox Limited resales, and research-only animation bundles."),
             "Watchlist" => ("Tracker", "Your saved Limiteds, current prices, targets, and monitoring status."),
             "Portfolio" => ("Portfolio", "Paper positions used to validate ideas without spending Robux."),
             "Alerts" => ("Alerts", "Only price and target events that need attention."),

@@ -151,19 +151,19 @@ public partial class MainWindow
         root.Children.Add(body);
 
         var officialPanel = BuildStockOpportunityPanel(
-            "OFFICIAL HUNT",
-            "Roblox-published Limiteds currently passing the buy checks.",
+            "ROBLOX LIMITED PICKS",
+            "Roblox-published Limiteds meeting value and evidence checks.",
             _stockOfficialSignals,
             out _stockOfficialEmpty,
-            async () => await NavigateCleanAsync("Hunt"));
+            async () => await OpenLiveDropTypeAsync("Roblox Limiteds"));
         body.Children.Add(officialPanel);
 
         var ugcPanel = BuildStockOpportunityPanel(
-            "UGC HUNTER",
-            "Active UGC Limited drops with the strongest resale setup.",
+            "UGC LIMITED PICKS",
+            "Verified UGC Limited opportunities from Live Drops.",
             _stockUgcSignals,
             out _stockUgcEmpty,
-            async () => await NavigateCleanAsync("Hunter"));
+            async () => await OpenLiveDropTypeAsync("UGC Limiteds"));
         Grid.SetColumn(ugcPanel, 2);
         body.Children.Add(ugcPanel);
 
@@ -758,14 +758,12 @@ public partial class MainWindow
 
     private void UpdateStockVersionText()
     {
-        foreach (var text in FindVisualChildren<TextBlock>(this))
-        {
-            if (text.Text.Contains("3AYZE", StringComparison.OrdinalIgnoreCase) &&
-                text.Text.TrimStart().StartsWith("v0.", StringComparison.OrdinalIgnoreCase))
-            {
-                text.Text = "v0.11.1 · 3AYZE";
-            }
-        }
+        // Derive the displayed version from the built assembly. It must never
+        // advertise a stale number from XAML or a hardcoded UI string.
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        if (version is null) return;
+        AboutVersionText.Text =
+            $"Roblox Price Tracker v{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
     }
 
     private sealed record StockSignalRow(

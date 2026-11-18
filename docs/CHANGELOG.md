@@ -1,5 +1,14 @@
 # Roblox Price Tracker changelog
 
+## v0.15.2 — Unified Live Drop Scanner and simpler navigation
+- Combine Roblox-published Limiteds, UGC Limited assets, emotes and verified Limited animation packs into one **Discover → Live Drops** table with type search, verified-material filters, and an evidence-backed **Opportunities only** switch.
+- Replace three overlapping Discover scanner tabs with one Live Drops tab; preserve the overview signal board and the existing specialized scanners behind the shared view. Signal-board navigation now selects the relevant Live Drops source.
+- Scan animation bundles with a separate bundle-ID pipeline, bounded pagination, paced detail requests and safe HTTP 429 backoff. Recover sparse candidates only when detail metadata **or matching Marketplace collectible-stock verification** confirms Limited status. Never display a rejected or off-sale detail as active.
+- Preserve the original-stock/resale-ask distinction. Bundle rows are research-only: no model score, asset analyzer, tracker misuse, or paper entry. Only verified qualifying UGC asset opportunities enable paper entry.
+- Keep all user data, alerts, analysis, backup and updater behavior intact. Simplify the README and release description.
+- Extend deterministic regression coverage for sparse bundle metadata, invalid detail rejection and bounded duplicate-safe pagination.
+
+
 ## v0.15.1 — Material-aware original-price research and animation packs
 - Compare current Marketplace-verified original-stock lows **by asset type and explicit material classification** (standard, PBR, emissive or unknown). Missing material metadata is never treated as confirmed standard; titles are only search hints.
 - Keep historical October–November 2026 typical category prices explicitly informational, separate from scanned observed lows and from inaccessible live official Roblox dynamic floors. Do not substitute these references for actual purchase costs, resale asks, RAP, or completed trades.
