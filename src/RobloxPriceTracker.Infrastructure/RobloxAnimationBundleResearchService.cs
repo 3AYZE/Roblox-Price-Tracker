@@ -132,16 +132,20 @@ public sealed class RobloxAnimationBundleResearchService
             }
         }
 
-        // Do not promote a bundle to a current Limited without affirmative metadata.
-        hydrated.RemoveAll(x => !x.LimitedVerified);
-        var collectibleIds = hydrated.Select(x => x.CollectibleItemId)
+        // A sparse bundle may still expose a collectible ID. Let the
+        // authoritative Marketplace Items endpoint verify original stock.
+        // Unconfirmed rows without any collectible reference are never listed.
+        var candidates = hydrated
+            .Where(x => x.LimitedVerified || !string.IsNullOrWhiteSpace(x.CollectibleItemId))
+            .ToArray();
+        var collectibleIds = candidates.Select(x => x.CollectibleItemId)
             .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         IReadOnlyDictionary<string, RobloxMarketplaceItemData> primary = collectibleIds.Length == 0
             ? new Dictionary<string, RobloxMarketplaceItemData>(StringComparer.OrdinalIgnoreCase)
             : await _marketplace.GetManyAsync(collectibleIds, cancellationToken).ConfigureAwait(false);
 
-        return hydrated.Select(item =>
+        return candidates.Select(item =>
         {
             if (string.IsNullOrWhiteSpace(item.CollectibleItemId) ||
                 !primary.TryGetValue(item.CollectibleItemId, out var market) ||
@@ -150,12 +154,13 @@ public sealed class RobloxAnimationBundleResearchService
 
             return item with
             {
+                LimitedVerified = true, // Verified collectible ORIGINAL stock for this bundle ID.
                 VerifiedOriginalPrice = market.Price,
                 OriginalUnitsAvailable = market.UnitsAvailable,
                 LowestResaleAsk = market.LowestResalePrice,
                 PrimaryMarketVerified = true
             };
-        }).ToArray();
+        }).Where(x => x.LimitedVerified).ToArray();
     }
 }
 
@@ -198,8 +203,12 @@ public static class RobloxAnimationBundleResearchParser
         var detailsHaveRestrictions = root.TryGetProperty("itemRestrictions", out var detailRestrictions) &&
             detailRestrictions.ValueKind == JsonValueKind.Array;
         var verifiedLimited = detailsHaveRestrictions
-            ? HasLimitedRestrictions(root) : candidate.LimitedVerified;
-        if (!verifiedLimited) return null;
+            ? HasLimitedRestrictions(root) : candidate.LimitedVerified || HasLimitedRestrictions(root);
+        if (detailsHaveRestrictions && !verifiedLimited) return null;
+        // Sparse details without a Limited marker can only continue as a
+        // provisional candidate when a collectible ID enables API verification.
+        if (!verifiedLimited && string.IsNullOrWhiteSpace(
+            String(root, "collectibleItemId") ?? candidate.CollectibleItemId)) return null;
         if (Long(root, "unitsAvailableForConsumption") is 0 ||
             Bool(root, "isOffSale") == true)
             return null;
@@ -236,6 +245,8 @@ public static class RobloxAnimationBundleResearchParser
 
     private static bool HasLimitedRestrictions(JsonElement row)
     {
+        if (Bool(row, "isLimited") == true || Bool(row, "isCollectible") == true ||
+            Bool(row, "isLimitedUnique") == true) return true;
         if (!row.TryGetProperty("itemRestrictions", out var restrictions) ||
             restrictions.ValueKind != JsonValueKind.Array) return false;
         return restrictions.EnumerateArray().Any(v => v.ValueKind == JsonValueKind.String &&
