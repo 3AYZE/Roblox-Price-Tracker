@@ -154,6 +154,7 @@ public partial class MainWindow
             "Emotes", "Emissive / PBR"
         })
             _liveDropTypeFilter.Items.Add(kind);
+        _liveDropTypeFilter.SelectedIndex = 0;
         _liveDropTypeFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
         toolbar.Children.Add(_liveDropTypeFilter);
 
@@ -336,9 +337,9 @@ public partial class MainWindow
 
     private static LiveDropRow FromUgc(UgcHunterItem item)
     {
-        var eligible = item.PrimaryMarketVerified && !item.IsExcludedPriceDistortion &&
-            item.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW") &&
-            item.ResalePotentialScore >= 72 && item.EntryScore >= 55 && item.RiskScore < 70;
+        // Reuse the same investment gates as the overview board; don't invent
+        // a second and potentially contradictory definition of a qualified deal.
+        var eligible = IsUgcBoardCandidate(item);
         return new LiveDropRow
         {
             Id = item.AssetId, Name = item.Name, Creator = item.CreatorName,
