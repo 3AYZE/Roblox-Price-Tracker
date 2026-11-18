@@ -155,7 +155,7 @@ public partial class MainWindow
             "Roblox-published Limiteds currently passing the buy checks.",
             _stockOfficialSignals,
             out _stockOfficialEmpty,
-            async () => await NavigateCleanAsync("Hunt"));
+            async () => await OpenLiveDropTypeAsync("Roblox Limiteds"));
         body.Children.Add(officialPanel);
 
         var ugcPanel = BuildStockOpportunityPanel(
@@ -163,7 +163,7 @@ public partial class MainWindow
             "Active UGC Limited drops with the strongest resale setup.",
             _stockUgcSignals,
             out _stockUgcEmpty,
-            async () => await NavigateCleanAsync("Hunter"));
+            async () => await OpenLiveDropTypeAsync("UGC Limiteds"));
         Grid.SetColumn(ugcPanel, 2);
         body.Children.Add(ugcPanel);
 
