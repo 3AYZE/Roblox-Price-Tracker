@@ -507,7 +507,7 @@ public partial class MainWindow : Window
 
     private void AddPortfolioColumns(DataGrid grid)
     {
-        grid.Columns.Add(HunterTextColumn("ASSET", nameof(PaperPositionRow.Name), 1.8, TerminalText, true));
+        grid.Columns.Add(CreatePaperAssetColumn());
         grid.Columns.Add(HunterTextColumn("QTY", nameof(PaperPositionRow.Quantity), 0.45, TerminalMuted));
         grid.Columns.Add(HunterTextColumn("ENTRY", nameof(PaperPositionRow.Entry), 0.72, TerminalText, true));
         grid.Columns.Add(HunterTextColumn("FLOOR", nameof(PaperPositionRow.Floor), 0.72, TerminalText, true));
@@ -516,6 +516,46 @@ public partial class MainWindow : Window
         grid.Columns.Add(HunterTextColumn("FORECAST", nameof(PaperPositionRow.Forecast), 1.05, TerminalAmber));
         grid.Columns.Add(HunterTextColumn("MODEL", nameof(PaperPositionRow.Scores), 0.92, TerminalBlue));
         grid.Columns.Add(HunterTextColumn("ENTERED", nameof(PaperPositionRow.Entered), 0.96, TerminalMuted));
+    }
+
+    private static DataGridTemplateColumn CreatePaperAssetColumn()
+    {
+        var panel = new FrameworkElementFactory(typeof(StackPanel));
+        panel.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        panel.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+
+        var frame = new FrameworkElementFactory(typeof(Border));
+        frame.SetValue(FrameworkElement.WidthProperty, 40d);
+        frame.SetValue(FrameworkElement.HeightProperty, 40d);
+        frame.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+        frame.SetValue(Border.BackgroundProperty, TerminalPanel);
+        frame.SetValue(Border.BorderBrushProperty, TerminalBorder);
+        frame.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        var image = new FrameworkElementFactory(typeof(Image));
+        image.SetBinding(Image.SourceProperty, new Binding(nameof(PaperPositionRow.ThumbnailUrl)));
+        image.SetValue(FrameworkElement.WidthProperty, 38d);
+        image.SetValue(FrameworkElement.HeightProperty, 38d);
+        image.SetValue(Image.StretchProperty, Stretch.Uniform);
+        frame.AppendChild(image);
+        panel.AppendChild(frame);
+
+        var text = new FrameworkElementFactory(typeof(TextBlock));
+        text.SetBinding(TextBlock.TextProperty, new Binding(nameof(PaperPositionRow.Name)));
+        text.SetValue(TextBlock.ForegroundProperty, TerminalText);
+        text.SetValue(TextBlock.FontSizeProperty, 10d);
+        text.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        text.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        text.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+        text.SetValue(FrameworkElement.MarginProperty, new Thickness(9, 0, 0, 0));
+        panel.AppendChild(text);
+
+        return new DataGridTemplateColumn
+        {
+            Header = "ASSET",
+            Width = new DataGridLength(1.8, DataGridLengthUnitType.Star),
+            MinWidth = 150,
+            CellTemplate = new DataTemplate { VisualTree = panel }
+        };
     }
 
     private DataGridTemplateColumn CreateHunterAssetColumn()
@@ -772,8 +812,22 @@ public partial class MainWindow : Window
                 positions = await _services.PaperPortfolioStore.LoadAsync();
             }
 
+            IReadOnlyDictionary<long, string> pictures = new Dictionary<long, string>();
+            try
+            {
+                pictures = await _services.ThumbnailService.GetAssetThumbnailUrlsAsync(
+                    positions.Select(x => x.AssetId));
+            }
+            catch (Exception ex)
+            {
+                _services.Logger.Info($"Optional paper position pictures unavailable: {ex.Message}");
+            }
             _paperRows.Clear();
-            foreach (var position in positions) _paperRows.Add(new PaperPositionRow { Position = position });
+            foreach (var position in positions)
+            {
+                pictures.TryGetValue(position.AssetId, out var thumbnail);
+                _paperRows.Add(new PaperPositionRow { Position = position, ThumbnailUrl = thumbnail });
+            }
             UpdatePortfolioSummary();
             if (_portfolioStatusText is not null) _portfolioStatusText.Text = positions.Count == 0 ? "No paper positions yet" : $"Updated {DateTime.Now:h:mm:ss tt}";
         }
