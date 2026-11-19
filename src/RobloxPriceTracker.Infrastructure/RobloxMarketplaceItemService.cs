@@ -120,7 +120,9 @@ public sealed class RobloxMarketplaceItemService
                 var data = fetchedById.TryGetValue(id, out var value)
                     ? value
                     : new RobloxMarketplaceItemData(0, id, false, null, null, null, null, null, false, null, null, null, "Roblox did not return this collectible item ID.");
-                _cache[id] = new CacheEntry(data, DateTimeOffset.UtcNow + (data.IsAvailable ? TimeSpan.FromMinutes(2) : TimeSpan.FromSeconds(45)));
+                // Short-lived stock snapshots; an in-stock item can sell out quickly.
+                _cache[id] = new CacheEntry(data, DateTimeOffset.UtcNow +
+                    (data.IsPrimaryPurchasable ? TimeSpan.FromSeconds(30) : TimeSpan.FromSeconds(20)));
                 result[id] = data;
             }
 
