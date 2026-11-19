@@ -109,7 +109,7 @@ public partial class MainWindow
         _officialRows.CollectionChanged += (_, _) => QueueLiveDropRebuild();
 
         // Refresh only when the scanner is visible. No new background API polling.
-        _liveDropTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
+        _liveDropTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _liveDropTimer.Tick += async (_, _) =>
         {
             if (_liveDropPage?.Visibility != Visibility.Visible) return;
