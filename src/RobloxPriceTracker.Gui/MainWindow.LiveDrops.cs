@@ -32,8 +32,8 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public long SortPriceLow => PriceNumber is > 0 ? PriceNumber.Value : long.MaxValue;
     public long SortPriceHigh => PriceNumber is > 0 ? -PriceNumber.Value : long.MaxValue;
     private long? PriceNumber => Official?.FloorPrice ??
-        (Ugc is { PrimaryMarketVerified: true } offer ? offer.Price : null) ??
-        (Bundle is { PrimaryMarketVerified: true } pack ? pack.VerifiedOriginalPrice : null);
+        (Ugc is { PrimaryMarketVerified: true } offer ? (long?)offer.Price : null) ??
+        (Bundle is { PrimaryMarketVerified: true } pack ? (long?)pack.VerifiedOriginalPrice : null);
     public string Status { get; init; } = "RESEARCH";
     public string Evidence { get; init; } = "";
     public string Explanation { get; init; } = "";
