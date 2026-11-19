@@ -743,6 +743,14 @@ public partial class MainWindow
     private void UpdateLiveDropVisibleRows()
     {
         _liveDropView?.Refresh();
+        if (_liveDropGrid is not null && _liveDropView is not null)
+        {
+            var visibleItems = _liveDropView.Cast<object>().ToArray();
+            if (_liveDropGrid.SelectedItem is null ||
+                !visibleItems.Contains(_liveDropGrid.SelectedItem))
+                _liveDropGrid.SelectedItem = visibleItems.FirstOrDefault();
+            UpdateLiveDropInspector();
+        }
         if (_liveDropCount is not null)
         {
             var visible = _liveDropView?.Cast<object>().Count() ?? 0;
