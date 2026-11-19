@@ -1,5 +1,14 @@
 # Roblox Price Tracker changelog
 
+## v0.15.5 — UGC pricing evidence and default budget screen
+- Show source-labeled numeric UGC prices in the scanner. **Verified original** is distinguished from a **catalog-only quote**, which is not proof of a purchasable item or a verified historical original cost.
+- Set the UGC scanner's adjustable default maximum price to **1,000 R$** (optional 500/2,500/5,000 R$ or **Any price (research)**). Extremely expensive or confirmed price-distorted items no longer clutter the default scan. This cap is a presentation filter, not a Roblox-imposed floor or a statement of fair value.
+- Include an optional **Verified originals** switch to hide catalog-only quotes. Explicit Any price mode can also show unpriced research items.
+- Label unavailable resale asks as unavailable rather than substituting catalog quotes, RAP or zeros. Display verified-vs-catalog counts for clearer API coverage status.
+- Keep the item inspector and selection synchronized with filters and distinguish verified creator stock, catalog-only quotes and resale asks separately.
+- Add source-provenance and extreme-price regression tests. Official Limited market logic, stored items, investment safeguards and updater remain unchanged.
+
+
 ## v0.15.4 — Item PNG previews and clearer market scanning
 - Official and UGC Limited scanner rows now display Roblox PNG item thumbnails next to names and typed IDs. The selected-item inspector includes a larger, aspect-preserving preview with an honest unavailable-image state.
 - Animation packs use the separate public **bundle thumbnail** endpoint. The stand-alone animation research window also displays previews without changing any resale evidence or bundle-ID safety rules.
