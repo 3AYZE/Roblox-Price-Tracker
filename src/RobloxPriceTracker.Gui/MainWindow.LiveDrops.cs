@@ -577,19 +577,32 @@ public partial class MainWindow
 
     private async Task RefreshLiveDropsAsync(bool force)
     {
-        if (_liveDropBusy) return;
+        if (_liveDropBusy)
+        {
+            // Switching tabs during a pending scan must still refresh the newly
+            // selected source as soon as the previous request finishes.
+            _liveDropSwitchPending = true;
+            return;
+        }
         _liveDropBusy = true;
-        if (_liveDropStatus is not null) _liveDropStatus.Text = "Refreshing UGC, official Limiteds, and animation packs…";
+        var scope = _liveDropScope;
+        if (_liveDropStatus is not null)
+            _liveDropStatus.Text = scope == "Official"
+                ? "Refreshing Roblox Official Limiteds…"
+                : "Refreshing UGC Limiteds and animation packs…";
         var errors = new List<string>();
         try
         {
             var now = DateTimeOffset.UtcNow;
-            var scanUgc = force || _hunterLastRefreshUtc is null ||
-                now - _hunterLastRefreshUtc > TimeSpan.FromMinutes(3);
-            var scanOfficial = force || _officialLastRefreshUtc is null ||
-                now - _officialLastRefreshUtc > TimeSpan.FromMinutes(5);
-            var scanBundles = force || _liveBundleScanUtc is null ||
-                now - _liveBundleScanUtc > TimeSpan.FromMinutes(5);
+            var scanUgc = scope == "UGC" &&
+                (force || _hunterLastRefreshUtc is null ||
+                 now - _hunterLastRefreshUtc > TimeSpan.FromMinutes(3));
+            var scanOfficial = scope == "Official" &&
+                (force || _officialLastRefreshUtc is null ||
+                 now - _officialLastRefreshUtc > TimeSpan.FromMinutes(5));
+            var scanBundles = scope == "UGC" &&
+                (force || _liveBundleScanUtc is null ||
+                 now - _liveBundleScanUtc > TimeSpan.FromMinutes(5));
 
             if (scanUgc)
             {
@@ -600,7 +613,6 @@ public partial class MainWindow
 
             if (scanOfficial)
             {
-                if (scanUgc) await Task.Delay(350); // Don't burst separate discovery feeds.
                 var last = _officialLastRefreshUtc;
                 await RefreshOfficialLimitedAsync(silent: true);
                 if (last == _officialLastRefreshUtc) errors.Add("Official data may be stale");
@@ -610,7 +622,7 @@ public partial class MainWindow
             {
                 try
                 {
-                    if (scanUgc || scanOfficial) await Task.Delay(350);
+                    if (scanUgc) await Task.Delay(350);
                     var found = await _liveBundleResearch.DiscoverAsync();
                     _liveBundles.Clear();
                     _liveBundles.AddRange(found.Where(x => x.LimitedVerified));
@@ -624,26 +636,33 @@ public partial class MainWindow
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(_liveBundleScanError))
+            if (scope == "UGC" && !string.IsNullOrWhiteSpace(_liveBundleScanError))
                 errors.Add("Animation packs unavailable (cached results retained)");
             RebuildLiveDropRows();
-            var scanned = new[] { _hunterLastRefreshUtc, _officialLastRefreshUtc, _liveBundleScanUtc }
-                .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty().Max();
-            if (_liveDropStatus is not null)
-                _liveDropStatus.Text = (errors.Count > 0 ? "PARTIAL · " + string.Join("; ", errors) + " · " : "") +
-                    $"UGC {_hunterRows.Count} · Official {_officialRows.Count} · Animation packs {_liveBundles.Count} · " +
-                    (scanned == default ? "Not verified yet" : $"Last source refresh {scanned.ToLocalTime():h:mm tt}") +
-                    " · Bundle scores remain research-only";
+            if (_liveDropScope == scope)
+            {
+                UpdateLiveDropScopeStatus();
+                if (errors.Count > 0 && _liveDropStatus is not null)
+                    _liveDropStatus.Text = "PARTIAL · " + string.Join("; ", errors) +
+                        " · " + _liveDropStatus.Text;
+            }
         }
         catch (Exception ex)
         {
             _services.Logger.Error($"Live drop refresh failed: {ex}");
-            if (_liveDropStatus is not null)
-                _liveDropStatus.Text = $"Refresh interrupted; showing cached results. {ex.Message}";
+            if (_liveDropScope == scope && _liveDropStatus is not null)
+                _liveDropStatus.Text = $"Refresh interrupted; showing cached {scope} results. {ex.Message}";
         }
         finally
         {
             _liveDropBusy = false;
+            if (_liveDropSwitchPending)
+            {
+                _liveDropSwitchPending = false;
+                if (_liveDropPage?.IsVisible == true)
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                        new Action(async () => await RefreshLiveDropsAsync(force: false)));
+            }
         }
     }
 }
