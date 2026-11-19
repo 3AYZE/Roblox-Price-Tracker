@@ -68,8 +68,12 @@ public sealed class RobloxThumbnailService
                     continue;
                 }
 
+                // Bundle thumbnails do not accept the asset-only returnPolicy parameter.
+                var options = queryName == "assetIds"
+                    ? "&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false"
+                    : "&size=150x150&format=Png&isCircular=false";
                 var uri = new Uri($"{endpoint}?{queryName}={Uri.EscapeDataString(string.Join(',', pending))}" +
-                    "&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false");
+                    options);
                 using var response = await _httpClient.GetAsync(uri,
                     HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
