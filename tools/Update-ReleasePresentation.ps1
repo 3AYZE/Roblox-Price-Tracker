@@ -25,7 +25,7 @@ Requires the [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/en-us/downloa
 ## Features
 
 - Track Roblox Limited resale prices, price history, and alerts.
-- Browse UGC, Roblox Limiteds, emotes and Limited animation packs in one Live Drop Scanner.
+- Browse Official Limiteds and UGC Limiteds in separate scanners. UGC also includes emotes and Limited animation packs.
 - Compare verified creator-stock prices against resale asking prices, with clear research-only labels.
 - View market analysis, test a paper portfolio, and get in-app updates.
 
