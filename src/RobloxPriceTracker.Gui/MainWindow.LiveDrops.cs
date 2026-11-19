@@ -32,7 +32,11 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public string Score { get; init; } = "—";
     public string Rap => Official?.RapText ?? "—";
     public string Sales7d => Official?.Sales7dText ?? "—";
-    public string StockLeft => Ugc?.RemainingText ?? Bundle?.OriginalStockText ?? "—";
+    public long? OriginalUnitsLeft =>
+        Ugc is { PrimaryMarketVerified: true } ? Ugc.UnitsAvailable :
+        Bundle is { PrimaryMarketVerified: true } ? Bundle.OriginalUnitsAvailable : null;
+    public string StockLeft => OriginalUnitsLeft is > 0 ? $"{OriginalUnitsLeft:N0} left" : "—";
+    public long SortStockLow => OriginalUnitsLeft is > 0 ? OriginalUnitsLeft.Value : long.MaxValue;
     public long SortPriceLow => PriceNumber is > 0 ? PriceNumber.Value : long.MaxValue;
     public long SortPriceHigh => PriceNumber is > 0 ? -PriceNumber.Value : long.MaxValue;
     private long? PriceNumber => Official?.FloorPrice ?? QuotedPrice;
@@ -62,7 +66,7 @@ public partial class MainWindow
     private DataGrid? _liveDropGrid;
     private ComboBox? _liveDropSort;
     private ComboBox? _ugcMaximumPrice;
-    private CheckBox? _ugcVerifiedOnly;
+    private ComboBox? _ugcStockFilter;
     private Image? _liveDropPreviewImage;
     private TextBlock? _liveDropPreviewPlaceholder;
     private ComboBox? _liveDropTypeFilter;
@@ -105,11 +109,13 @@ public partial class MainWindow
         _officialRows.CollectionChanged += (_, _) => QueueLiveDropRebuild();
 
         // Refresh only when the scanner is visible. No new background API polling.
-        _liveDropTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(3) };
+        _liveDropTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _liveDropTimer.Tick += async (_, _) =>
         {
-            if (_liveDropPage?.Visibility == Visibility.Visible)
-                await RefreshLiveDropsAsync(force: false);
+            if (_liveDropPage?.Visibility != Visibility.Visible) return;
+            // Expired stock is removed from the active view even if Roblox is down.
+            UpdateLiveDropVisibleRows();
+            await RefreshLiveDropsAsync(force: false);
         };
         _liveDropTimer.Start();
     }
@@ -131,8 +137,8 @@ public partial class MainWindow
             _liveDropOnlyOpportunities.IsChecked = false;
         if (_ugcMaximumPrice is not null)
             _ugcMaximumPrice.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
-        if (_ugcVerifiedOnly is not null)
-            _ugcVerifiedOnly.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
+        if (_ugcStockFilter is not null)
+            _ugcStockFilter.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
 
         if (_liveDropSearch is not null)
         {
@@ -162,12 +168,10 @@ public partial class MainWindow
             }
             else
             {
-                _liveDropGrid.Columns.Add(LiveDropColumn("TYPE", nameof(LiveDropRow.Category), 1.1));
-                _liveDropGrid.Columns.Add(LiveDropColumn("PRICE / SOURCE", nameof(LiveDropRow.PriceDisplay), 1.45));
-                _liveDropGrid.Columns.Add(LiveDropColumn("RESALE ASK", nameof(LiveDropRow.ResaleAsk), 1.05));
+                _liveDropGrid.Columns.Add(LiveDropColumn("ORIGINAL PRICE", nameof(LiveDropRow.OriginalPrice), 1.12));
+                _liveDropGrid.Columns.Add(LiveDropColumn("STOCK LEFT", nameof(LiveDropRow.StockLeft), 1.08));
             }
-            _liveDropGrid.Columns.Add(LiveDropColumn("SCORE", nameof(LiveDropRow.Score), 0.65));
-            _liveDropGrid.Columns.Add(LiveDropColumn("STATUS", nameof(LiveDropRow.Status), 1.3));
+
             _liveDropGrid.SelectedItem = null;
         }
         UpdateLiveDropVisibleRows();
@@ -190,13 +194,18 @@ public partial class MainWindow
         {
             var last = new[] { _hunterLastRefreshUtc, _liveBundleScanUtc }
                 .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty().Max();
-            var verified = _hunterRows.Count(x => x.PrimaryMarketVerified);
-            var catalogOnly = _hunterRows.Count - verified;
-            _liveDropStatus.Text = $"UGC {_hunterRows.Count:N0} · Verified originals {verified:N0} · " +
-                $"Catalog quotes {catalogOnly:N0} · Animation packs {_liveBundles.Count:N0} · " +
-                (last == default ? "Refresh to scan" : $"Updated {last.ToLocalTime():h:mm tt}") +
-                " · Catalog quotes are not confirmed purchase prices" +
-                (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete");
+            var verified = _hunterRows.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
+                x.PrimaryMarketVerified, x.UnitsAvailable, x.Price,
+                _hunterLastRefreshUtc, DateTimeOffset.UtcNow));
+            var bundles = _liveBundles.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
+                x.PrimaryMarketVerified, x.OriginalUnitsAvailable, x.VerifiedOriginalPrice,
+                _liveBundleScanUtc, DateTimeOffset.UtcNow));
+            _liveDropStatus.Text = verified + bundles == 0
+                ? "No verified in-stock UGC Limiteds found. Sold-out, unknown or expired stock is excluded."
+                : $"Verified original-stock listings: {verified + bundles:N0} · " +
+                  (last == default ? "Refresh to scan" : $"Last scan {last.ToLocalTime():h:mm tt}") +
+                  " · Resale inventory excluded" +
+                  (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete");
         }
     }
 
@@ -223,7 +232,7 @@ public partial class MainWindow
         heading.Children.Add(_liveDropHeading);
         _liveDropStatus = new TextBlock
         {
-            Text = "UGC accessories, emotes and Limited animation packs. Original stock is not resale.",
+            Text = "Only verified, in-stock original UGC Limiteds. Reseller inventory is excluded.",
             Foreground = TerminalMuted,
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap,
@@ -251,6 +260,28 @@ public partial class MainWindow
         _liveDropSearch.TextChanged += (_, _) => UpdateLiveDropVisibleRows();
         toolbar.Children.Add(_liveDropSearch);
 
+        // Keep scanning controls simple. Advanced category/price/stock filters
+        // expand only when requested, instead of filling the toolbar.
+        var filters = new Expander
+        {
+            Header = "FILTERS",
+            IsExpanded = false,
+            Foreground = TerminalText,
+            Background = TerminalPanel,
+            BorderBrush = TerminalBorder,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        var filterPanel = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 8, 0, 3)
+        };
+        filters.Content = filterPanel;
+        toolbar.Children.Add(filters);
+
         _liveDropTypeFilter = new ComboBox
         {
             Width = 172,
@@ -261,45 +292,45 @@ public partial class MainWindow
         // Source-specific options are set by SetLiveDropScope. Official and UGC
         // products must never appear in the same result list.
         _liveDropTypeFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_liveDropTypeFilter);
+        filterPanel.Children.Add(_liveDropTypeFilter);
         _liveDropSort = new ComboBox
         {
             Width = 138, Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
-            ToolTip = "For Official items, price means resale floor; for UGC, verified original-stock price"
+            ToolTip = "Official: lowest resale ask. UGC: verified creator original-sale price."
         };
-        foreach (var option in new[] { "Best matches", "Lowest price", "Highest price", "Name A–Z" })
+        foreach (var option in new[] { "Best matches", "Lowest price", "Highest price", "Least stock", "Name A–Z" })
             _liveDropSort.Items.Add(option);
         _liveDropSort.SelectedIndex = 0;
         _liveDropSort.SelectionChanged += (_, _) => ApplyLiveDropSort();
-        toolbar.Children.Add(_liveDropSort);
+        filterPanel.Children.Add(_liveDropSort);
         _ugcMaximumPrice = new ComboBox
         {
             Width = 140, Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
-            ToolTip = "UGC max displayed catalog or verified quote, not an official price minimum. Default: 1,000 R$. Any price is research-only for extreme/unpriced items."
+            ToolTip = "Maximum verified original creator price. Default: 1,000 R$. Higher prices can be inspected by changing the filter."
         };
         foreach (var option in new[]
         {
             "≤ 500 R$", "≤ 1,000 R$", "≤ 2,500 R$",
-            "≤ 5,000 R$", "Any price (research)"
+            "≤ 5,000 R$", "Any verified price"
         })
             _ugcMaximumPrice.Items.Add(option);
         _ugcMaximumPrice.SelectedIndex = 1;
         _ugcMaximumPrice.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_ugcMaximumPrice);
+        filterPanel.Children.Add(_ugcMaximumPrice);
 
-        _ugcVerifiedOnly = new CheckBox
+        _ugcStockFilter = new ComboBox
         {
-            Content = "Verified originals",
-            Foreground = TerminalText,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 0, 0),
-            ToolTip = "Hide catalog-only quotes and unverified bundle prices. May show no results if Roblox verification is unavailable."
+            Width = 123, Height = 30,
+            Margin = new Thickness(8, 0, 0, 0),
+            ToolTip = "Remaining ORIGINAL creator units only; not resellers"
         };
-        _ugcVerifiedOnly.Checked += (_, _) => UpdateLiveDropVisibleRows();
-        _ugcVerifiedOnly.Unchecked += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_ugcVerifiedOnly);
+        foreach (var option in new[] { "All in stock", "≤ 10 left", "≤ 50 left", "≤ 100 left" })
+            _ugcStockFilter.Items.Add(option);
+        _ugcStockFilter.SelectedIndex = 0;
+        _ugcStockFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
+        filterPanel.Children.Add(_ugcStockFilter);
 
 
 
@@ -313,7 +344,7 @@ public partial class MainWindow
         };
         _liveDropOnlyOpportunities.Checked += (_, _) => UpdateLiveDropVisibleRows();
         _liveDropOnlyOpportunities.Unchecked += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_liveDropOnlyOpportunities);
+        filterPanel.Children.Add(_liveDropOnlyOpportunities);
 
         var refresh = new Button
         {
@@ -637,10 +668,20 @@ public partial class MainWindow
         Bundle = item, IsOpportunity = false
     };
 
+    private bool IsLiveDropOriginalStockCurrent(LiveDropRow row)
+    {
+        if (row.Official is not null) return true;
+        var verifiedTime = row.Ugc is not null ? _hunterLastRefreshUtc : _liveBundleScanUtc;
+        return UgcActiveStockPolicy.IsActiveSnapshot(
+            row.PrimaryVerified, row.OriginalUnitsLeft, row.QuotedPrice,
+            verifiedTime, DateTimeOffset.UtcNow);
+    }
+
     private bool FilterLiveDropRow(object value)
     {
         if (value is not LiveDropRow row ||
-            !LiveDropScopePolicy.Accepts(_liveDropScope, row.Kind)) return false;
+            !LiveDropScopePolicy.Accepts(_liveDropScope, row.Kind) ||
+            !IsLiveDropOriginalStockCurrent(row)) return false;
         var query = _liveDropSearch?.Text.Trim() ?? "";
         if (!string.IsNullOrWhiteSpace(query) &&
             !row.Name.Contains(query, StringComparison.OrdinalIgnoreCase) &&
@@ -672,9 +713,19 @@ public partial class MainWindow
             4 => (int?)null,
             _ => UgcScannerPriceVisibilityPolicy.DefaultMaximumRobux
         };
-        if (!UgcScannerPriceVisibilityPolicy.Include(row.QuotedPrice, row.PrimaryVerified,
-            max, _ugcVerifiedOnly?.IsChecked == true))
+        // Even the unbounded price mode NEVER includes unknown/sold-out stock.
+        if (!UgcScannerPriceVisibilityPolicy.Include(
+            row.QuotedPrice, row.PrimaryVerified, max, verifiedOnly: true))
             return false;
+        var maximumLeft = _ugcStockFilter?.SelectedIndex switch
+        {
+            1 => 10L,
+            2 => 50L,
+            3 => 100L,
+            _ => long.MaxValue
+        };
+        if (row.OriginalUnitsLeft is not > 0 ||
+            row.OriginalUnitsLeft > maximumLeft) return false;
         // Price-distortion exclusions aren't normal shopping results.
         // Research-only Any price mode permits manual inspection.
         if (max is not null && row.Ugc?.IsExcludedPriceDistortion == true)
@@ -704,6 +755,10 @@ public partial class MainWindow
             case "Highest price":
                 _liveDropView.SortDescriptions.Add(new SortDescription(
                     nameof(LiveDropRow.SortPriceHigh), ListSortDirection.Ascending));
+                break;
+            case "Least stock":
+                _liveDropView.SortDescriptions.Add(new SortDescription(
+                    nameof(LiveDropRow.SortStockLow), ListSortDirection.Ascending));
                 break;
             case "Name A–Z":
                 _liveDropView.SortDescriptions.Add(new SortDescription(
@@ -755,7 +810,8 @@ public partial class MainWindow
         {
             var visible = _liveDropView?.Cast<object>().Count() ?? 0;
             var available = _liveDropRows.Count(x =>
-                LiveDropScopePolicy.Accepts(_liveDropScope, x.Kind));
+                LiveDropScopePolicy.Accepts(_liveDropScope, x.Kind) &&
+                IsLiveDropOriginalStockCurrent(x));
             _liveDropCount.Text = $"{visible:N0} shown / {available:N0} total";
         }
     }
@@ -772,8 +828,8 @@ public partial class MainWindow
         if (_liveDropInspectorPrices is not null)
             _liveDropInspectorPrices.Text = row is null ? ""
                 : row.Official is not null
-                    ? $"Resale floor: {row.ResaleAsk}\nRAP: {row.Rap}\n7d sales: {row.Sales7d}\nScore: {row.Score}\nStatus: {row.Status}"
-                    : $"Verified original stock: {row.OriginalPrice}\nCatalog quote (unverified): {row.CatalogQuote}\nResale seller ask: {row.ResaleAsk}\nScore: {row.Score}\nStatus: {row.Status}";
+                    ? $"Lowest resale ask: {row.ResaleAsk}\nRAP: {row.Rap}\n7-day sales: {row.Sales7d}\nScore: {row.Score}\n{row.Status}"
+                    : $"Original price: {row.OriginalPrice}\nOriginal stock left: {row.StockLeft}\nResale seller ask: {row.ResaleAsk}\nMarket score: {row.Score}\n{row.Status}";
         if (_liveDropInspectorEvidence is not null)
             _liveDropInspectorEvidence.Text = row is null ? "" : $"EVIDENCE\n{row.Evidence}";
         if (_liveDropInspectorReason is not null)
@@ -787,7 +843,8 @@ public partial class MainWindow
         if (_liveDropPaperButton is not null)
         {
             _liveDropPaperButton.Visibility = row?.Ugc is not null ? Visibility.Visible : Visibility.Collapsed;
-            _liveDropPaperButton.IsEnabled = row?.Ugc is { PrimaryMarketVerified: true } && row.IsOpportunity;
+            _liveDropPaperButton.IsEnabled = row?.Ugc is { PrimaryMarketVerified: true } &&
+                row.IsOpportunity && IsLiveDropOriginalStockCurrent(row);
         }
     }
 
@@ -813,10 +870,34 @@ public partial class MainWindow
     {
         if (_liveDropGrid?.SelectedItem is not LiveDropRow row || !row.IsOpportunity ||
             row.Ugc is not { PrimaryMarketVerified: true } item ||
-            item.IsExcludedPriceDistortion || item.Recommendation == "DATA REVIEW") return;
-        await _services.PaperPortfolioStore.AddAsync(item, 1);
-        ShowBanner("Paper entry recorded", $"1 × {item.Name} at {item.Price:N0} R$. No Robux spent.");
-        await RefreshPaperPortfolioAsync();
+            item.IsExcludedPriceDistortion || item.Recommendation == "DATA REVIEW" ||
+            !IsLiveDropOriginalStockCurrent(row) ||
+            string.IsNullOrWhiteSpace(item.CollectibleItemId)) return;
+        try
+        {
+            // Recheck with a fresh Marketplace service instance, bypassing any
+            // discovery cache. A paper entry must use the verified same price.
+            var verification = new RobloxMarketplaceItemService(_services.HttpClient, _services.Logger);
+            var current = await verification.GetManyAsync(new[] { item.CollectibleItemId });
+            if (!current.TryGetValue(item.CollectibleItemId, out var market) ||
+                !UgcActiveStockPolicy.IsMarketplaceVerified(
+                    item.AssetId, item.CollectibleItemId, market) || market.Price != item.Price)
+            {
+                ShowBanner("Stock or price changed",
+                    "Original stock could not be confirmed at the displayed price. Refresh before making a paper entry.");
+                await RefreshLiveDropsAsync(force: true);
+                return;
+            }
+
+            await _services.PaperPortfolioStore.AddAsync(item, 1);
+            ShowBanner("Paper entry recorded", $"1 × {item.Name} at {item.Price:N0} R$. No Robux spent.");
+            await RefreshPaperPortfolioAsync();
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Info($"Paper entry stock recheck failed: {ex.Message}");
+            ShowBanner("Stock not verified", "No paper entry was made because current original stock could not be confirmed.");
+        }
     }
 
     private async Task OpenLiveDropTypeAsync(string filter)
@@ -871,7 +952,9 @@ public partial class MainWindow
                     if (scanUgc) await Task.Delay(350);
                     var found = await _liveBundleResearch.DiscoverAsync();
                     _liveBundles.Clear();
-                    _liveBundles.AddRange(found.Where(x => x.LimitedVerified));
+                    _liveBundles.AddRange(found.Where(x =>
+                        x.LimitedVerified && x.PrimaryMarketVerified &&
+                        x.OriginalUnitsAvailable is > 0 && x.VerifiedOriginalPrice is > 0));
                     _liveBundleScanUtc = DateTimeOffset.UtcNow;
                     _liveBundleScanError = null;
                 }

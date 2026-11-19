@@ -235,35 +235,31 @@ public sealed class RobloxUgcDiscoveryService
         var rejectedUnavailable = 0;
         foreach (var candidate in catalogCandidates)
         {
-            if (!string.IsNullOrWhiteSpace(candidate.CollectibleItemId) &&
-                marketplace.TryGetValue(candidate.CollectibleItemId, out var authoritative) &&
-                authoritative.IsAvailable)
+            // Catalog-only data is discovery evidence, not an active stock quote.
+            // Never use its remaining count, seller book, or resale price as proof.
+            if (string.IsNullOrWhiteSpace(candidate.CollectibleItemId) ||
+                !marketplace.TryGetValue(candidate.CollectibleItemId, out var authoritative) ||
+                !UgcActiveStockPolicy.IsMarketplaceVerified(
+                    candidate.AssetId, candidate.CollectibleItemId, authoritative))
             {
-                verified++;
-                if (!authoritative.IsPrimaryPurchasable)
-                {
-                    rejectedUnavailable++;
-                    continue;
-                }
-
-                candidates.Add(candidate with
-                {
-                    Price = authoritative.Price ?? candidate.Price,
-                    PurchaseCount = authoritative.PrimarySales ?? candidate.PurchaseCount,
-                    UnitsAvailable = authoritative.UnitsAvailable ?? candidate.UnitsAvailable,
-                    TotalQuantity = authoritative.TotalStock ?? candidate.TotalQuantity,
-                    LowestResalePrice = authoritative.LowestResalePrice,
-                    HasResellers = authoritative.HasResellers,
-                    PrimaryMarketVerified = true,
-                    CollectibleItemId = authoritative.CollectibleItemId
-                });
+                rejectedUnavailable++;
                 continue;
             }
 
-            if (candidate.UnitsAvailable is > 0)
-                candidates.Add(candidate);
-            else
-                rejectedUnavailable++;
+            verified++;
+            candidates.Add(candidate with
+            {
+                Price = authoritative.Price!.Value,
+                PurchaseCount = authoritative.PrimarySales ?? candidate.PurchaseCount,
+                UnitsAvailable = authoritative.UnitsAvailable,
+                // Use only the verified original total; an unknown total is
+                // displayed as an unknown denominator, never catalog-inferred.
+                TotalQuantity = authoritative.TotalStock,
+                LowestResalePrice = authoritative.LowestResalePrice,
+                HasResellers = authoritative.HasResellers,
+                PrimaryMarketVerified = true,
+                CollectibleItemId = authoritative.CollectibleItemId
+            });
         }
 
         _logger.Info(

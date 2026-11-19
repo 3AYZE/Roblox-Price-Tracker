@@ -195,7 +195,7 @@ internal static partial class Program
         AssertEqual(3, call);
         AssertEqual(1, result.DiscoveredCount);
         AssertEqual(1, result.HydratedCount);
-        AssertEqual(1, result.Items.Count);
-        AssertEqual(95, result.Items[0].Price);
+        // CSRF hydration succeeded, but catalog-only stock is not active stock.
+        AssertEqual(0, result.Items.Count);
     }
 }

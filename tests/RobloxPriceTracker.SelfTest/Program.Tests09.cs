@@ -36,6 +36,7 @@ internal static partial class Program
         var totalCalls = 0;
         var maxDetailBatch = 0;
         var sawCursorRequest = false;
+        var sawCaesarHydrated = false;
         var searchQueries = new List<string>();
         var generatedId = 10_000L;
 
@@ -107,6 +108,7 @@ internal static partial class Program
                 .Select(x => x.GetProperty("id").GetInt64())
                 .ToArray();
             maxDetailBatch = Math.Max(maxDetailBatch, requestedIds.Length);
+            sawCaesarHydrated |= requestedIds.Contains(caesarCrownAssetId);
 
             var detailJson = JsonSerializer.Serialize(new
             {
@@ -145,8 +147,8 @@ internal static partial class Program
         AssertTrue(totalCalls >= searchCalls + detailCalls);
         AssertTrue(result.DiscoveredCount > 30 && result.DiscoveredCount <= 120);
         AssertEqual(result.DiscoveredCount, result.HydratedCount);
-        AssertEqual(result.DiscoveredCount, result.Items.Count);
-        AssertTrue(result.Items.Any(x => x.AssetId == caesarCrownAssetId));
+        AssertTrue(sawCaesarHydrated); // Discovery and catalog hydration reached the older item.
+        AssertEqual(0, result.Items.Count); // Catalog-only rows lack verified original stock.
         AssertTrue(searchQueries.Any(x => x.Contains("Category=2", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase)));
