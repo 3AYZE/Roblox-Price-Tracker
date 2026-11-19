@@ -843,7 +843,8 @@ public partial class MainWindow
         if (_liveDropPaperButton is not null)
         {
             _liveDropPaperButton.Visibility = row?.Ugc is not null ? Visibility.Visible : Visibility.Collapsed;
-            _liveDropPaperButton.IsEnabled = row?.Ugc is { PrimaryMarketVerified: true } && row.IsOpportunity;
+            _liveDropPaperButton.IsEnabled = row?.Ugc is { PrimaryMarketVerified: true } &&
+                row.IsOpportunity && IsLiveDropOriginalStockCurrent(row);
         }
     }
 
@@ -869,10 +870,34 @@ public partial class MainWindow
     {
         if (_liveDropGrid?.SelectedItem is not LiveDropRow row || !row.IsOpportunity ||
             row.Ugc is not { PrimaryMarketVerified: true } item ||
-            item.IsExcludedPriceDistortion || item.Recommendation == "DATA REVIEW") return;
-        await _services.PaperPortfolioStore.AddAsync(item, 1);
-        ShowBanner("Paper entry recorded", $"1 × {item.Name} at {item.Price:N0} R$. No Robux spent.");
-        await RefreshPaperPortfolioAsync();
+            item.IsExcludedPriceDistortion || item.Recommendation == "DATA REVIEW" ||
+            !IsLiveDropOriginalStockCurrent(row) ||
+            string.IsNullOrWhiteSpace(item.CollectibleItemId)) return;
+        try
+        {
+            // Recheck with a fresh Marketplace service instance, bypassing any
+            // discovery cache. A paper entry must use the verified same price.
+            var verification = new RobloxMarketplaceItemService(_services.HttpClient, _services.Logger);
+            var current = await verification.GetManyAsync(new[] { item.CollectibleItemId });
+            if (!current.TryGetValue(item.CollectibleItemId, out var market) ||
+                !UgcActiveStockPolicy.IsMarketplaceVerified(
+                    item.AssetId, item.CollectibleItemId, market) || market.Price != item.Price)
+            {
+                ShowBanner("Stock or price changed",
+                    "Original stock could not be confirmed at the displayed price. Refresh before making a paper entry.");
+                await RefreshLiveDropsAsync(force: true);
+                return;
+            }
+
+            await _services.PaperPortfolioStore.AddAsync(item, 1);
+            ShowBanner("Paper entry recorded", $"1 × {item.Name} at {item.Price:N0} R$. No Robux spent.");
+            await RefreshPaperPortfolioAsync();
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Info($"Paper entry stock recheck failed: {ex.Message}");
+            ShowBanner("Stock not verified", "No paper entry was made because current original stock could not be confirmed.");
+        }
     }
 
     private async Task OpenLiveDropTypeAsync(string filter)
