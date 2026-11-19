@@ -1,5 +1,15 @@
 # Roblox Price Tracker changelog
 
+## v0.15.4 — Item PNG previews and clearer market scanning
+- Official and UGC Limited scanner rows now display Roblox PNG item thumbnails next to names and typed IDs. The selected-item inspector includes a larger, aspect-preserving preview with an honest unavailable-image state.
+- Animation packs use the separate public **bundle thumbnail** endpoint. The stand-alone animation research window also displays previews without changing any resale evidence or bundle-ID safety rules.
+- The paper portfolio now shows images for saved asset positions, without storing image URLs in user trading data.
+- Add a sort selector for best matches, lowest verified price, highest verified price, and alphabetical names. Missing price data is never treated as zero.
+- Hide inapplicable investment actions from bundle/Official inspectors while preserving read-only Roblox links.
+- Shared thumbnail loader uses batched PNG requests, separate asset/bundle caches, bounded cache lifetimes, retryable pending results, and safe rate-limit handling.
+- Add tests for thumbnail response states, requested-ID isolation, empty responses, and untrusted image links. No changes to scoring, purchasing, update tag, or saved data.
+
+
 ## v0.15.3 — Separate Official and UGC Limited scanners
 - Discover now offers **Overview**, **Official Limiteds**, and **UGC Limiteds** as separate tabs. The previous combined Live Drops list is no longer displayed.
 - Official Limiteds displays Roblox-published assets, resale floor, RAP and 7-day sales. Official-only filters include below RAP, high liquidity and price drops.

@@ -9,6 +9,7 @@ namespace RobloxPriceTracker.Gui;
 public sealed class AnimationBundleResearchWindow : Window
 {
     private readonly RobloxAnimationBundleResearchService _research;
+    private readonly RobloxThumbnailService _thumbnails;
     private readonly ObservableCollection<RobloxAnimationBundleOffer> _rows = [];
     private readonly ICollectionView _view;
     private readonly CancellationTokenSource _lifetime = new();
@@ -21,6 +22,7 @@ public sealed class AnimationBundleResearchWindow : Window
     public AnimationBundleResearchWindow(AppServices services)
     {
         _research = new RobloxAnimationBundleResearchService(services.HttpClient, services.Logger);
+        _thumbnails = services.ThumbnailService;
         Title = "Animation Packs · Original-Price Research";
         Width = 1100;
         Height = 650;
@@ -78,14 +80,14 @@ public sealed class AnimationBundleResearchWindow : Window
         {
             IsReadOnly = true,
             AutoGenerateColumns = false,
-            RowHeight = 36,
+            RowHeight = 56,
             Background = new SolidColorBrush(Color.FromRgb(18, 26, 35)),
             Foreground = Brushes.WhiteSmoke,
             GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
             SelectionMode = DataGridSelectionMode.Single,
             HeadersVisibility = DataGridHeadersVisibility.Column
         };
-        _grid.Columns.Add(Column("BUNDLE NAME", nameof(RobloxAnimationBundleOffer.Name), 2.6));
+        _grid.Columns.Add(CreateBundlePictureColumn());
         _grid.Columns.Add(Column("CREATOR", nameof(RobloxAnimationBundleOffer.CreatorName), 1.2));
         _grid.Columns.Add(Column("BUNDLE ID", nameof(RobloxAnimationBundleOffer.BundleId), 1.1));
         _grid.Columns.Add(Column("ORIGINAL R$", nameof(RobloxAnimationBundleOffer.OriginalPriceText), 1));
@@ -114,6 +116,38 @@ public sealed class AnimationBundleResearchWindow : Window
         };
     }
 
+    private static DataGridTemplateColumn CreateBundlePictureColumn()
+    {
+        var row = new FrameworkElementFactory(typeof(StackPanel));
+        row.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        var frame = new FrameworkElementFactory(typeof(Border));
+        frame.SetValue(FrameworkElement.WidthProperty, 46d);
+        frame.SetValue(FrameworkElement.HeightProperty, 46d);
+        frame.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(28, 36, 46)));
+        frame.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+        var picture = new FrameworkElementFactory(typeof(Image));
+        picture.SetBinding(Image.SourceProperty, new Binding(nameof(RobloxAnimationBundleOffer.ThumbnailUrl)));
+        picture.SetValue(FrameworkElement.WidthProperty, 44d);
+        picture.SetValue(FrameworkElement.HeightProperty, 44d);
+        picture.SetValue(Image.StretchProperty, Stretch.Uniform);
+        frame.AppendChild(picture);
+        row.AppendChild(frame);
+
+        var text = new FrameworkElementFactory(typeof(TextBlock));
+        text.SetBinding(TextBlock.TextProperty, new Binding(nameof(RobloxAnimationBundleOffer.Name)));
+        text.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+        text.SetValue(TextBlock.MarginProperty, new Thickness(9, 0, 0, 0));
+        text.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        text.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        row.AppendChild(text);
+        return new DataGridTemplateColumn
+        {
+            Header = "BUNDLE",
+            CellTemplate = new DataTemplate { VisualTree = row },
+            Width = new DataGridLength(2.6, DataGridLengthUnitType.Star)
+        };
+    }
+
     private static DataGridTextColumn Column(string title, string path, double proportion) => new()
     {
         Header = title,
@@ -139,9 +173,21 @@ public sealed class AnimationBundleResearchWindow : Window
         try
         {
             var found = await _research.DiscoverAsync(_lifetime.Token);
+            // Keep verification results visible immediately. Optional PNGs never
+            // affect prices or hide a valid bundle when thumbnails fail.
             _rows.Clear();
             foreach (var offer in found) _rows.Add(offer);
             var verified = found.Count(x => x.PrimaryMarketVerified);
+            try
+            {
+                var imageUrls = await _thumbnails.GetBundleThumbnailUrlsAsync(
+                    found.Select(x => x.BundleId), _lifetime.Token);
+                for (var i = 0; i < _rows.Count; i++)
+                    if (imageUrls.TryGetValue(_rows[i].BundleId, out var image))
+                        _rows[i] = _rows[i] with { ThumbnailUrl = image };
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { throw; }
+            catch (Exception) { /* Pictures are optional research decoration. */ }
             _status.Text = $"{found.Count} bundles · {verified} verified original-stock offers";
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }

@@ -4,8 +4,20 @@ namespace RobloxPriceTracker.Gui;
 /// Display-only union of distinct marketplace product kinds. Asset and bundle IDs
 /// must never be sent into the same analyzer, tracker, or paper-trading pipeline.
 /// </summary>
-public sealed class LiveDropRow
+public sealed class LiveDropRow : INotifyPropertyChanged
 {
+    private string? _thumbnailUrl;
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public string? ThumbnailUrl
+    {
+        get => _thumbnailUrl;
+        set
+        {
+            if (string.Equals(_thumbnailUrl, value, StringComparison.Ordinal)) return;
+            _thumbnailUrl = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThumbnailUrl)));
+        }
+    }
     public long Id { get; init; }
     public string Name { get; init; } = "";
     public string Creator { get; init; } = "";
@@ -17,6 +29,11 @@ public sealed class LiveDropRow
     public string Rap => Official?.RapText ?? "—";
     public string Sales7d => Official?.Sales7dText ?? "—";
     public string StockLeft => Ugc?.RemainingText ?? Bundle?.OriginalStockText ?? "—";
+    public long SortPriceLow => PriceNumber is > 0 ? PriceNumber.Value : long.MaxValue;
+    public long SortPriceHigh => PriceNumber is > 0 ? -PriceNumber.Value : long.MaxValue;
+    private long? PriceNumber => Official?.FloorPrice ??
+        (Ugc is { PrimaryMarketVerified: true } offer ? (long?)offer.Price : null) ??
+        (Bundle is { PrimaryMarketVerified: true } pack ? (long?)pack.VerifiedOriginalPrice : null);
     public string Status { get; init; } = "RESEARCH";
     public string Evidence { get; init; } = "";
     public string Explanation { get; init; } = "";
@@ -37,9 +54,13 @@ public partial class MainWindow
 {
     private readonly ObservableCollection<LiveDropRow> _liveDropRows = new();
     private readonly List<RobloxAnimationBundleOffer> _liveBundles = new();
+    private readonly Dictionary<long, string> _liveBundleImages = new();
     private ICollectionView? _liveDropView;
     private Grid? _liveDropPage;
     private DataGrid? _liveDropGrid;
+    private ComboBox? _liveDropSort;
+    private Image? _liveDropPreviewImage;
+    private TextBlock? _liveDropPreviewPlaceholder;
     private ComboBox? _liveDropTypeFilter;
     private TextBox? _liveDropSearch;
     private CheckBox? _liveDropOnlyOpportunities;
@@ -72,10 +93,7 @@ public partial class MainWindow
 
         _liveDropView = CollectionViewSource.GetDefaultView(_liveDropRows);
         _liveDropView.Filter = FilterLiveDropRow;
-        _liveDropView.SortDescriptions.Add(new SortDescription(nameof(LiveDropRow.OpportunityRank),
-            ListSortDirection.Descending));
-        _liveDropView.SortDescriptions.Add(new SortDescription(nameof(LiveDropRow.ScoreRank),
-            ListSortDirection.Descending));
+        ApplyLiveDropSort();
         if (_liveDropGrid is not null) _liveDropGrid.ItemsSource = _liveDropView;
         SetLiveDropScope("UGC");
 
@@ -127,7 +145,7 @@ public partial class MainWindow
         if (_liveDropGrid is not null)
         {
             _liveDropGrid.Columns.Clear();
-            _liveDropGrid.Columns.Add(LiveDropColumn("ITEM", nameof(LiveDropRow.Name), 2.5));
+            _liveDropGrid.Columns.Add(CreateLiveDropAssetColumn());
             if (scope == "Official")
             {
                 _liveDropGrid.Columns.Add(LiveDropColumn("RESALE FLOOR", nameof(LiveDropRow.ResaleAsk), 1.1));
@@ -233,6 +251,18 @@ public partial class MainWindow
         // products must never appear in the same result list.
         _liveDropTypeFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
         toolbar.Children.Add(_liveDropTypeFilter);
+        _liveDropSort = new ComboBox
+        {
+            Width = 138, Height = 30,
+            Margin = new Thickness(8, 0, 0, 0),
+            ToolTip = "For Official items, price means resale floor; for UGC, verified original-stock price"
+        };
+        foreach (var option in new[] { "Best matches", "Lowest price", "Highest price", "Name A–Z" })
+            _liveDropSort.Items.Add(option);
+        _liveDropSort.SelectedIndex = 0;
+        _liveDropSort.SelectionChanged += (_, _) => ApplyLiveDropSort();
+        toolbar.Children.Add(_liveDropSort);
+
 
         _liveDropOnlyOpportunities = new CheckBox
         {
@@ -280,7 +310,7 @@ public partial class MainWindow
             AutoGenerateColumns = false,
             IsReadOnly = true,
             EnableRowVirtualization = true,
-            RowHeight = 40,
+            RowHeight = 62,
             Background = Brushes.Transparent,
             Foreground = TerminalText,
             HeadersVisibility = DataGridHeadersVisibility.Column,
@@ -311,6 +341,34 @@ public partial class MainWindow
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 10)
         });
+        var imageFrame = new Border
+        {
+            Width = 192, Height = 192,
+            Background = TerminalPanel,
+            BorderBrush = TerminalBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(7),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 4, 0, 12),
+            ClipToBounds = true
+        };
+        var imageLayer = new Grid();
+        _liveDropPreviewPlaceholder = new TextBlock
+        {
+            Text = "NO IMAGE",
+            FontSize = 10,
+            Foreground = TerminalMuted,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        imageLayer.Children.Add(_liveDropPreviewPlaceholder);
+        _liveDropPreviewImage = new Image { Stretch = Stretch.Uniform };
+        _liveDropPreviewImage.SetBinding(Image.SourceProperty,
+            new Binding("SelectedItem.ThumbnailUrl") { Source = _liveDropGrid });
+        imageLayer.Children.Add(_liveDropPreviewImage);
+        imageFrame.Child = imageLayer;
+        details.Children.Add(imageFrame);
+
         _liveDropInspectorTitle = LiveDropDetail(details, 15, true);
         _liveDropInspectorTitle.Text = "Select an item";
         _liveDropInspectorMeta = LiveDropDetail(details, 10);
@@ -349,6 +407,58 @@ public partial class MainWindow
         details.Children.Add(_liveDropPaperButton);
 
         return root;
+    }
+
+    private static DataGridTemplateColumn CreateLiveDropAssetColumn()
+    {
+        var root = new FrameworkElementFactory(typeof(StackPanel));
+        root.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        root.SetValue(FrameworkElement.MarginProperty, new Thickness(3, 2, 3, 2));
+
+        var frame = new FrameworkElementFactory(typeof(Border));
+        frame.SetValue(FrameworkElement.WidthProperty, 50d);
+        frame.SetValue(FrameworkElement.HeightProperty, 50d);
+        frame.SetValue(Border.BorderBrushProperty, TerminalBorder);
+        frame.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        frame.SetValue(Border.BackgroundProperty, TerminalPanel);
+        frame.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+
+        var image = new FrameworkElementFactory(typeof(Image));
+        image.SetValue(FrameworkElement.WidthProperty, 48d);
+        image.SetValue(FrameworkElement.HeightProperty, 48d);
+        image.SetValue(Image.StretchProperty, Stretch.Uniform);
+        image.SetBinding(Image.SourceProperty, new Binding(nameof(LiveDropRow.ThumbnailUrl)));
+        frame.AppendChild(image);
+        root.AppendChild(frame);
+
+        var identity = new FrameworkElementFactory(typeof(StackPanel));
+        identity.SetValue(FrameworkElement.MarginProperty, new Thickness(10, 0, 0, 0));
+        identity.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+
+        var name = new FrameworkElementFactory(typeof(TextBlock));
+        name.SetBinding(TextBlock.TextProperty, new Binding(nameof(LiveDropRow.Name)));
+        name.SetValue(TextBlock.ForegroundProperty, TerminalText);
+        name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
+        name.SetValue(TextBlock.FontSizeProperty, 10.3d);
+        name.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+        name.SetValue(FrameworkElement.MaxWidthProperty, 240d);
+        identity.AppendChild(name);
+
+        var subtitle = new FrameworkElementFactory(typeof(TextBlock));
+        subtitle.SetBinding(TextBlock.TextProperty, new Binding(nameof(LiveDropRow.Identity)));
+        subtitle.SetValue(TextBlock.ForegroundProperty, TerminalMuted);
+        subtitle.SetValue(TextBlock.FontSizeProperty, 9d);
+        subtitle.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 4, 0, 0));
+        identity.AppendChild(subtitle);
+        root.AppendChild(identity);
+
+        return new DataGridTemplateColumn
+        {
+            Header = "ITEM",
+            CellTemplate = new DataTemplate { VisualTree = root },
+            Width = new DataGridLength(2.5, DataGridLengthUnitType.Star),
+            MinWidth = 195
+        };
     }
 
     private static DataGridTextColumn LiveDropColumn(string title, string path, double proportion) => new()
@@ -421,6 +531,7 @@ public partial class MainWindow
                 : item.Category,
             IsEmote = item.AssetType == 61,
             IsVerifiedSpecialMaterial = item.IsEmissive == true || item.IsPbr == true,
+            ThumbnailUrl = item.ThumbnailUrl,
             OriginalPrice = item.PrimaryMarketVerified ? $"{item.Price:N0} R$" : "—",
             ResaleAsk = item.CurrentResaleText,
             Score = item.PrimaryMarketVerified && item.Recommendation != "DATA REVIEW" &&
@@ -444,6 +555,7 @@ public partial class MainWindow
     {
         Id = item.AssetId, Name = item.Name, Creator = "Roblox",
         Kind = "Official", Category = "Roblox Limited",
+        ThumbnailUrl = item.ThumbnailUrl,
         OriginalPrice = "—", // Original creator price is NOT the resale floor.
         ResaleAsk = item.FloorText,
         Score = item.IsEnriched ? item.HuntText : "—",
@@ -458,10 +570,11 @@ public partial class MainWindow
         ScoreRank = item.IsHuntCandidate ? item.HuntScore : 0
     };
 
-    private static LiveDropRow FromBundle(RobloxAnimationBundleOffer item) => new()
+    private LiveDropRow FromBundle(RobloxAnimationBundleOffer item) => new()
     {
         Id = item.BundleId, Name = item.Name, Creator = item.CreatorName,
         Kind = "Bundle", Category = "Animation Pack",
+        ThumbnailUrl = _liveBundleImages.TryGetValue(item.BundleId, out var image) ? image : null,
         OriginalPrice = item.OriginalPriceText,
         ResaleAsk = item.ResaleAskText,
         Score = "—", Status = "RESEARCH ONLY",
@@ -508,6 +621,56 @@ public partial class MainWindow
         };
     }
 
+    private void ApplyLiveDropSort()
+    {
+        if (_liveDropView is null) return;
+        var option = _liveDropSort?.SelectedItem?.ToString() ?? "Best matches";
+        _liveDropView.SortDescriptions.Clear();
+        switch (option)
+        {
+            case "Lowest price":
+                _liveDropView.SortDescriptions.Add(new SortDescription(
+                    nameof(LiveDropRow.SortPriceLow), ListSortDirection.Ascending));
+                break;
+            case "Highest price":
+                _liveDropView.SortDescriptions.Add(new SortDescription(
+                    nameof(LiveDropRow.SortPriceHigh), ListSortDirection.Ascending));
+                break;
+            case "Name A–Z":
+                _liveDropView.SortDescriptions.Add(new SortDescription(
+                    nameof(LiveDropRow.Name), ListSortDirection.Ascending));
+                break;
+            default:
+                _liveDropView.SortDescriptions.Add(new SortDescription(
+                    nameof(LiveDropRow.OpportunityRank), ListSortDirection.Descending));
+                _liveDropView.SortDescriptions.Add(new SortDescription(
+                    nameof(LiveDropRow.ScoreRank), ListSortDirection.Descending));
+                break;
+        }
+    }
+
+    private async Task LoadLiveBundleImagesAsync()
+    {
+        // Fetch at most the already-verified bounded bundle candidates and only
+        // when the UGC scanner is active. Never block market results on image failure.
+        var missing = _liveBundles.Select(x => x.BundleId)
+            .Where(id => !_liveBundleImages.ContainsKey(id)).Distinct().ToArray();
+        if (missing.Length == 0) return;
+        try
+        {
+            var images = await _services.ThumbnailService.GetBundleThumbnailUrlsAsync(missing);
+            foreach (var pair in images)
+                _liveBundleImages[pair.Key] = pair.Value;
+            foreach (var row in _liveDropRows.Where(x => x.IsBundle))
+                if (images.TryGetValue(row.Id, out var url)) row.ThumbnailUrl = url;
+            UpdateLiveDropInspector();
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Info($"Optional bundle thumbnails unavailable: {ex.Message}");
+        }
+    }
+
     private void UpdateLiveDropVisibleRows()
     {
         _liveDropView?.Refresh();
@@ -524,6 +687,9 @@ public partial class MainWindow
     {
         var row = _liveDropGrid?.SelectedItem as LiveDropRow;
         if (_liveDropInspectorTitle is not null) _liveDropInspectorTitle.Text = row?.Name ?? "Select an item";
+        if (_liveDropPreviewPlaceholder is not null)
+            _liveDropPreviewPlaceholder.Text = row is null ? "SELECT AN ITEM"
+                : string.IsNullOrWhiteSpace(row.ThumbnailUrl) ? "IMAGE UNAVAILABLE" : "";
         if (_liveDropInspectorMeta is not null)
             _liveDropInspectorMeta.Text = row is null ? "" : $"{row.Category} · {row.Identity}\nCreator: {row.Creator}";
         if (_liveDropInspectorPrices is not null)
@@ -534,9 +700,16 @@ public partial class MainWindow
         if (_liveDropInspectorReason is not null)
             _liveDropInspectorReason.Text = row is null ? "" : $"DETAILS\n{row.Explanation}";
         if (_liveDropOpenButton is not null) _liveDropOpenButton.IsEnabled = row is not null;
-        if (_liveDropAnalyzeButton is not null) _liveDropAnalyzeButton.IsEnabled = row is not null && !row.IsBundle;
+        if (_liveDropAnalyzeButton is not null)
+        {
+            _liveDropAnalyzeButton.Visibility = row?.IsBundle == true ? Visibility.Collapsed : Visibility.Visible;
+            _liveDropAnalyzeButton.IsEnabled = row is not null && !row.IsBundle;
+        }
         if (_liveDropPaperButton is not null)
+        {
+            _liveDropPaperButton.Visibility = row?.Ugc is not null ? Visibility.Visible : Visibility.Collapsed;
             _liveDropPaperButton.IsEnabled = row?.Ugc is { PrimaryMarketVerified: true } && row.IsOpportunity;
+        }
     }
 
     private void OpenLiveDropOnRoblox()
@@ -633,6 +806,8 @@ public partial class MainWindow
             if (scope == "UGC" && !string.IsNullOrWhiteSpace(_liveBundleScanError))
                 errors.Add("Animation packs unavailable (cached results retained)");
             RebuildLiveDropRows();
+            if (scope == "UGC" && _liveDropScope == "UGC")
+                await LoadLiveBundleImagesAsync();
             if (_liveDropScope == scope)
             {
                 UpdateLiveDropScopeStatus();

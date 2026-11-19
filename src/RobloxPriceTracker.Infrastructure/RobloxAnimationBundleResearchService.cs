@@ -16,6 +16,7 @@ public sealed record RobloxAnimationBundleOffer(
     string? CollectibleItemId,
     long? OriginalUnitsAvailable)
 {
+    public string? ThumbnailUrl { get; init; } // Visual-only; not part of resale evidence.
     public bool LimitedVerified { get; init; }
     public bool PrimaryMarketVerified { get; init; }
     public int? VerifiedOriginalPrice { get; init; }

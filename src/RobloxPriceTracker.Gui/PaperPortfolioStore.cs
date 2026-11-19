@@ -151,6 +151,7 @@ public sealed record PaperPosition(
 public sealed class PaperPositionRow
 {
     public PaperPosition Position { get; init; } = default!;
+    public string? ThumbnailUrl { get; init; } // Optional asset preview; never persisted.
     public string Name => Position.Name;
     public string Creator => Position.CreatorName;
     public string Quantity => Position.Quantity.ToString("N0");
