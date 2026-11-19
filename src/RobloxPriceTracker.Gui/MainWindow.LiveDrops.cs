@@ -592,15 +592,11 @@ public partial class MainWindow
         try
         {
             var now = DateTimeOffset.UtcNow;
-            var scanUgc = scope == "UGC" &&
-                (force || _hunterLastRefreshUtc is null ||
-                 now - _hunterLastRefreshUtc > TimeSpan.FromMinutes(3));
-            var scanOfficial = scope == "Official" &&
-                (force || _officialLastRefreshUtc is null ||
-                 now - _officialLastRefreshUtc > TimeSpan.FromMinutes(5));
-            var scanBundles = scope == "UGC" &&
-                (force || _liveBundleScanUtc is null ||
-                 now - _liveBundleScanUtc > TimeSpan.FromMinutes(5));
+            var plan = LiveDropScopePolicy.DueSources(scope, force, now,
+                _officialLastRefreshUtc, _hunterLastRefreshUtc, _liveBundleScanUtc);
+            var scanUgc = plan.Ugc;
+            var scanOfficial = plan.Official;
+            var scanBundles = plan.Bundles;
 
             if (scanUgc)
             {
