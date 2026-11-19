@@ -84,7 +84,8 @@ internal static partial class Program
         AssertEqual(2, searchCalls);
         AssertTrue(sawBroadFallback);
         AssertEqual(1, detailCalls);
-        AssertEqual(30, result.Items.Count);
+        AssertEqual(30, result.HydratedCount);
+        AssertEqual(0, result.Items.Count); // Fallback search does not prove purchasable stock.
     }
 
     static async Task TestUgcDiscoveryRecoversPartialBadDetailBatchAsync()
@@ -163,8 +164,8 @@ internal static partial class Program
 
         AssertEqual(4, detailCalls);
         AssertEqual(20, result.HydratedCount);
-        AssertEqual(20, result.Items.Count);
-        AssertTrue(result.Items.All(x => x.AssetId < firstId + 20));
+        AssertEqual(0, result.Items.Count); // Recovery hydrated IDs but no Marketplace proof.
+        AssertEqual(20, result.HydratedCount);
     }
 
     static Task TestUgcHunterMinimumPrimaryPricePolicyAsync()
