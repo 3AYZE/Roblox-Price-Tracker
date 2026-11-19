@@ -112,13 +112,11 @@ public sealed class RobloxThumbnailService
             {
                 throw;
             }
-            catch (HttpRequestException)
+            catch (Exception)
             {
-                // Images are optional, not a reason to discard valid price data.
-            }
-            catch (JsonException)
-            {
-                // Roblox can temporarily return a malformed body.
+                // Timeout, malformed JSON, and thumbnail provider failures must
+                // never prevent price snapshots from loading. Explicit user/window
+                // cancellations are still propagated by the catch above.
             }
             finally
             {
@@ -128,8 +126,9 @@ public sealed class RobloxThumbnailService
 
         if (cache.Count > MaxCacheItems)
         {
-            foreach (var old in cache.Where(x => x.Value.ExpiresAtUtc <= DateTimeOffset.UtcNow)
-                                     .Take(cache.Count - MaxCacheItems))
+            // Bound memory even when all cached URLs are still within their TTL.
+            var excess = cache.Count - MaxCacheItems;
+            foreach (var old in cache.OrderBy(x => x.Value.ExpiresAtUtc).Take(excess))
                 cache.TryRemove(old.Key, out _);
         }
         return result;
