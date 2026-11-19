@@ -14,6 +14,9 @@ public sealed class LiveDropRow
     public string OriginalPrice { get; init; } = "—";
     public string ResaleAsk { get; init; } = "—";
     public string Score { get; init; } = "—";
+    public string Rap => Official?.RapText ?? "—";
+    public string Sales7d => Official?.Sales7dText ?? "—";
+    public string StockLeft => Ugc?.RemainingText ?? Bundle?.OriginalStockText ?? "—";
     public string Status { get; init; } = "RESEARCH";
     public string Evidence { get; init; } = "";
     public string Explanation { get; init; } = "";
@@ -55,6 +58,9 @@ public partial class MainWindow
     private DispatcherTimer? _liveDropTimer;
     private bool _liveDropBusy;
     private bool _liveDropRebuildQueued;
+    private bool _liveDropSwitchPending;
+    private string _liveDropScope = "UGC";
+    private TextBlock? _liveDropHeading;
     private string? _liveBundleScanError;
 
     private void ConfigureLiveDropUi()
@@ -71,6 +77,7 @@ public partial class MainWindow
         _liveDropView.SortDescriptions.Add(new SortDescription(nameof(LiveDropRow.ScoreRank),
             ListSortDirection.Descending));
         if (_liveDropGrid is not null) _liveDropGrid.ItemsSource = _liveDropView;
+        SetLiveDropScope("UGC");
 
         _hunterRows.CollectionChanged += (_, _) => QueueLiveDropRebuild();
         _officialRows.CollectionChanged += (_, _) => QueueLiveDropRebuild();
@@ -88,7 +95,80 @@ public partial class MainWindow
     private void SetLiveDropPageVisibility(string page)
     {
         if (_liveDropPage is not null)
-            _liveDropPage.Visibility = page == "LiveDrops" ? Visibility.Visible : Visibility.Collapsed;
+            _liveDropPage.Visibility = page is "UgcDrops" or "OfficialDrops"
+                ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SetLiveDropScope(string scope)
+    {
+        if (scope is not ("UGC" or "Official")) return;
+        _liveDropScope = scope;
+        if (_liveDropHeading is not null)
+            _liveDropHeading.Text = scope == "Official" ? "OFFICIAL LIMITEDS" : "UGC LIMITEDS";
+        if (_liveDropOnlyOpportunities is not null)
+            _liveDropOnlyOpportunities.IsChecked = false;
+
+        if (_liveDropSearch is not null)
+        {
+            _liveDropSearch.Text = "";
+            _liveDropSearch.ToolTip = scope == "Official"
+                ? "Search Roblox-published Limited name or asset ID"
+                : "Search UGC item, creator, asset or bundle ID";
+        }
+        if (_liveDropTypeFilter is not null)
+        {
+            _liveDropTypeFilter.Items.Clear();
+            var options = scope == "Official"
+                ? new[] { "All Official", "Below RAP", "High liquidity", "Price drops" }
+                : new[] { "All UGC", "Accessories", "Emotes", "Animation Packs", "Emissive / PBR" };
+            foreach (var item in options) _liveDropTypeFilter.Items.Add(item);
+            _liveDropTypeFilter.SelectedIndex = 0;
+        }
+        if (_liveDropGrid is not null)
+        {
+            _liveDropGrid.Columns.Clear();
+            _liveDropGrid.Columns.Add(LiveDropColumn("ITEM", nameof(LiveDropRow.Name), 2.5));
+            if (scope == "Official")
+            {
+                _liveDropGrid.Columns.Add(LiveDropColumn("RESALE FLOOR", nameof(LiveDropRow.ResaleAsk), 1.1));
+                _liveDropGrid.Columns.Add(LiveDropColumn("RAP", nameof(LiveDropRow.Rap), 0.9));
+                _liveDropGrid.Columns.Add(LiveDropColumn("7D SALES", nameof(LiveDropRow.Sales7d), 0.85));
+            }
+            else
+            {
+                _liveDropGrid.Columns.Add(LiveDropColumn("TYPE", nameof(LiveDropRow.Category), 1.1));
+                _liveDropGrid.Columns.Add(LiveDropColumn("ORIGINAL", nameof(LiveDropRow.OriginalPrice), 0.95));
+                _liveDropGrid.Columns.Add(LiveDropColumn("RESALE ASK", nameof(LiveDropRow.ResaleAsk), 1.05));
+            }
+            _liveDropGrid.Columns.Add(LiveDropColumn("SCORE", nameof(LiveDropRow.Score), 0.65));
+            _liveDropGrid.Columns.Add(LiveDropColumn("STATUS", nameof(LiveDropRow.Status), 1.3));
+            _liveDropGrid.SelectedItem = null;
+        }
+        UpdateLiveDropVisibleRows();
+        if (_liveDropGrid is not null)
+            _liveDropGrid.SelectedItem = _liveDropView?.Cast<object>().FirstOrDefault();
+        UpdateLiveDropInspector();
+        UpdateLiveDropScopeStatus();
+    }
+
+    private void UpdateLiveDropScopeStatus()
+    {
+        if (_liveDropStatus is null) return;
+        if (_liveDropScope == "Official")
+        {
+            _liveDropStatus.Text = _officialLastRefreshUtc is { } last
+                ? $"Roblox-published Limiteds · Updated {last.ToLocalTime():h:mm tt} · {_officialRows.Count:N0} items"
+                : "Roblox-published Limiteds · Refresh to load resale prices, RAP and sales";
+        }
+        else
+        {
+            var last = new[] { _hunterLastRefreshUtc, _liveBundleScanUtc }
+                .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty().Max();
+            _liveDropStatus.Text = $"UGC {_hunterRows.Count:N0} · Animation packs {_liveBundles.Count:N0} · " +
+                (last == default ? "Refresh to scan" : $"Updated {last.ToLocalTime():h:mm tt}") +
+                " · Bundles are research-only" +
+                (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete");
+        }
     }
 
     private Grid BuildLiveDropPage()
@@ -104,16 +184,17 @@ public partial class MainWindow
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var heading = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
-        heading.Children.Add(new TextBlock
+        _liveDropHeading = new TextBlock
         {
-            Text = "LIVE DROP SCANNER",
+            Text = "UGC LIMITEDS",
             Foreground = TerminalText,
             FontSize = 16,
             FontWeight = FontWeights.SemiBold
-        });
+        };
+        heading.Children.Add(_liveDropHeading);
         _liveDropStatus = new TextBlock
         {
-            Text = "One view for UGC assets, Roblox Limiteds, and animation bundles. Original stock is not resale.",
+            Text = "UGC accessories, emotes and Limited animation packs. Original stock is not resale.",
             Foreground = TerminalMuted,
             FontSize = 10,
             TextWrapping = TextWrapping.Wrap,
@@ -148,13 +229,8 @@ public partial class MainWindow
             Margin = new Thickness(8, 0, 0, 0),
             SelectedIndex = 0
         };
-        foreach (var kind in new[]
-        {
-            "All items", "UGC Limiteds", "Roblox Limiteds", "Animation Packs",
-            "Emotes", "Emissive / PBR"
-        })
-            _liveDropTypeFilter.Items.Add(kind);
-        _liveDropTypeFilter.SelectedIndex = 0;
+        // Source-specific options are set by SetLiveDropScope. Official and UGC
+        // products must never appear in the same result list.
         _liveDropTypeFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
         toolbar.Children.Add(_liveDropTypeFilter);
 
@@ -172,7 +248,7 @@ public partial class MainWindow
 
         var refresh = new Button
         {
-            Content = "REFRESH ALL",
+            Content = "REFRESH",
             Style = (Style)FindResource("SecondaryButtonStyle"),
             Margin = new Thickness(12, 0, 0, 0),
             Padding = new Thickness(12, 5, 12, 5)
@@ -211,12 +287,7 @@ public partial class MainWindow
             GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
             SelectionMode = DataGridSelectionMode.Single
         };
-        _liveDropGrid.Columns.Add(LiveDropColumn("ITEM", nameof(LiveDropRow.Name), 2.5));
-        _liveDropGrid.Columns.Add(LiveDropColumn("TYPE", nameof(LiveDropRow.Category), 1.12));
-        _liveDropGrid.Columns.Add(LiveDropColumn("ORIGINAL", nameof(LiveDropRow.OriginalPrice), 1.04));
-        _liveDropGrid.Columns.Add(LiveDropColumn("RESALE ASK", nameof(LiveDropRow.ResaleAsk), 1.04));
-        _liveDropGrid.Columns.Add(LiveDropColumn("SCORE", nameof(LiveDropRow.Score), 0.55));
-        _liveDropGrid.Columns.Add(LiveDropColumn("STATUS", nameof(LiveDropRow.Status), 1.36));
+        // Columns are configured separately for each market by SetLiveDropScope.
         _liveDropGrid.SelectionChanged += (_, _) => UpdateLiveDropInspector();
         _liveDropGrid.MouseDoubleClick += (_, _) => OpenLiveDropOnRoblox();
         tableBorder.Child = _liveDropGrid;
@@ -414,11 +485,24 @@ public partial class MainWindow
         if (_liveDropOnlyOpportunities?.IsChecked == true && !row.IsOpportunity)
             return false;
 
-        return _liveDropTypeFilter?.SelectedItem?.ToString() switch
+        var filter = _liveDropTypeFilter?.SelectedItem?.ToString();
+        if (_liveDropScope == "Official")
         {
-            "UGC Limiteds" => row.Kind == "UGC",
-            "Roblox Limiteds" => row.Kind == "Official",
-            "Animation Packs" => row.Kind == "Bundle",
+            if (row.Kind != "Official") return false;
+            return filter switch
+            {
+                "Below RAP" => row.Official?.DiscountPct is > 0,
+                "High liquidity" => row.Official?.Sales7d is >= 14,
+                "Price drops" => row.Official?.FloorChangePct is <= -0.10,
+                _ => true
+            };
+        }
+
+        if (row.Kind == "Official") return false;
+        return filter switch
+        {
+            "Accessories" => row.Kind == "UGC" && !row.IsEmote,
+            "Animation Packs" => row.IsBundle,
             "Emotes" => row.IsEmote,
             "Emissive / PBR" => row.IsVerifiedSpecialMaterial,
             _ => true
@@ -431,7 +515,10 @@ public partial class MainWindow
         if (_liveDropCount is not null)
         {
             var visible = _liveDropView?.Cast<object>().Count() ?? 0;
-            _liveDropCount.Text = $"{visible:N0} shown / {_liveDropRows.Count:N0} total";
+            var available = _liveDropScope == "Official"
+                ? _liveDropRows.Count(x => x.Kind == "Official")
+                : _liveDropRows.Count(x => x.Kind != "Official");
+            _liveDropCount.Text = $"{visible:N0} shown / {available:N0} total";
         }
     }
 
@@ -465,7 +552,7 @@ public partial class MainWindow
     {
         if (_liveDropGrid?.SelectedItem is not LiveDropRow { IsBundle: false } row ||
             _analyzerInput is null) return;
-        _stockReturnPage = "LiveDrops";
+        _stockReturnPage = _liveDropScope == "Official" ? "OfficialDrops" : "UgcDrops";
         _stockReturnCapturedAtUtc = DateTimeOffset.UtcNow;
         _analyzerInput.Text = row.Id.ToString(CultureInfo.InvariantCulture);
         await NavigateCleanAsync("Analyzer");
@@ -484,10 +571,8 @@ public partial class MainWindow
 
     private async Task OpenLiveDropTypeAsync(string filter)
     {
-        await NavigateCleanAsync("LiveDrops");
-        if (_liveDropTypeFilter is not null &&
-            _liveDropTypeFilter.Items.Contains(filter))
-            _liveDropTypeFilter.SelectedItem = filter;
+        // Existing Overview shortcuts lead to distinct screens, not a combined feed.
+        await NavigateCleanAsync(filter == "Roblox Limiteds" ? "OfficialDrops" : "UgcDrops");
     }
 
     private async Task RefreshLiveDropsAsync(bool force)
