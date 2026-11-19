@@ -160,7 +160,7 @@ public partial class MainWindow
 
         var ugcPanel = BuildStockOpportunityPanel(
             "UGC LIMITED PICKS",
-            "Verified UGC Limited opportunities from Live Drops.",
+            "Verified in-stock UGC picks. Resale inventory excluded.",
             _stockUgcSignals,
             out _stockUgcEmpty,
             async () => await OpenLiveDropTypeAsync("UGC Limiteds"));
@@ -185,7 +185,7 @@ public partial class MainWindow
         var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         title.Children.Add(new TextBlock
         {
-            Text = "MARKET SIGNAL BOARD",
+            Text = "MARKET OVERVIEW",
             Foreground = TerminalText,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold
@@ -200,10 +200,10 @@ public partial class MainWindow
         title.Children.Add(_stockBoardFreshness);
         grid.Children.Add(title);
 
-        _stockOfficialDealCount = AddStockSummaryMetric(grid, 1, "OFFICIAL DEALS", "0", TerminalGreen);
+        _stockOfficialDealCount = AddStockSummaryMetric(grid, 1, "OFFICIAL PICKS", "0", TerminalGreen);
         _stockUgcPickCount = AddStockSummaryMetric(grid, 2, "UGC PICKS", "0", TerminalBlue);
-        _stockBestScore = AddStockSummaryMetric(grid, 3, "BEST SCORE", "—", TerminalText);
-        _stockMarketSignal = AddStockSummaryMetric(grid, 4, "MARKET CALL", "SCANNING", TerminalAmber);
+        _stockBestScore = AddStockSummaryMetric(grid, 3, "ALERTS", "0", TerminalText);
+        _stockMarketSignal = AddStockSummaryMetric(grid, 4, "DATA STATUS", "LOADING", TerminalAmber);
         return panel;
     }
 
@@ -275,7 +275,7 @@ public partial class MainWindow
         };
         columnHeader.Children.Add(StockColumnHeader("ITEM", 180));
         columnHeader.Children.Add(StockColumnHeader("PRICE", 72));
-        columnHeader.Children.Add(StockColumnHeader("VALUE", 68));
+        columnHeader.Children.Add(StockColumnHeader("DETAIL", 68));
         columnHeader.Children.Add(StockColumnHeader("SCORE", 52));
         columnHeader.Children.Add(StockColumnHeader("SIGNAL", 82));
         Grid.SetRow(columnHeader, 1);
@@ -416,7 +416,7 @@ public partial class MainWindow
         {
             var now = DateTimeOffset.UtcNow;
             var needOfficial = _officialLastRefreshUtc is null || now - _officialLastRefreshUtc > TimeSpan.FromMinutes(5);
-            var needUgc = _hunterLastRefreshUtc is null || now - _hunterLastRefreshUtc > TimeSpan.FromMinutes(3);
+            var needUgc = _hunterLastRefreshUtc is null || now - _hunterLastRefreshUtc > TimeSpan.FromSeconds(105);
 
             if (needOfficial)
                 await RefreshOfficialLimitedAsync(silent: _officialRows.Count > 0);
@@ -460,7 +460,13 @@ public partial class MainWindow
 
         _stockUgcSignals.Clear();
         foreach (var item in _hunterRows
-                     .Where(IsUgcBoardCandidate)
+                     .Where(x => IsUgcBoardCandidate(x) &&
+                         UgcActiveStockPolicy.IsActiveSnapshot(
+                             x.PrimaryMarketVerified, x.UnitsAvailable, x.Price,
+                             _hunterLastRefreshUtc, DateTimeOffset.UtcNow) &&
+                         UgcScannerPriceVisibilityPolicy.Include(
+                             x.Price, x.PrimaryMarketVerified,
+                             UgcScannerPriceVisibilityPolicy.DefaultMaximumRobux, verifiedOnly: true))
                      .OrderByDescending(x => x.ResalePotentialScore)
                      .ThenBy(x => x.RiskScore)
                      .Take(5))
@@ -471,7 +477,7 @@ public partial class MainWindow
                 item.ThumbnailUrl,
                 "UGC",
                 item.PriceText,
-                item.NetRoiText,
+                item.UnitsAvailable is > 0 ? $"{item.UnitsAvailable:N0} left" : "—",
                 item.ResalePotentialText,
                 UgcStockSignal(item)));
         }
@@ -483,24 +489,18 @@ public partial class MainWindow
         if (_stockOfficialEmpty is not null) _stockOfficialEmpty.Visibility = officialDeals == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (_stockUgcEmpty is not null) _stockUgcEmpty.Visibility = ugcPicks == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        var bestOfficial = _officialRows.Where(x => x.IsHuntCandidate).Select(x => x.HuntScore).DefaultIfEmpty(0).Max();
-        var bestUgc = _hunterRows.Where(IsUgcBoardCandidate).Select(x => (int)Math.Round(x.ResalePotentialScore)).DefaultIfEmpty(0).Max();
-        var best = Math.Max(bestOfficial, bestUgc);
-        if (_stockBestScore is not null) _stockBestScore.Text = best > 0 ? best.ToString(CultureInfo.InvariantCulture) : "—";
+        if (_stockBestScore is not null)
+            _stockBestScore.Text = _alertRows.Count.ToString(CultureInfo.InvariantCulture);
 
-        var marketCall = best >= 85 ? "STRONG SETUP"
-            : best >= 72 ? "BUY SETUPS"
-            : best >= 58 ? "WATCH"
-            : officialDeals + ugcPicks > 0 ? "SPECULATIVE" : "NO BUY SETUP";
+        var dataReady = _officialLastRefreshUtc is { } officialLast &&
+            DateTimeOffset.UtcNow - officialLast < TimeSpan.FromMinutes(6);
+        var ugcReady = _hunterLastRefreshUtc is { } ugcLast &&
+            DateTimeOffset.UtcNow - ugcLast <= UgcActiveStockPolicy.MaximumDisplayedAge;
         if (_stockMarketSignal is not null)
         {
-            _stockMarketSignal.Text = marketCall;
-            _stockMarketSignal.Foreground = marketCall switch
-            {
-                "STRONG SETUP" or "BUY SETUPS" => TerminalGreen,
-                "WATCH" or "SPECULATIVE" => TerminalAmber,
-                _ => TerminalMuted
-            };
+            _stockMarketSignal.Text = dataReady && ugcReady ? "READY"
+                : !dataReady && !ugcReady ? "UNAVAILABLE" : "PARTIAL";
+            _stockMarketSignal.Foreground = dataReady && ugcReady ? TerminalGreen : TerminalAmber;
         }
 
         if (_stockBoardFreshness is not null)
@@ -510,7 +510,8 @@ public partial class MainWindow
             if (_hunterLastRefreshUtc is { } ugcTime) times.Add(ugcTime);
             _stockBoardFreshness.Text = times.Count == 0
                 ? "Scanning Official and UGC markets…"
-                : $"Model signals · updated {times.Max().ToLocalTime():h:mm tt}";
+                : $"Official {(_officialLastRefreshUtc?.ToLocalTime().ToString("h:mm tt") ?? "—")} · " +
+                  $"UGC {(_hunterLastRefreshUtc?.ToLocalTime().ToString("h:mm tt") ?? "—")}";
         }
     }
 
