@@ -68,6 +68,8 @@ internal static partial class Program
             ("Animation packs with unconfirmed Limited status do not enter live scan", TestAnimationBundleUnconfirmedNeverDisplayedAsync),
             ("Sparse bundle collectibles require matching verified Marketplace ID", TestAnimationBundleMarketplaceRecoversSparseCollectibleAsync),
             ("Animation bundle HTTP 429 keeps cached results and skips further calls", TestAnimationBundleRateLimitPreservesCacheContractAsync),
+            ("Official and UGC tabs never mix assets, bundles or unknown sources", TestOfficialAndUgcSourcesAreSeparateAsync),
+            ("Official and UGC tabs refresh only their own discovery sources", TestLimitedSourceSpecificRefreshAsync),
             ("Creator-price 65 to 1080 with weak resale evidence is excluded", TestUgcPriceIntegrityVerifiedInflationAsync),
             ("Other verified creator repricing is excluded without item-ID rules", TestUgcPriceIntegrityAcrossCategoriesAsync),
             ("Legitimate valuable resale market overrides creator repricing", TestUgcPriceIntegrityIndependentDemandProtectionAsync),
