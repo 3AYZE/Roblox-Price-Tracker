@@ -24,6 +24,10 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public string Kind { get; init; } = "";
     public string Category { get; init; } = "";
     public string OriginalPrice { get; init; } = "—";
+    public string CatalogQuote { get; init; } = "—";
+    public string PriceDisplay { get; init; } = "—";
+    public int? QuotedPrice { get; init; }
+    public bool PrimaryVerified { get; init; }
     public string ResaleAsk { get; init; } = "—";
     public string Score { get; init; } = "—";
     public string Rap => Official?.RapText ?? "—";
@@ -31,9 +35,7 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public string StockLeft => Ugc?.RemainingText ?? Bundle?.OriginalStockText ?? "—";
     public long SortPriceLow => PriceNumber is > 0 ? PriceNumber.Value : long.MaxValue;
     public long SortPriceHigh => PriceNumber is > 0 ? -PriceNumber.Value : long.MaxValue;
-    private long? PriceNumber => Official?.FloorPrice ??
-        (Ugc is { PrimaryMarketVerified: true } offer ? (long?)offer.Price : null) ??
-        (Bundle is { PrimaryMarketVerified: true } pack ? (long?)pack.VerifiedOriginalPrice : null);
+    private long? PriceNumber => Official?.FloorPrice ?? QuotedPrice;
     public string Status { get; init; } = "RESEARCH";
     public string Evidence { get; init; } = "";
     public string Explanation { get; init; } = "";
@@ -59,6 +61,8 @@ public partial class MainWindow
     private Grid? _liveDropPage;
     private DataGrid? _liveDropGrid;
     private ComboBox? _liveDropSort;
+    private ComboBox? _ugcMaximumPrice;
+    private CheckBox? _ugcVerifiedOnly;
     private Image? _liveDropPreviewImage;
     private TextBlock? _liveDropPreviewPlaceholder;
     private ComboBox? _liveDropTypeFilter;
@@ -125,6 +129,10 @@ public partial class MainWindow
             _liveDropHeading.Text = scope == "Official" ? "OFFICIAL LIMITEDS" : "UGC LIMITEDS";
         if (_liveDropOnlyOpportunities is not null)
             _liveDropOnlyOpportunities.IsChecked = false;
+        if (_ugcMaximumPrice is not null)
+            _ugcMaximumPrice.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
+        if (_ugcVerifiedOnly is not null)
+            _ugcVerifiedOnly.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
 
         if (_liveDropSearch is not null)
         {
@@ -155,7 +163,7 @@ public partial class MainWindow
             else
             {
                 _liveDropGrid.Columns.Add(LiveDropColumn("TYPE", nameof(LiveDropRow.Category), 1.1));
-                _liveDropGrid.Columns.Add(LiveDropColumn("ORIGINAL", nameof(LiveDropRow.OriginalPrice), 0.95));
+                _liveDropGrid.Columns.Add(LiveDropColumn("PRICE / SOURCE", nameof(LiveDropRow.PriceDisplay), 1.45));
                 _liveDropGrid.Columns.Add(LiveDropColumn("RESALE ASK", nameof(LiveDropRow.ResaleAsk), 1.05));
             }
             _liveDropGrid.Columns.Add(LiveDropColumn("SCORE", nameof(LiveDropRow.Score), 0.65));
@@ -182,9 +190,12 @@ public partial class MainWindow
         {
             var last = new[] { _hunterLastRefreshUtc, _liveBundleScanUtc }
                 .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty().Max();
-            _liveDropStatus.Text = $"UGC {_hunterRows.Count:N0} · Animation packs {_liveBundles.Count:N0} · " +
+            var verified = _hunterRows.Count(x => x.PrimaryMarketVerified);
+            var catalogOnly = _hunterRows.Count - verified;
+            _liveDropStatus.Text = $"UGC {_hunterRows.Count:N0} · Verified originals {verified:N0} · " +
+                $"Catalog quotes {catalogOnly:N0} · Animation packs {_liveBundles.Count:N0} · " +
                 (last == default ? "Refresh to scan" : $"Updated {last.ToLocalTime():h:mm tt}") +
-                " · Bundles are research-only" +
+                " · Catalog quotes are not confirmed purchase prices" +
                 (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete");
         }
     }
@@ -262,6 +273,34 @@ public partial class MainWindow
         _liveDropSort.SelectedIndex = 0;
         _liveDropSort.SelectionChanged += (_, _) => ApplyLiveDropSort();
         toolbar.Children.Add(_liveDropSort);
+        _ugcMaximumPrice = new ComboBox
+        {
+            Width = 140, Height = 30,
+            Margin = new Thickness(8, 0, 0, 0),
+            ToolTip = "UGC max displayed catalog or verified quote, not an official price minimum. Default: 1,000 R$. Any price is research-only for extreme/unpriced items."
+        };
+        foreach (var option in new[]
+        {
+            "≤ 500 R$", "≤ 1,000 R$", "≤ 2,500 R$",
+            "≤ 5,000 R$", "Any price (research)"
+        })
+            _ugcMaximumPrice.Items.Add(option);
+        _ugcMaximumPrice.SelectedIndex = 1;
+        _ugcMaximumPrice.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
+        toolbar.Children.Add(_ugcMaximumPrice);
+
+        _ugcVerifiedOnly = new CheckBox
+        {
+            Content = "Verified originals",
+            Foreground = TerminalText,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0),
+            ToolTip = "Hide catalog-only quotes and unverified bundle prices. May show no results if Roblox verification is unavailable."
+        };
+        _ugcVerifiedOnly.Checked += (_, _) => UpdateLiveDropVisibleRows();
+        _ugcVerifiedOnly.Unchecked += (_, _) => UpdateLiveDropVisibleRows();
+        toolbar.Children.Add(_ugcVerifiedOnly);
+
 
 
         _liveDropOnlyOpportunities = new CheckBox
@@ -533,16 +572,21 @@ public partial class MainWindow
             IsVerifiedSpecialMaterial = item.IsEmissive == true || item.IsPbr == true,
             ThumbnailUrl = item.ThumbnailUrl,
             OriginalPrice = item.PrimaryMarketVerified ? $"{item.Price:N0} R$" : "—",
-            ResaleAsk = item.CurrentResaleText,
+            CatalogQuote = item.PrimaryMarketVerified ? "—" : $"{item.Price:N0} R$",
+            PriceDisplay = UgcScannerPriceVisibilityPolicy.DisplayQuote(
+                item.PrimaryMarketVerified ? (int?)item.Price : null,
+                item.PrimaryMarketVerified ? null : (int?)item.Price),
+            QuotedPrice = item.Price, PrimaryVerified = item.PrimaryMarketVerified,
+            ResaleAsk = item.CurrentResaleFloor is > 0 ? item.CurrentResaleText : "Unavailable",
             Score = item.PrimaryMarketVerified && item.Recommendation != "DATA REVIEW" &&
                     !item.IsExcludedPriceDistortion ? item.ResalePotentialText : "—",
             Status = item.IsExcludedPriceDistortion ? "EXCLUDED"
-                : !item.PrimaryMarketVerified ? "PRICE UNVERIFIED"
+                : !item.PrimaryMarketVerified ? "CATALOG ONLY"
                 : eligible ? "OPPORTUNITY"
                 : item.Recommendation,
             Evidence = item.PrimaryMarketVerified
-                ? $"Original stock verified · {item.MaterialText}"
-                : "Original stock unverified · no automatic buy recommendation",
+                ? $"Purchasable original stock verified · {item.MaterialText}"
+                : "Catalog price is only a quote; original stock not verified and no buy recommendation",
             Explanation = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}\n" +
                 string.Join("\n", item.Reasons.Take(2)),
             RobloxUrl = $"https://www.roblox.com/catalog/{item.AssetId}",
@@ -556,7 +600,8 @@ public partial class MainWindow
         Id = item.AssetId, Name = item.Name, Creator = "Roblox",
         Kind = "Official", Category = "Roblox Limited",
         ThumbnailUrl = item.ThumbnailUrl,
-        OriginalPrice = "—", // Original creator price is NOT the resale floor.
+        OriginalPrice = "—", // Official resale floors must not become creator prices.
+        PriceDisplay = item.FloorText,
         ResaleAsk = item.FloorText,
         Score = item.IsEnriched ? item.HuntText : "—",
         Status = item.IsHuntCandidate ? "OPPORTUNITY" : item.Status,
@@ -576,7 +621,14 @@ public partial class MainWindow
         Kind = "Bundle", Category = "Animation Pack",
         ThumbnailUrl = _liveBundleImages.TryGetValue(item.BundleId, out var image) ? image : null,
         OriginalPrice = item.OriginalPriceText,
-        ResaleAsk = item.ResaleAskText,
+        CatalogQuote = !item.PrimaryMarketVerified && item.CatalogQuotedPrice is > 0
+            ? $"{item.CatalogQuotedPrice:N0} R$" : "—",
+        PriceDisplay = UgcScannerPriceVisibilityPolicy.DisplayQuote(
+            item.PrimaryMarketVerified ? item.VerifiedOriginalPrice : null,
+            !item.PrimaryMarketVerified ? item.CatalogQuotedPrice : null),
+        QuotedPrice = item.PrimaryMarketVerified ? item.VerifiedOriginalPrice : item.CatalogQuotedPrice,
+        PrimaryVerified = item.PrimaryMarketVerified,
+        ResaleAsk = item.LowestResaleAsk is > 0 ? item.ResaleAskText : "Unavailable",
         Score = "—", Status = "RESEARCH ONLY",
         Evidence = item.VerificationStatus,
         Explanation = "Limited animation bundle. Creator original-stock prices require Marketplace verification. " +
@@ -610,6 +662,23 @@ public partial class MainWindow
                 _ => true
             };
         }
+
+        var max = _ugcMaximumPrice?.SelectedIndex switch
+        {
+            0 => 500,
+            1 => 1000,
+            2 => 2500,
+            3 => 5000,
+            4 => (int?)null,
+            _ => UgcScannerPriceVisibilityPolicy.DefaultMaximumRobux
+        };
+        if (!UgcScannerPriceVisibilityPolicy.Include(row.QuotedPrice, row.PrimaryVerified,
+            max, _ugcVerifiedOnly?.IsChecked == true))
+            return false;
+        // Price-distortion exclusions aren't normal shopping results.
+        // Research-only Any price mode permits manual inspection.
+        if (max is not null && row.Ugc?.IsExcludedPriceDistortion == true)
+            return false;
 
         return filter switch
         {
@@ -674,6 +743,14 @@ public partial class MainWindow
     private void UpdateLiveDropVisibleRows()
     {
         _liveDropView?.Refresh();
+        if (_liveDropGrid is not null && _liveDropView is not null)
+        {
+            var visibleItems = _liveDropView.Cast<object>().ToArray();
+            if (_liveDropGrid.SelectedItem is null ||
+                !visibleItems.Contains(_liveDropGrid.SelectedItem))
+                _liveDropGrid.SelectedItem = visibleItems.FirstOrDefault();
+            UpdateLiveDropInspector();
+        }
         if (_liveDropCount is not null)
         {
             var visible = _liveDropView?.Cast<object>().Count() ?? 0;
@@ -694,7 +771,9 @@ public partial class MainWindow
             _liveDropInspectorMeta.Text = row is null ? "" : $"{row.Category} · {row.Identity}\nCreator: {row.Creator}";
         if (_liveDropInspectorPrices is not null)
             _liveDropInspectorPrices.Text = row is null ? ""
-                : $"Original creator stock: {row.OriginalPrice}\nResale asking floor: {row.ResaleAsk}\nScore: {row.Score}\nStatus: {row.Status}";
+                : row.Official is not null
+                    ? $"Resale floor: {row.ResaleAsk}\nRAP: {row.Rap}\n7d sales: {row.Sales7d}\nScore: {row.Score}\nStatus: {row.Status}"
+                    : $"Verified original stock: {row.OriginalPrice}\nCatalog quote (unverified): {row.CatalogQuote}\nResale seller ask: {row.ResaleAsk}\nScore: {row.Score}\nStatus: {row.Status}";
         if (_liveDropInspectorEvidence is not null)
             _liveDropInspectorEvidence.Text = row is null ? "" : $"EVIDENCE\n{row.Evidence}";
         if (_liveDropInspectorReason is not null)

@@ -10,13 +10,13 @@ Requires **Windows 10/11 (64-bit)** and the [.NET 9 Desktop Runtime](https://dot
 
 ## Features
 
-- **Discover:** Separate Official Limiteds and UGC Limiteds, with PNG item images, filters, verified prices and details. UGC includes accessories, emotes and animation packs.
+- **Discover:** Separate Official and UGC Limiteds, item images, and price filters. UGC shows verified original prices or clearly marked, unverified catalog quotes; animation packs are research-only.
 - **Tracker & Alerts:** Monitor resale prices, price history and targets, with optional background notifications.
 - **Research:** Review item details, source evidence, trends and market analysis.
 - **Paper Portfolio:** Test potential UGC entries without spending Robux; items include thumbnails.
 - **Simple updates:** One Windows EXE with in-app update checks and SHA-256 verification.
 
-**Important:** Original creator-stock prices, resale asking prices and RAP are different. Animation packs are shown for research only and do not receive investment ratings. Historical category benchmarks are not Roblox's live official minimum prices. Scores and forecasts are estimates, not guarantees.
+**Important:** Verified original-sale prices, unverified catalog quotes, resale asks and RAP are different. UGC defaults to an adjustable 1,000 R$ maximum-price screen, not a Roblox official floor or fair-value estimate. Missing resale asks are never guessed. Animation packs remain research-only. Scores and forecasts are estimates, not guarantees.
 
 For detailed evidence rules and limitations, see [UGC pricing research](docs/PRIMARY_PRICE_CATEGORY_RESEARCH_2026-11-17.md) and [price-integrity methodology](docs/UGC_PRICE_INTEGRITY_RESEARCH_2026-11-17.md).
 

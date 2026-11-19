@@ -25,8 +25,8 @@ Requires the [.NET 9 Desktop Runtime](https://dotnet.microsoft.com/en-us/downloa
 ## Features
 
 - Track Roblox Limited resale prices, price history, and alerts.
-- Browse Official and UGC Limiteds in separate scanners with PNG previews and cleaner item details. UGC includes animation packs.
-- Compare verified creator-stock prices against resale asking prices, with clear research-only labels.
+- Browse Official and UGC Limiteds separately with PNG previews and an adjustable UGC price ceiling.
+- See verified original-sale prices or clearly marked catalog quotes; missing resale asks stay unavailable.
 - Sort and inspect items, view market analysis, test a paper portfolio, and get in-app updates.
 
 **Note:** Animation packs are research-only. Category price references are not live official Roblox minimums.
