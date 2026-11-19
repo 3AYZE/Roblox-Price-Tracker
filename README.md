@@ -2,7 +2,7 @@
 
 <img src="src/RobloxPriceTracker.Gui/Assets/roblox_price_tracker.svg" alt="Roblox Price Tracker icon" width="88">
 
-A Windows app for discovering Roblox Limiteds, comparing prices, tracking items, and setting alerts. Official Limiteds and UGC Limiteds have separate scanners.
+A Windows app for finding Roblox Limiteds, tracking prices, and setting alerts. Browse Official and UGC Limiteds separately, with item images and simple market details.
 
 **[Download RobloxPriceTracker.exe](https://github.com/3AYZE/Roblox-Price-Tracker/releases/download/latest/RobloxPriceTracker.exe)** · [Latest release](https://github.com/3AYZE/Roblox-Price-Tracker/releases/tag/latest)
 
@@ -10,10 +10,10 @@ Requires **Windows 10/11 (64-bit)** and the [.NET 9 Desktop Runtime](https://dot
 
 ## Features
 
-- **Discover:** Separate Official Limiteds and UGC Limiteds tabs. Official shows resale floor, RAP and sales; UGC covers accessories, emotes and animation packs with original-stock and resale-ask prices.
+- **Discover:** Separate Official Limiteds and UGC Limiteds, with PNG item images, filters, verified prices and details. UGC includes accessories, emotes and animation packs.
 - **Tracker & Alerts:** Monitor resale prices, price history and targets, with optional background notifications.
 - **Research:** Review item details, source evidence, trends and market analysis.
-- **Paper Portfolio:** Test potential UGC entries without spending Robux.
+- **Paper Portfolio:** Test potential UGC entries without spending Robux; items include thumbnails.
 - **Simple updates:** One Windows EXE with in-app update checks and SHA-256 verification.
 
 **Important:** Original creator-stock prices, resale asking prices and RAP are different. Animation packs are shown for research only and do not receive investment ratings. Historical category benchmarks are not Roblox's live official minimum prices. Scores and forecasts are estimates, not guarantees.
