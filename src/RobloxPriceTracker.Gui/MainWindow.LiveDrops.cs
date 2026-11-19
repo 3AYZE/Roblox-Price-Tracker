@@ -474,7 +474,8 @@ public partial class MainWindow
 
     private bool FilterLiveDropRow(object value)
     {
-        if (value is not LiveDropRow row) return false;
+        if (value is not LiveDropRow row ||
+            !LiveDropScopePolicy.Accepts(_liveDropScope, row.Kind)) return false;
         var query = _liveDropSearch?.Text.Trim() ?? "";
         if (!string.IsNullOrWhiteSpace(query) &&
             !row.Name.Contains(query, StringComparison.OrdinalIgnoreCase) &&
@@ -488,7 +489,6 @@ public partial class MainWindow
         var filter = _liveDropTypeFilter?.SelectedItem?.ToString();
         if (_liveDropScope == "Official")
         {
-            if (row.Kind != "Official") return false;
             return filter switch
             {
                 "Below RAP" => row.Official?.DiscountPct is > 0,
@@ -498,7 +498,6 @@ public partial class MainWindow
             };
         }
 
-        if (row.Kind == "Official") return false;
         return filter switch
         {
             "Accessories" => row.Kind == "UGC" && !row.IsEmote,
@@ -515,9 +514,8 @@ public partial class MainWindow
         if (_liveDropCount is not null)
         {
             var visible = _liveDropView?.Cast<object>().Count() ?? 0;
-            var available = _liveDropScope == "Official"
-                ? _liveDropRows.Count(x => x.Kind == "Official")
-                : _liveDropRows.Count(x => x.Kind != "Official");
+            var available = _liveDropRows.Count(x =>
+                LiveDropScopePolicy.Accepts(_liveDropScope, x.Kind));
             _liveDropCount.Text = $"{visible:N0} shown / {available:N0} total";
         }
     }
