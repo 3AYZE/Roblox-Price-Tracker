@@ -646,10 +646,20 @@ public partial class MainWindow
         Bundle = item, IsOpportunity = false
     };
 
+    private bool IsLiveDropOriginalStockCurrent(LiveDropRow row)
+    {
+        if (row.Official is not null) return true;
+        var verifiedTime = row.Ugc is not null ? _hunterLastRefreshUtc : _liveBundleScanUtc;
+        return UgcActiveStockPolicy.IsActiveSnapshot(
+            row.PrimaryVerified, row.OriginalUnitsLeft, row.QuotedPrice,
+            verifiedTime, DateTimeOffset.UtcNow);
+    }
+
     private bool FilterLiveDropRow(object value)
     {
         if (value is not LiveDropRow row ||
-            !LiveDropScopePolicy.Accepts(_liveDropScope, row.Kind)) return false;
+            !LiveDropScopePolicy.Accepts(_liveDropScope, row.Kind) ||
+            !IsLiveDropOriginalStockCurrent(row)) return false;
         var query = _liveDropSearch?.Text.Trim() ?? "";
         if (!string.IsNullOrWhiteSpace(query) &&
             !row.Name.Contains(query, StringComparison.OrdinalIgnoreCase) &&
@@ -681,9 +691,19 @@ public partial class MainWindow
             4 => (int?)null,
             _ => UgcScannerPriceVisibilityPolicy.DefaultMaximumRobux
         };
-        if (!UgcScannerPriceVisibilityPolicy.Include(row.QuotedPrice, row.PrimaryVerified,
-            max, _ugcVerifiedOnly?.IsChecked == true))
+        // Even the unbounded price mode NEVER includes unknown/sold-out stock.
+        if (!UgcScannerPriceVisibilityPolicy.Include(
+            row.QuotedPrice, row.PrimaryVerified, max, verifiedOnly: true))
             return false;
+        var maximumLeft = _ugcStockFilter?.SelectedIndex switch
+        {
+            1 => 10L,
+            2 => 50L,
+            3 => 100L,
+            _ => long.MaxValue
+        };
+        if (row.OriginalUnitsLeft is not > 0 ||
+            row.OriginalUnitsLeft > maximumLeft) return false;
         // Price-distortion exclusions aren't normal shopping results.
         // Research-only Any price mode permits manual inspection.
         if (max is not null && row.Ugc?.IsExcludedPriceDistortion == true)
@@ -713,6 +733,10 @@ public partial class MainWindow
             case "Highest price":
                 _liveDropView.SortDescriptions.Add(new SortDescription(
                     nameof(LiveDropRow.SortPriceHigh), ListSortDirection.Ascending));
+                break;
+            case "Least stock":
+                _liveDropView.SortDescriptions.Add(new SortDescription(
+                    nameof(LiveDropRow.SortStockLow), ListSortDirection.Ascending));
                 break;
             case "Name A–Z":
                 _liveDropView.SortDescriptions.Add(new SortDescription(
@@ -881,7 +905,9 @@ public partial class MainWindow
                     if (scanUgc) await Task.Delay(350);
                     var found = await _liveBundleResearch.DiscoverAsync();
                     _liveBundles.Clear();
-                    _liveBundles.AddRange(found.Where(x => x.LimitedVerified));
+                    _liveBundles.AddRange(found.Where(x =>
+                        x.LimitedVerified && x.PrimaryMarketVerified &&
+                        x.OriginalUnitsAvailable is > 0 && x.VerifiedOriginalPrice is > 0));
                     _liveBundleScanUtc = DateTimeOffset.UtcNow;
                     _liveBundleScanError = null;
                 }
