@@ -1,5 +1,16 @@
 # Roblox Price Tracker changelog
 
+## v0.15.6 — Verified creator stock and simpler market workspaces
+- UGC scanner is now **verified in-stock original inventory only**. Missing, expired, zero, sold-out, catalog-only, mismatched-ID or resale-only stock never enters active results. Includes verified Limited animation bundles, with bundles still research-only.
+- Verify the candidate asset ID AND collectible ID against Marketplace; original price and remaining count must come from the matching Marketplace item. Use only a validated original-stock total, not inferred resale counts.
+- Shorten primary-stock cache TTL to 30 seconds, refresh active UGC sources before 120-second display expiry, and hide stale results after failed refreshes. Revalidate current inventory AND price before simulated UGC paper entries.
+- UGC table shows **PNG item · original price · stock left**. Official table shows **PNG item · lowest resale ask · RAP · 7-day sales**. Model scores, risk and resale details remain in the selected-item inspector.
+- Keep the main toolbar compact, with category, stock, price, opportunity and sorting filters behind one expandable control. Default maximum UGC original price remains 1,000 R$; changing it cannot admit unverified or sold-out items.
+- Overview highlights Official picks, verified in-stock UGC picks, alert count and source-specific data readiness; expired stock never becomes a market recommendation.
+- Recent alerts in Tracker now open their tracked item when double-clicked; Research tabs use clearer **Item Details** and **Price History** labels.
+- Deterministic tests cover malformed, mismatched, missing, sold-out and resale-only inventory, stock expiry, and the end-to-end verified discovery gate. Existing user data, alert logic, portfolios, and permanent `latest` release URL are preserved.
+
+
 ## v0.15.5 — UGC pricing evidence and default budget screen
 - Show source-labeled numeric UGC prices in the scanner. **Verified original** is distinguished from a **catalog-only quote**, which is not proof of a purchasable item or a verified historical original cost.
 - Set the UGC scanner's adjustable default maximum price to **1,000 R$** (optional 500/2,500/5,000 R$ or **Any price (research)**). Extremely expensive or confirmed price-distorted items no longer clutter the default scan. This cap is a presentation filter, not a Roblox-imposed floor or a statement of fair value.
