@@ -73,6 +73,8 @@ internal static partial class Program
             ("Thumbnail parser keeps only completed requested Roblox PNG images", TestThumbnailCompletedAndPendingStatesAsync),
             ("Thumbnail parser rejects untrusted or insecure image URLs", TestThumbnailRejectsUntrustedSourcesAsync),
             ("Thumbnail parser handles empty and incomplete responses safely", TestThumbnailMalformedOrMissingDataAsync),
+            ("UGC scanner excludes extreme prices by default, but supports research override", TestUgcScanPriceVisibilityAsync),
+            ("UGC scanner never labels catalog quotes as verified original costs", TestUgcPriceQuoteProvenanceAsync),
             ("Creator-price 65 to 1080 with weak resale evidence is excluded", TestUgcPriceIntegrityVerifiedInflationAsync),
             ("Other verified creator repricing is excluded without item-ID rules", TestUgcPriceIntegrityAcrossCategoriesAsync),
             ("Legitimate valuable resale market overrides creator repricing", TestUgcPriceIntegrityIndependentDemandProtectionAsync),
