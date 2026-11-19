@@ -12,10 +12,12 @@ public static class RobloxThumbnailResponseParser
         JsonElement root, IReadOnlySet<long> requestedIds)
     {
         var result = new Dictionary<long, string>();
-        if (!root.TryGetProperty("data", out var rows) || rows.ValueKind != JsonValueKind.Array)
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("data", out var rows) || rows.ValueKind != JsonValueKind.Array)
             return result;
         foreach (var row in rows.EnumerateArray())
         {
+            if (row.ValueKind != JsonValueKind.Object) continue;
             if (!row.TryGetProperty("targetId", out var idNode) ||
                 idNode.ValueKind != JsonValueKind.Number ||
                 !idNode.TryGetInt64(out var id) || id <= 0 || !requestedIds.Contains(id))
