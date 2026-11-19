@@ -260,6 +260,28 @@ public partial class MainWindow
         _liveDropSearch.TextChanged += (_, _) => UpdateLiveDropVisibleRows();
         toolbar.Children.Add(_liveDropSearch);
 
+        // Keep scanning controls simple. Advanced category/price/stock filters
+        // expand only when requested, instead of filling the toolbar.
+        var filters = new Expander
+        {
+            Header = "FILTERS",
+            IsExpanded = false,
+            Foreground = TerminalText,
+            Background = TerminalPanel,
+            BorderBrush = TerminalBorder,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        var filterPanel = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 8, 0, 3)
+        };
+        filters.Content = filterPanel;
+        toolbar.Children.Add(filters);
+
         _liveDropTypeFilter = new ComboBox
         {
             Width = 172,
@@ -270,7 +292,7 @@ public partial class MainWindow
         // Source-specific options are set by SetLiveDropScope. Official and UGC
         // products must never appear in the same result list.
         _liveDropTypeFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_liveDropTypeFilter);
+        filterPanel.Children.Add(_liveDropTypeFilter);
         _liveDropSort = new ComboBox
         {
             Width = 138, Height = 30,
@@ -281,7 +303,7 @@ public partial class MainWindow
             _liveDropSort.Items.Add(option);
         _liveDropSort.SelectedIndex = 0;
         _liveDropSort.SelectionChanged += (_, _) => ApplyLiveDropSort();
-        toolbar.Children.Add(_liveDropSort);
+        filterPanel.Children.Add(_liveDropSort);
         _ugcMaximumPrice = new ComboBox
         {
             Width = 140, Height = 30,
@@ -296,7 +318,7 @@ public partial class MainWindow
             _ugcMaximumPrice.Items.Add(option);
         _ugcMaximumPrice.SelectedIndex = 1;
         _ugcMaximumPrice.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_ugcMaximumPrice);
+        filterPanel.Children.Add(_ugcMaximumPrice);
 
         _ugcStockFilter = new ComboBox
         {
@@ -308,7 +330,7 @@ public partial class MainWindow
             _ugcStockFilter.Items.Add(option);
         _ugcStockFilter.SelectedIndex = 0;
         _ugcStockFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_ugcStockFilter);
+        filterPanel.Children.Add(_ugcStockFilter);
 
 
 
@@ -322,7 +344,7 @@ public partial class MainWindow
         };
         _liveDropOnlyOpportunities.Checked += (_, _) => UpdateLiveDropVisibleRows();
         _liveDropOnlyOpportunities.Unchecked += (_, _) => UpdateLiveDropVisibleRows();
-        toolbar.Children.Add(_liveDropOnlyOpportunities);
+        filterPanel.Children.Add(_liveDropOnlyOpportunities);
 
         var refresh = new Button
         {
