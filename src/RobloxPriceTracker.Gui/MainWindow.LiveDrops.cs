@@ -654,7 +654,7 @@ public partial class MainWindow
             {
                 _liveDropSwitchPending = false;
                 if (_liveDropPage?.IsVisible == true)
-                    Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                    _ = Dispatcher.BeginInvoke(DispatcherPriority.Background,
                         new Action(async () => await RefreshLiveDropsAsync(force: false)));
             }
         }
