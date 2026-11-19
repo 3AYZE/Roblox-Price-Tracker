@@ -512,7 +512,7 @@ public partial class MainWindow
         if (_portfolioGrid is not null)
         {
             _portfolioGrid.Columns.Clear();
-            _portfolioGrid.Columns.Add(HunterTextColumn("ASSET", nameof(PaperPositionRow.Name), 2.0, TerminalText, true));
+            _portfolioGrid.Columns.Add(CreatePaperAssetColumn());
             _portfolioGrid.Columns.Add(HunterTextColumn("QTY", nameof(PaperPositionRow.Quantity), 0.45, TerminalMuted));
             _portfolioGrid.Columns.Add(HunterTextColumn("ENTRY", nameof(PaperPositionRow.Entry), 0.78, TerminalText, true));
             _portfolioGrid.Columns.Add(HunterTextColumn("FLOOR", nameof(PaperPositionRow.Floor), 0.78, TerminalText, true));
