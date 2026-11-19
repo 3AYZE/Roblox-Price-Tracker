@@ -1,5 +1,15 @@
 # Roblox Price Tracker changelog
 
+## v0.15.3 — Separate Official and UGC Limited scanners
+- Discover now offers **Overview**, **Official Limiteds**, and **UGC Limiteds** as separate tabs. The previous combined Live Drops list is no longer displayed.
+- Official Limiteds displays Roblox-published assets, resale floor, RAP and 7-day sales. Official-only filters include below RAP, high liquidity and price drops.
+- UGC Limiteds contains creator Limited assets, emotes and research-only animation bundles, with original creator-stock prices kept separate from resale asking prices. UGC filters include accessories, emotes, animation packs and verified emissive/PBR.
+- Each tab refreshes only its own market data sources, preserving source-specific freshness, API pacing and cached results.
+- Overview shortcuts open the appropriate separate scanner, and Analyzer back navigation returns to the correct tab.
+- No changes to underlying investment scoring, local data, backups, update URLs or bundle research-only protections.
+- Added deterministic tests for scanner-source isolation and source-specific refresh planning.
+
+
 ## v0.15.2 — Unified Live Drop Scanner and simpler navigation
 - Combine Roblox-published Limiteds, UGC Limited assets, emotes and verified Limited animation packs into one **Discover → Live Drops** table with type search, verified-material filters, and an evidence-backed **Opportunities only** switch.
 - Replace three overlapping Discover scanner tabs with one Live Drops tab; preserve the overview signal board and the existing specialized scanners behind the shared view. Signal-board navigation now selects the relevant Live Drops source.
