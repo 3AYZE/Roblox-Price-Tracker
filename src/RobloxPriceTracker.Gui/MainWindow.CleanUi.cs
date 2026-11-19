@@ -183,6 +183,25 @@ public partial class MainWindow
         list.Columns.Add(HunterTextColumn("PRICE", nameof(AlertRow.Price), 0.9, TerminalText));
         list.Columns.Add(HunterTextColumn("PREVIOUS", nameof(AlertRow.PreviousPrice), 1.0, TerminalMuted));
         _cleanInlineAlertsPanel.Child = list;
+        list.MouseDoubleClick += async (_, _) =>
+        {
+            if (list.SelectedItem is not AlertRow alert) return;
+            // Alert details return to the existing tracked item; no separate
+            // alert-specific analyzer or duplicate item record is created.
+            await NavigateCleanAsync("Watchlist");
+            WatchlistSearchBox.Text = "";
+            WatchlistFilterCombo.SelectedIndex = 0;
+            var tracked = _watchlistRows.FirstOrDefault(x => x.ItemKey.Equals(alert.ItemKey));
+            if (tracked is not null)
+            {
+                WatchlistGrid.SelectedItem = tracked;
+                WatchlistGrid.ScrollIntoView(tracked);
+                WatchlistGrid.Focus();
+            }
+            else
+                ShowBanner("Item no longer tracked", "This historical alert has no matching item in your current tracker.");
+        };
+
         _alertRows.CollectionChanged += (_, _) => UpdateCleanTrackerAlertCount();
         UpdateCleanTrackerAlertCount();
     }
@@ -274,8 +293,8 @@ public partial class MainWindow
             },
             "Research" => new (string, string)[]
             {
-                ("Analyzer", "Analyzer"),
-                ("History", "Reports")
+                ("Item Details", "Analyzer"),
+                ("Price History", "Reports")
             },
             _ => Array.Empty<(string Label, string Page)>()
         };
@@ -468,12 +487,12 @@ public partial class MainWindow
             "OfficialMarket" => ("Official Market", "Browse Roblox-published Limiteds with the essential market numbers."),
             "Hunter" => ("UGC Hunter", "Find active UGC Limited drops with resale potential and reasonable entry risk."),
             "OfficialDrops" => ("Official Limiteds", "Roblox-published Limiteds, resale floors, RAP, liquidity and opportunities."),
-            "UgcDrops" => ("UGC Limiteds", "UGC accessories, emotes and animation packs with creator-stock and resale prices clearly separated."),
+            "UgcDrops" => ("UGC Limiteds", "Verified original-stock accessories, emotes and animation packs only. Resale stock excluded."),
             "Watchlist" => ("Tracker", "Your saved Limiteds, current prices, targets, and monitoring status."),
             "Portfolio" => ("Portfolio", "Paper positions used to validate ideas without spending Robux."),
             "Alerts" => ("Alerts", "Only price and target events that need attention."),
-            "Analyzer" => ("Analyzer", "Deep-dive one Roblox item when you need the full evidence and model."),
-            "Reports" => ("History", "Price history and forecast context for tracked items."),
+            "Analyzer" => ("Item Details", "Explore the selected item's market data, model, and source evidence."),
+            "Reports" => ("Price History", "Historical prices and forecast context for tracked items."),
             _ => ("Settings", "Monitoring, notifications, application behavior, and local data.")
         };
     }
