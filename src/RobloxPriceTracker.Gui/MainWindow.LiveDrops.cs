@@ -308,7 +308,7 @@ public partial class MainWindow
         {
             Width = 140, Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
-            ToolTip = "Maximum verified original creator price. Default: 1,000 R$. Higher prices can be inspected by changing the filter."
+            ToolTip = "Maximum verified original creator price. Default: 500 R$. Higher prices remain available through the filter."
         };
         foreach (var option in new[]
         {
@@ -316,7 +316,7 @@ public partial class MainWindow
             "≤ 5,000 R$", "Any verified price"
         })
             _ugcMaximumPrice.Items.Add(option);
-        _ugcMaximumPrice.SelectedIndex = 1;
+        _ugcMaximumPrice.SelectedIndex = 0;
         _ugcMaximumPrice.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
         filterPanel.Children.Add(_ugcMaximumPrice);
 
