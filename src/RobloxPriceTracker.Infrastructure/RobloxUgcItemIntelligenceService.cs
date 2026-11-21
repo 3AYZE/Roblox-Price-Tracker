@@ -206,7 +206,7 @@ public sealed record RobloxUgcItemIntelligence(
     public double? Rap => Resale?.RecentAveragePrice;
     public int SellerCount => Resellers?.ObservedListings ?? 0;
     public double Sales7d => Resale?.SalesLast7d ?? 0d;
-    public double Sales30d => SalesWithinDays(Resale, 30.25d);
+    public double Sales30d => Resale?.SalesLast30d ?? 0d;
     public double? CurrentFloorNetRoi => OriginalPrice is > 0 && CurrentFloor is > 0
         ? CurrentFloor.Value * UgcResaleScoring.CommunityLimitedResellerShare / OriginalPrice.Value - 1d
         : null;
@@ -214,14 +214,6 @@ public sealed record RobloxUgcItemIntelligence(
         ? "INSUFFICIENT DATA"
         : Score?.Recommendation ?? "NOT ANALYZABLE";
 
-    private static double SalesWithinDays(RobloxResaleMarketData? resale, double days)
-    {
-        if (resale is null) return 0d;
-        var points = resale.VolumeDataPoints.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
-        if (points.Length == 0) return 0d;
-        var newest = points[0].Date;
-        return points.Where(x => x.Date >= newest - TimeSpan.FromDays(days)).Sum(x => x.Value);
-    }
 }
 
 /// <summary>
@@ -286,7 +278,7 @@ public sealed class RobloxUgcItemIntelligenceService
         var remaining = marketplace?.UnitsAvailable ?? catalog.UnitsAvailable;
         var total = marketplace?.TotalStock ?? catalog.TotalQuantity;
         var floor = resellerBook?.LowestPrice ?? marketplace?.LowestResalePrice;
-        var sales30 = SalesWithinDays(resale, 30.25d);
+        var sales30 = resale.SalesLast30d;
         var hasMarket = floor is > 0 || resale.IsAvailable || resellerBook is { IsAvailable: true };
 
         UgcResaleScore? score = null;
@@ -488,13 +480,6 @@ public sealed class RobloxUgcItemIntelligenceService
         throw new InvalidOperationException($"{operation} retry loop ended unexpectedly.");
     }
 
-    private static double SalesWithinDays(RobloxResaleMarketData resale, double days)
-    {
-        var points = resale.VolumeDataPoints.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
-        if (points.Length == 0) return 0d;
-        var newest = points[0].Date;
-        return points.Where(x => x.Date >= newest - TimeSpan.FromDays(days)).Sum(x => x.Value);
-    }
 
     private static bool TryGetCsrfToken(HttpResponseMessage response, out string token)
     {

@@ -541,7 +541,7 @@ public partial class MainWindow
 
         if (_huntGrid is not null)
         {
-            _huntGrid.RowHeight = 58;
+            _huntGrid.RowHeight = 52;
             _huntGrid.Columns.Clear();
             _huntGrid.Columns.Add(CreateCleanOfficialAssetColumn());
             _huntGrid.Columns.Add(OfficialColumn("FLOOR", nameof(OfficialLimitedRow.FloorText), 0.82));
@@ -554,7 +554,7 @@ public partial class MainWindow
 
         if (_officialMarketGrid is not null)
         {
-            _officialMarketGrid.RowHeight = 58;
+            _officialMarketGrid.RowHeight = 52;
             _officialMarketGrid.Columns.Clear();
             _officialMarketGrid.Columns.Add(CreateCleanOfficialAssetColumn());
             _officialMarketGrid.Columns.Add(OfficialColumn("FLOOR", nameof(OfficialLimitedRow.FloorText), 0.86));

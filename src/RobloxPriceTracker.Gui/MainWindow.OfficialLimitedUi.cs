@@ -315,8 +315,10 @@ public partial class MainWindow
     private static DataGrid CreateOfficialGrid() => new()
     {
         IsReadOnly = true,
-        RowHeight = 52,
-        ColumnHeaderHeight = 34,
+        RowHeight = 44,
+        ColumnHeaderHeight = 32,
+        EnableRowVirtualization = true,
+        EnableColumnVirtualization = true,
         BorderThickness = new Thickness(0, 1, 0, 0),
         SelectionMode = DataGridSelectionMode.Single,
         SelectionUnit = DataGridSelectionUnit.FullRow
@@ -461,14 +463,11 @@ public partial class MainWindow
         try
         {
             var scan = await _officialLimitedService.ScanAsync(token);
-            var thumbnails = await _services.ThumbnailService.GetAssetThumbnailUrlsAsync(scan.Items.Select(x => x.AssetId), token);
+            token.ThrowIfCancellationRequested();
             var selectedAsset = (_huntGrid?.SelectedItem as OfficialLimitedRow)?.AssetId;
             _officialRows.Clear();
             foreach (var item in scan.Items)
-            {
-                thumbnails.TryGetValue(item.AssetId, out var thumbnail);
-                _officialRows.Add(new OfficialLimitedRow(item, thumbnail));
-            }
+                _officialRows.Add(new OfficialLimitedRow(item, null));
 
             _officialLastRefreshUtc = scan.ObservedAtUtc;
             _officialMarketView?.Refresh();
@@ -485,6 +484,9 @@ public partial class MainWindow
                 if (_huntGrid.SelectedItem is null && _officialHuntView?.Cast<object>().FirstOrDefault() is OfficialLimitedRow first) _huntGrid.SelectedItem = first;
             }
             UpdateOfficialHuntInspector();
+            // Draw market data immediately. Thumbnail API delays and failures must not
+            // postpone prices, scores, or scan status.
+            _ = HydrateOfficialThumbnailsAsync(_officialRows.ToArray(), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -498,6 +500,30 @@ public partial class MainWindow
         finally
         {
             _officialRefreshInProgress = false;
+        }
+    }
+
+    private async Task HydrateOfficialThumbnailsAsync(OfficialLimitedRow[] rows, CancellationToken token)
+    {
+        try
+        {
+            var urls = await _services.ThumbnailService.GetAssetThumbnailUrlsAsync(rows.Select(x => x.AssetId), token);
+            if (token.IsCancellationRequested) return;
+            foreach (var row in rows)
+            {
+                if (token.IsCancellationRequested) return;
+                if (urls.TryGetValue(row.AssetId, out var url) && _officialRows.Contains(row))
+                    row.ThumbnailUrl = url;
+            }
+            if (_huntGrid?.SelectedItem is OfficialLimitedRow selected && rows.Contains(selected))
+                UpdateOfficialHuntInspector();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Info($"Official Limited thumbnails unavailable: {ex.Message}");
         }
     }
 
@@ -604,8 +630,11 @@ public partial class MainWindow
     }
 }
 
-public sealed class OfficialLimitedRow
+public sealed class OfficialLimitedRow : INotifyPropertyChanged
 {
+    private string? _thumbnailUrl;
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     public OfficialLimitedRow(RobloxOfficialLimitedMarketItem item, string? thumbnailUrl)
     {
         AssetId = item.AssetId;
@@ -659,7 +688,16 @@ public sealed class OfficialLimitedRow
     public bool HasRecentSalesCoverage { get; }
     public string EvidenceText { get; }
     public string ReasonText { get; }
-    public string? ThumbnailUrl { get; }
+    public string? ThumbnailUrl
+    {
+        get => _thumbnailUrl;
+        internal set
+        {
+            if (string.Equals(_thumbnailUrl, value, StringComparison.Ordinal)) return;
+            _thumbnailUrl = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThumbnailUrl)));
+        }
+    }
     public string FloorText => FloorPrice is > 0 ? $"{FloorPrice.Value:N0} R$" : "—";
     public string RapText => Rap is > 0 ? $"{Rap.Value:N0} R$" : "—";
     public string FairValueText => FairValue is > 0 ? $"{FairValue.Value:N0} R$" : "—";

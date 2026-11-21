@@ -27,7 +27,11 @@ internal static partial class Program
         AssertTrue(Math.Abs(data.RecentAveragePrice!.Value - 5000d) < 0.001);
         AssertEqual(2, data.PriceDataPoints.Count);
         AssertEqual(2, data.VolumeDataPoints.Count);
-        AssertTrue(data.SalesPerDay7d > 4d);
+        var fixtureNow = new DateTimeOffset(2026, 8, 24, 0, 0, 0, TimeSpan.Zero);
+        AssertTrue(data.HasSalesCoverage(fixtureNow));
+        AssertTrue(data.SalesWithinDays(7.25d, fixtureNow) / 7d > 4d);
+        AssertTrue(!data.HasSalesCoverage(fixtureNow.AddDays(90)));
+        AssertEqual(0d, data.SalesWithinDays(7.25d, fixtureNow.AddDays(90)));
         return Task.CompletedTask;
     }
 

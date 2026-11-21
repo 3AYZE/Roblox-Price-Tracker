@@ -550,6 +550,7 @@ public sealed class UgcHunterService
             ResellerBookTruncated = book?.HasMoreListings ?? false,
             SalesLast7d = market.SalesLast7d,
             SalesLast30d = sales30,
+            HasRecentResaleVolume = market.HasSalesSeries,
             VerifiedCompletedResales30d = VerifiedResales30d(market),
             ResaleVolumeEvidenceDays = RelevantResaleVolumePoints30d(market)
                 .Select(x => x.Date.UtcDateTime.Date).Distinct().Count(),
@@ -625,6 +626,7 @@ public sealed class UgcHunterService
             ResellerBookTruncated = book?.HasMoreListings ?? false,
             SalesLast7d = market?.SalesLast7d ?? 0,
             SalesLast30d = market is null ? 0 : SalesLast30d(market),
+            HasRecentResaleVolume = market?.HasSalesSeries == true,
             LiquidityLabel = score.LiquidityLabel,
             Recommendation = score.Recommendation,
             HasLiveResaleMarket = market?.IsAvailable == true || book?.IsAvailable == true,
@@ -685,20 +687,23 @@ public sealed class UgcHunterService
     // catalog's primary purchaseCount. No reported days means UNKNOWN, not zero.
     private static double? VerifiedResales30d(RobloxResaleMarketData market)
     {
-        var latest = DateTimeOffset.UtcNow.AddDays(-30);
         var valid = RelevantResaleVolumePoints30d(market);
         return valid.Length == 0 ? null : valid.Sum(x => x.Value);
     }
 
-    private static ResaleDataPoint[] RelevantResaleVolumePoints30d(RobloxResaleMarketData market) =>
-        market.VolumeDataPoints.Where(x =>
-            x.Date >= DateTimeOffset.UtcNow.AddDays(-30) &&
-            x.Date <= DateTimeOffset.UtcNow.AddDays(1) && x.Value >= 0).ToArray();
+    private static ResaleDataPoint[] RelevantResaleVolumePoints30d(RobloxResaleMarketData market)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (!market.HasSalesCoverage(now)) return [];
+        return market.VolumeDataPoints.Where(x =>
+            x.Date >= now.AddDays(-30) && x.Date <= now &&
+            double.IsFinite(x.Value) && x.Value >= 0).ToArray();
+    }
 
     private static ResaleDataPoint[] RelevantDailyPricePoints30d(RobloxResaleMarketData market) =>
         market.PriceDataPoints.Where(x =>
             x.Date >= DateTimeOffset.UtcNow.AddDays(-30) &&
-            x.Date <= DateTimeOffset.UtcNow.AddDays(1) && x.Value > 0).ToArray();
+            x.Date <= DateTimeOffset.UtcNow && x.Value > 0).ToArray();
 
     private static double? VerifiedDailyResalePriceMedian30d(RobloxResaleMarketData market)
     {
@@ -708,13 +713,7 @@ public sealed class UgcHunterService
         return prices.Length % 2 == 1 ? prices[half] : (prices[half - 1] + prices[half]) / 2;
     }
 
-    private static double SalesLast30d(RobloxResaleMarketData market)
-    {
-        var valid = market.VolumeDataPoints.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
-        if (valid.Length == 0) return 0;
-        var newest = valid[0].Date;
-        return valid.Where(x => x.Date >= newest - TimeSpan.FromDays(30.5)).Sum(x => x.Value);
-    }
+    private static double SalesLast30d(RobloxResaleMarketData market) => market.SalesLast30d;
 
     private static UgcMarketState BuildMarketState(IReadOnlyList<UgcHunterItem> items)
     {
@@ -917,6 +916,7 @@ public sealed record UgcHunterItem(
     public bool ResellerBookTruncated { get; init; }
     public double SalesLast7d { get; init; }
     public double SalesLast30d { get; init; }
+    public bool HasRecentResaleVolume { get; init; }
     public string LiquidityLabel { get; init; } = "MODELED";
     public string Recommendation { get; init; } = "WATCH";
     public bool HasLiveResaleMarket { get; init; }
@@ -986,7 +986,7 @@ public sealed record UgcHunterItem(
             if (CurrentResaleFloor is > 0) score += 15;
             if (RecentAveragePrice is > 0) score += 10;
             if (ObservedResellers > 0) score += 10;
-            if (SalesLast7d > 0 || SalesLast30d > 0) score += 10;
+            if (HasRecentResaleVolume) score += 10;
             return Math.Clamp(score, 0, 100);
         }
     }
@@ -1023,7 +1023,7 @@ public sealed record UgcHunterItem(
             evidence.Add(CurrentResaleFloor is > 0 ? "✓ floor" : "— floor unavailable");
             evidence.Add(RecentAveragePrice is > 0 ? "✓ RAP" : "— RAP unavailable");
             evidence.Add(ObservedResellers > 0 ? "✓ reseller book" : "— reseller book unavailable");
-            evidence.Add(SalesLast7d > 0 || SalesLast30d > 0 ? "✓ resale volume" : "— resale volume unavailable");
+            evidence.Add(HasRecentResaleVolume ? "✓ current resale volume" : "— current resale volume unavailable");
             return string.Join(" · ", evidence);
         }
     }
@@ -1051,7 +1051,7 @@ public sealed record UgcHunterItem(
     public string CurrentResaleText => CurrentResaleFloor is > 0 ? $"{CurrentResaleFloor:N0} R$" : "—";
     public string RapText => RecentAveragePrice is > 0 ? $"{RecentAveragePrice.Value:N0} R$" : "—";
     public string ResellersText => ObservedResellers <= 0 ? "—" : ResellerBookTruncated ? $"{ObservedResellers:N0}+" : ObservedResellers.ToString("N0");
-    public string SalesText => HasLiveResaleMarket ? $"{SalesLast7d:0.#}/7d · {SalesLast30d:0.#}/30d" : "MODELED";
+    public string SalesText => HasRecentResaleVolume ? $"{SalesLast7d:0.#}/7d · {SalesLast30d:0.#}/30d" : "—";
     public string LiquidityText => $"{LiquidityLabel} · {LiquidityScore:0}";
     public string VerificationText => PrimaryMarketVerified ? "ROBLOX VERIFIED" : "CATALOG FALLBACK";
     public string RobloxUrl => $"https://www.roblox.com/catalog/{AssetId}";

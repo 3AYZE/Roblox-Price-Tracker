@@ -19,31 +19,28 @@ public sealed record RobloxResaleMarketData(
     string? CollectibleItemId,
     string? Error)
 {
-    public double SalesLast24h
+    public DateTimeOffset? RetryAfterUtc { get; init; }
+    public bool RateLimited { get; init; }
+
+    // A historical series is not evidence of current trading volume. Roblox publishes
+    // daily buckets, so use the same 48-hour freshness window as Official Hunt.
+    public bool HasSalesCoverage(DateTimeOffset nowUtc) =>
+        OfficialResaleCoveragePolicy.HasRecentVolume(VolumeDataPoints, nowUtc);
+
+    public double SalesWithinDays(double days, DateTimeOffset nowUtc)
     {
-        get
-        {
-            var valid = VolumeDataPoints.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
-            if (valid.Length == 0) return 0;
-            var newest = valid[0].Date;
-            return valid.Where(x => x.Date >= newest - TimeSpan.FromHours(25)).Sum(x => x.Value);
-        }
+        if (days <= 0 || !HasSalesCoverage(nowUtc)) return 0;
+        var cutoff = nowUtc - TimeSpan.FromDays(days);
+        return VolumeDataPoints.Where(x => double.IsFinite(x.Value) && x.Value >= 0 &&
+            x.Date >= cutoff && x.Date <= nowUtc).Sum(x => x.Value);
     }
 
-    public double SalesLast7d
-    {
-        get
-        {
-            var valid = VolumeDataPoints.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
-            if (valid.Length == 0) return 0;
-            var newest = valid[0].Date;
-            return valid.Where(x => x.Date >= newest - TimeSpan.FromDays(7.25)).Sum(x => x.Value);
-        }
-    }
-
+    public double SalesLast24h => SalesWithinDays(25d / 24d, DateTimeOffset.UtcNow);
+    public double SalesLast7d => SalesWithinDays(7.25d, DateTimeOffset.UtcNow);
+    public double SalesLast30d => SalesWithinDays(30.25d, DateTimeOffset.UtcNow);
     public double SalesPerDay7d => SalesLast7d / 7d;
     public DateTimeOffset? LastVolumeDate => VolumeDataPoints.Where(x => x.Value > 0).OrderByDescending(x => x.Date).FirstOrDefault()?.Date;
-    public bool HasSalesSeries => VolumeDataPoints.Any(x => x.Value > 0);
+    public bool HasSalesSeries => HasSalesCoverage(DateTimeOffset.UtcNow);
     public bool HasPriceSeries => PriceDataPoints.Any(x => x.Value > 0);
 }
 
@@ -62,6 +59,7 @@ public sealed class RobloxResaleDataService
     private readonly ConcurrentDictionary<long, CacheEntry> _cache = new();
     private readonly ConcurrentDictionary<string, CacheEntry> _modernCache = new(StringComparer.OrdinalIgnoreCase);
     private string? _anonymousCsrfToken;
+    private long _cooldownUntilUtcTicks;
 
     public RobloxResaleDataService(HttpClient httpClient, AppLogger logger)
     {
@@ -103,6 +101,9 @@ public sealed class RobloxResaleDataService
                 return cached.Data;
             }
 
+            if (GetCooldown(now, assetId) is { } coolingDown)
+                return coolingDown;
+
             RobloxResaleMarketData result;
             try
             {
@@ -118,7 +119,7 @@ public sealed class RobloxResaleDataService
                 // let such a response prevent the modern collectible lookup.
                 var staleLegacy = OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(
                     legacy, DateTimeOffset.UtcNow);
-                if (HasMeaningfulMarketData(legacy) && !staleLegacy)
+                if (legacy.RateLimited || (HasMeaningfulMarketData(legacy) && !staleLegacy))
                 {
                     result = legacy;
                 }
@@ -134,7 +135,7 @@ public sealed class RobloxResaleDataService
                             "Roblox Marketplace Sales",
                             collectibleId,
                             cancellationToken).ConfigureAwait(false);
-                        result = HasMeaningfulMarketData(modern) ? modern :
+                        result = modern.RateLimited || HasMeaningfulMarketData(modern) ? modern :
                             staleLegacy
                                 ? Unavailable(assetId,
                                     "Legacy Roblox resale history is stale; current data is unavailable.",
@@ -166,7 +167,11 @@ public sealed class RobloxResaleDataService
             }
 
             var ttl = result.IsAvailable ? TimeSpan.FromMinutes(15) : TimeSpan.FromMinutes(5);
-            _cache[assetId] = new CacheEntry(result, DateTimeOffset.UtcNow + ttl);
+            if (result.RateLimited) ApplyCooldown(result.RetryAfterUtc);
+            var expires = DateTimeOffset.UtcNow + ttl;
+            if (result.RetryAfterUtc is { } retryAfter && retryAfter > expires)
+                expires = retryAfter;
+            _cache[assetId] = new CacheEntry(result, expires);
             return result;
         }
         finally
@@ -195,6 +200,9 @@ public sealed class RobloxResaleDataService
             if (_modernCache.TryGetValue(key, out cached) && cached.ExpiresAtUtc > now)
                 return cached.Data;
 
+            if (GetCooldown(now, assetId) is { } coolingDown)
+                return coolingDown;
+
             RobloxResaleMarketData result;
             try
             {
@@ -216,7 +224,11 @@ public sealed class RobloxResaleDataService
                 result = Unavailable(assetId, ex.Message, "Roblox Marketplace Sales", key);
             }
 
-            _modernCache[key] = new CacheEntry(result, DateTimeOffset.UtcNow + (result.IsAvailable ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(2)));
+            if (result.RateLimited) ApplyCooldown(result.RetryAfterUtc);
+            var expires = DateTimeOffset.UtcNow + (result.IsAvailable ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(2));
+            if (result.RetryAfterUtc is { } retryAfter && retryAfter > expires)
+                expires = retryAfter;
+            _modernCache[key] = new CacheEntry(result, expires);
             return result;
         }
         finally
@@ -238,7 +250,21 @@ public sealed class RobloxResaleDataService
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return Unavailable(assetId, $"{source} returned HTTP {(int)response.StatusCode}.", source, collectibleItemId);
+            var unavailable = Unavailable(assetId, $"{source} returned HTTP {(int)response.StatusCode}.", source, collectibleItemId);
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var now = DateTimeOffset.UtcNow;
+                var retry = response.Headers.RetryAfter;
+                var requested = retry?.Date ?? (retry?.Delta is { } delta ? now + delta : now.AddMinutes(5));
+                return unavailable with
+                {
+                    RateLimited = true,
+                    RetryAfterUtc = requested < now.AddSeconds(30)
+                        ? now.AddSeconds(30)
+                        : requested > now.AddMinutes(30) ? now.AddMinutes(30) : requested
+                };
+            }
+            return unavailable;
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -350,7 +376,33 @@ public sealed class RobloxResaleDataService
     }
 
     private static bool HasMeaningfulMarketData(RobloxResaleMarketData data) =>
-        data.RecentAveragePrice is > 0 || data.PriceDataPoints.Any(x => x.Value > 0) || data.VolumeDataPoints.Any(x => x.Value > 0);
+        data.RecentAveragePrice is > 0 || data.PriceDataPoints.Any(x => x.Value > 0) ||
+        data.VolumeDataPoints.Any(x => x.Value > 0) || data.HasSalesSeries;
+
+    private RobloxResaleMarketData? GetCooldown(DateTimeOffset now, long assetId)
+    {
+        var until = Interlocked.Read(ref _cooldownUntilUtcTicks);
+        return until > now.UtcTicks
+            ? Unavailable(assetId, "Roblox resale API is rate-limited; waiting for Retry-After.") with
+            {
+                RateLimited = true,
+                RetryAfterUtc = new DateTimeOffset(until, TimeSpan.Zero)
+            }
+            : null;
+    }
+
+    private void ApplyCooldown(DateTimeOffset? retryAfterUtc)
+    {
+        if (retryAfterUtc is not { } retryAfter) return;
+        var proposed = retryAfter.UtcTicks;
+        var previous = Interlocked.Read(ref _cooldownUntilUtcTicks);
+        while (proposed > previous)
+        {
+            var observed = Interlocked.CompareExchange(ref _cooldownUntilUtcTicks, proposed, previous);
+            if (observed == previous) break;
+            previous = observed;
+        }
+    }
 
     private static RobloxResaleMarketData Unavailable(long assetId, string error, string source = "Unavailable", string? collectibleItemId = null) =>
         new(assetId, false, source, null, null, Array.Empty<ResaleDataPoint>(), Array.Empty<ResaleDataPoint>(), collectibleItemId, error);
@@ -366,7 +418,9 @@ public static class RobloxResaleDataParser
         var volumePoints = ParsePoints(root, "volumeDataPoints");
         var rap = TryGetDouble(root, "recentAveragePrice");
         var sales = TryGetInt64(root, "sales");
-        var available = rap is > 0 || pricePoints.Any(x => x.Value > 0) || volumePoints.Any(x => x.Value > 0);
+        var available = rap is > 0 || pricePoints.Any(x => x.Value > 0) ||
+            volumePoints.Any(x => x.Value > 0) ||
+            OfficialResaleCoveragePolicy.HasRecentVolume(volumePoints, DateTimeOffset.UtcNow);
 
         return new RobloxResaleMarketData(
             assetId,
@@ -393,7 +447,7 @@ public static class RobloxResaleDataParser
             if (!point.TryGetProperty("date", out var dateElement) || dateElement.ValueKind != JsonValueKind.String) continue;
             if (!DateTimeOffset.TryParse(dateElement.GetString(), out var date)) continue;
             var value = TryGetDouble(point, "value");
-            if (value is null || double.IsNaN(value.Value) || double.IsInfinity(value.Value)) continue;
+            if (value is null || !double.IsFinite(value.Value) || value.Value < 0) continue;
             result.Add(new ResaleDataPoint(date, value.Value));
         }
         return result.OrderBy(x => x.Date).ToArray();

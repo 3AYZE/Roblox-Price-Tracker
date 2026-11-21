@@ -4,6 +4,146 @@ using RobloxPriceTracker.Infrastructure;
 
 internal static partial class Program
 {
+    static Task TestResaleVolumeWindowsAsync()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var data = new RobloxResaleMarketData(1, true, "test", null, null, [],
+            [new(now.AddHours(-3), 0), new(now.AddDays(-6), 10),
+             new(now.AddDays(-25), 3), new(now.AddDays(-90), 100),
+             new(now.AddDays(1), 800)], null, null);
+        AssertTrue(data.HasSalesCoverage(now));
+        AssertEqual(0d, data.SalesWithinDays(25d / 24d, now));
+        AssertEqual(10d, data.SalesWithinDays(7.25d, now));
+        AssertEqual(13d, data.SalesWithinDays(30.25d, now));
+        AssertTrue(!data.HasSalesCoverage(now.AddDays(4)));
+        AssertEqual(0d, data.SalesWithinDays(30.25d, now.AddDays(4)));
+
+        using var malformed = JsonDocument.Parse("""
+            {"volumeDataPoints":[
+                {"date":"2026-01-01T00:00:00Z","value":-4},
+                {"date":"bad-date","value":1},
+                {"date":"2026-01-01T00:00:00Z","value":"oops"}]}
+            """);
+        var parsed = RobloxResaleDataParser.Parse(1, malformed.RootElement, "test");
+        AssertEqual(0, parsed.VolumeDataPoints.Count);
+        return Task.CompletedTask;
+    }
+
+    static async Task TestResaleRateLimitBackoffAsync()
+    {
+        var requests = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            requests++;
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(12));
+            return Task.FromResult(response);
+        }));
+        var root = Path.Combine(Path.GetTempPath(), "rpt-resale-429", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxResaleDataService(client, new AppLogger(Path.Combine(root, "test.log")));
+            var first = await service.GetAsync(998);
+            AssertTrue(!first.IsAvailable && first.RateLimited);
+            AssertTrue(first.RetryAfterUtc > DateTimeOffset.UtcNow.AddMinutes(10));
+            var second = await service.GetAsync(998);
+            AssertTrue(second.RateLimited);
+            var anotherAsset = await service.GetAsync(999);
+            var modernAsset = await service.GetModernAsync(1000, "another-collectible");
+            AssertTrue(anotherAsset.RateLimited && modernAsset.RateLimited);
+            AssertEqual(1, requests);
+
+            // A multi-item refresh may have up to three requests in flight when
+            // the first 429 arrives; the remaining assets must honor that backoff.
+            var batchRequests = 0;
+            using var batchClient = new HttpClient(new DelegateHandler((_, _) =>
+            {
+                Interlocked.Increment(ref batchRequests);
+                var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+                response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(12));
+                return Task.FromResult(response);
+            }));
+            var batchService = new RobloxResaleDataService(batchClient,
+                new AppLogger(Path.Combine(root, "batch.log")));
+            var batch = await batchService.GetManyAsync(Enumerable.Range(5000, 150).Select(x => (long)x));
+            AssertEqual(150, batch.Count);
+            AssertTrue(batch.Values.All(x => x.RateLimited && !x.IsAvailable));
+            AssertTrue(batchRequests is >= 1 and <= 3);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    static async Task TestModernResaleRateLimitFallbackAsync()
+    {
+        var requests = 0;
+        using var client = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            requests++;
+            var path = request.RequestUri?.AbsolutePath ?? "";
+            if (path.EndsWith("/resale-data", StringComparison.Ordinal) &&
+                request.RequestUri?.Host == "economy.roblox.com")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"recentAveragePrice\":null,\"volumeDataPoints\":[],\"priceDataPoints\":[]}")
+                });
+            if (path.EndsWith("/catalog/items/details", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"data\":[{\"id\":777,\"collectibleItemId\":\"collectible-777\"}]}")
+                });
+            var limited = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            limited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(10));
+            return Task.FromResult(limited);
+        }));
+        var root = Path.Combine(Path.GetTempPath(), "rpt-modern-429", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxResaleDataService(client, new AppLogger(Path.Combine(root, "test.log")));
+            var first = await service.GetAsync(777);
+            AssertTrue(first.RateLimited && !first.IsAvailable);
+            AssertEqual("Roblox Marketplace Sales", first.Source);
+            var next = await service.GetAsync(778);
+            AssertTrue(next.RateLimited && !next.IsAvailable);
+            AssertEqual(3, requests);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    static async Task TestResaleFailureModesAsync()
+    {
+        var requests = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            requests++;
+            if (requests == 1)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{invalid-json")
+                });
+            throw new TaskCanceledException("Simulated request timeout");
+        }));
+        var root = Path.Combine(Path.GetTempPath(), "rpt-resale-failure", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxResaleDataService(client, new AppLogger(Path.Combine(root, "test.log")));
+            var malformed = await service.GetAsync(997);
+            var timeout = await service.GetAsync(996);
+            AssertTrue(!malformed.IsAvailable && !timeout.IsAvailable);
+            AssertTrue(malformed.Error is not null && timeout.Error is not null);
+            AssertEqual(2, requests);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     static Task TestOfficialResaleCoverageRotatesAsync()
     {
         var ids = Enumerable.Range(1, 180).Select(x => (long)x).ToArray();

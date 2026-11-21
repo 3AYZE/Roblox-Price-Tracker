@@ -155,7 +155,7 @@ public sealed class PriceForecastEngine
             direction,
             Math.Round(volatilityPercent, 2),
             liquidityScore is null ? null : Math.Round(liquidityScore.Value, 0),
-            resaleData?.SalesPerDay7d ?? 0,
+            resaleData?.SalesWithinDays(7.25d, now) / 7d ?? 0,
             target1h,
             target6h,
             target24h,
@@ -188,8 +188,8 @@ public sealed class PriceForecastEngine
 
     private static double? CalculateLiquidityScore(RobloxResaleMarketData? data, DateTimeOffset now)
     {
-        if (data is not { IsAvailable: true } || !data.HasSalesSeries) return null;
-        var salesPerDay = Math.Max(0, data.SalesPerDay7d);
+        if (data is not { IsAvailable: true } || !data.HasSalesCoverage(now)) return null;
+        var salesPerDay = Math.Max(0, data.SalesWithinDays(7.25d, now) / 7d);
         var velocity = 100d * (1d - Math.Exp(-salesPerDay / 18d));
         var recencyFactor = data.LastVolumeDate is { } last
             ? Clamp(1d - Math.Max(0, (now - last).TotalDays - 1d) / 14d, 0.35, 1d)
