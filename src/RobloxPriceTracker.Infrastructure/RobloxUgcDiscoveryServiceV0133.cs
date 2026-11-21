@@ -130,6 +130,17 @@ public sealed class RobloxUgcDiscoveryService
             MaxPages: 3,
             Budget: 90,
             Weight: 1.10d),
+        // Supplement popularity feeds with newly published community collectibles.
+        // One extra page every discovery-cache interval; Marketplace remains the
+        // only authority for active original stock.
+        new(
+            "recent-community",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30"),
+            null,
+            MaxPages: 1,
+            Budget: 30,
+            Weight: 0.25d,
+            ReserveRecent: true),
         new(
             "recent-collectibles",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=3&Limit=30"),
@@ -153,7 +164,6 @@ public sealed class RobloxUgcDiscoveryService
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
     private const int MaxDiscoveryIds = 120;
-    private const int MomentumQuota = 100;
     private const int RecentReserve = MaxDiscoveryIds - MomentumQuota;
     private const int MaxDetailBatchSize = 40;
     private const int DetailIsolationChunkSize = 10;
@@ -362,6 +372,7 @@ public sealed class RobloxUgcDiscoveryService
         var recentSeen = new HashSet<long>();
         var emoteIds = new List<long>(16);
         var emoteSeen = new HashSet<long>();
+        var feedIdLists = new List<IReadOnlyList<long>>(feeds.Count);
         var feedsUsed = 0;
         var pagesUsed = 0;
         RobloxUgcDiscoveryException? firstFailure = null;
@@ -372,6 +383,8 @@ public sealed class RobloxUgcDiscoveryService
             string? cursor = null;
             var rowsConsidered = 0;
             var producedPage = false;
+            var idsFromFeed = new List<long>(feed.Budget);
+            var idsFromFeedSeen = new HashSet<long>();
 
             for (var page = 0; page < feed.MaxPages && rowsConsidered < feed.Budget; page++)
             {
@@ -426,6 +439,7 @@ public sealed class RobloxUgcDiscoveryService
                         }
 
                         signal.Observe(feed.Name, rank, feed.Weight);
+                        if (idsFromFeedSeen.Add(id)) idsFromFeed.Add(id);
                         if (feed.ReserveRecent && recentSeen.Add(id)) recentIds.Add(id);
                         if (feed.ReserveEmotes && emoteSeen.Add(id)) emoteIds.Add(id);
                     }
@@ -440,42 +454,22 @@ public sealed class RobloxUgcDiscoveryService
             }
 
             if (producedPage) feedsUsed++;
+            if (idsFromFeed.Count > 0) feedIdLists.Add(idsFromFeed);
             await Task.Delay(InterFeedDelay, cancellationToken).ConfigureAwait(false);
         }
 
         if (signals.Count == 0 && firstFailure is not null)
             throw firstFailure;
 
-        var selected = new List<long>(MaxDiscoveryIds);
-        var selectedSet = new HashSet<long>();
         var ordered = signals.Values
             .OrderByDescending(x => x.CompositeScore)
             .ThenByDescending(x => x.FeedHits)
             .ThenBy(x => x.BestRank)
+            .Select(x => x.AssetId)
             .ToArray();
 
-        // Reserve only a small fixed portion for emotes so they cannot vanish
-        // behind popular hats, without increasing network hydration fan-out.
-        foreach (var id in emoteIds.Take(10))
-            if (selectedSet.Add(id)) selected.Add(id);
-
-        foreach (var signal in ordered.Take(MomentumQuota))
-        {
-            if (selectedSet.Add(signal.AssetId)) selected.Add(signal.AssetId);
-        }
-
-        foreach (var id in recentIds)
-        {
-            if (selected.Count >= MaxDiscoveryIds) break;
-            if (selectedSet.Add(id)) selected.Add(id);
-        }
-
-        foreach (var signal in ordered)
-        {
-            if (selected.Count >= MaxDiscoveryIds) break;
-            if (selectedSet.Add(signal.AssetId)) selected.Add(signal.AssetId);
-        }
-
+        var selected = UgcDiscoverySelectionPolicy.Select(
+            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds);
         return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false);
     }
 
