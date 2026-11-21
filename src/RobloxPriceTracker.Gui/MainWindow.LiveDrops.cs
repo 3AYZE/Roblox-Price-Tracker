@@ -187,7 +187,10 @@ public partial class MainWindow
         if (_liveDropScope == "Official")
         {
             _liveDropStatus.Text = _officialLastRefreshUtc is { } last
-                ? $"Roblox-published Limiteds · Updated {last.ToLocalTime():h:mm tt} · {_officialRows.Count:N0} items"
+                ? $"Roblox-published Limiteds · Updated {last.ToLocalTime():h:mm tt} · " +
+                  $"{_officialRows.Count:N0} items · " +
+                  $"RAP {_officialRows.Count(x => x.Rap is > 0):N0} · " +
+                  $"7D {_officialRows.Count(x => x.HasRecentSalesCoverage):N0} verified"
                 : "Roblox-published Limiteds · Refresh to load resale prices, RAP and sales";
         }
         else
