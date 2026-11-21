@@ -8,7 +8,7 @@ namespace RobloxPriceTracker.Infrastructure;
 /// </summary>
 public static class UgcScannerPriceVisibilityPolicy
 {
-    public const int DefaultMaximumRobux = 1000;
+    public const int DefaultMaximumRobux = 500;
 
     public static bool Include(int? quotedPrice, bool primaryVerified, int? maxPriceRobux,
         bool verifiedOnly)
