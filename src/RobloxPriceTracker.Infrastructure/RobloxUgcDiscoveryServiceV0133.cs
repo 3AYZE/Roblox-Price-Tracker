@@ -130,6 +130,17 @@ public sealed class RobloxUgcDiscoveryService
             MaxPages: 3,
             Budget: 90,
             Weight: 1.10d),
+        // Supplement popularity feeds with newly published community collectibles.
+        // One extra page every discovery-cache interval; Marketplace remains the
+        // only authority for active original stock.
+        new(
+            "recent-community",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30"),
+            null,
+            MaxPages: 1,
+            Budget: 30,
+            Weight: 0.25d,
+            ReserveRecent: true),
         new(
             "recent-collectibles",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=3&Limit=30"),
@@ -153,8 +164,7 @@ public sealed class RobloxUgcDiscoveryService
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
     private const int MaxDiscoveryIds = 120;
-    private const int MomentumQuota = 100;
-    private const int RecentReserve = MaxDiscoveryIds - MomentumQuota;
+    private const int RecentReserve = UgcDiscoverySelectionPolicy.RecentReserve;
     private const int MaxDetailBatchSize = 40;
     private const int DetailIsolationChunkSize = 10;
     private const int MaxMarketplaceBatchSize = 40;
@@ -362,6 +372,7 @@ public sealed class RobloxUgcDiscoveryService
         var recentSeen = new HashSet<long>();
         var emoteIds = new List<long>(16);
         var emoteSeen = new HashSet<long>();
+        var feedIdLists = new List<IReadOnlyList<long>>(feeds.Count);
         var feedsUsed = 0;
         var pagesUsed = 0;
         RobloxUgcDiscoveryException? firstFailure = null;
@@ -372,6 +383,8 @@ public sealed class RobloxUgcDiscoveryService
             string? cursor = null;
             var rowsConsidered = 0;
             var producedPage = false;
+            var idsFromFeed = new List<long>(feed.Budget);
+            var idsFromFeedSeen = new HashSet<long>();
 
             for (var page = 0; page < feed.MaxPages && rowsConsidered < feed.Budget; page++)
             {
@@ -413,10 +426,10 @@ public sealed class RobloxUgcDiscoveryService
                 {
                     producedPage = true;
                     pagesUsed++;
-                    var pageIds = RobloxUgcCatalogDiscoveryParser.ParseDiscoveryIds(document.RootElement);
-                    for (var rowIndex = 0; rowIndex < pageIds.Count && rowsConsidered < feed.Budget; rowIndex++)
+                    var pageHits = RobloxUgcCatalogDiscoveryParser.ParseDiscoveryHits(document.RootElement);
+                    for (var rowIndex = 0; rowIndex < pageHits.Count && rowsConsidered < feed.Budget; rowIndex++)
                     {
-                        var id = pageIds[rowIndex];
+                        var id = pageHits[rowIndex].Id;
                         rowsConsidered++;
                         var rank = page * 30 + rowIndex + 1;
                         if (!signals.TryGetValue(id, out var signal))
@@ -426,8 +439,10 @@ public sealed class RobloxUgcDiscoveryService
                         }
 
                         signal.Observe(feed.Name, rank, feed.Weight);
+                        if (idsFromFeedSeen.Add(id)) idsFromFeed.Add(id);
                         if (feed.ReserveRecent && recentSeen.Add(id)) recentIds.Add(id);
-                        if (feed.ReserveEmotes && emoteSeen.Add(id)) emoteIds.Add(id);
+                        if (feed.ReserveEmotes && pageHits[rowIndex].AssetType == 61 &&
+                            emoteSeen.Add(id)) emoteIds.Add(id);
                     }
 
                     cursor = GetNextPageCursor(document.RootElement);
@@ -440,42 +455,22 @@ public sealed class RobloxUgcDiscoveryService
             }
 
             if (producedPage) feedsUsed++;
+            if (idsFromFeed.Count > 0) feedIdLists.Add(idsFromFeed);
             await Task.Delay(InterFeedDelay, cancellationToken).ConfigureAwait(false);
         }
 
         if (signals.Count == 0 && firstFailure is not null)
             throw firstFailure;
 
-        var selected = new List<long>(MaxDiscoveryIds);
-        var selectedSet = new HashSet<long>();
         var ordered = signals.Values
             .OrderByDescending(x => x.CompositeScore)
             .ThenByDescending(x => x.FeedHits)
             .ThenBy(x => x.BestRank)
+            .Select(x => x.AssetId)
             .ToArray();
 
-        // Reserve only a small fixed portion for emotes so they cannot vanish
-        // behind popular hats, without increasing network hydration fan-out.
-        foreach (var id in emoteIds.Take(10))
-            if (selectedSet.Add(id)) selected.Add(id);
-
-        foreach (var signal in ordered.Take(MomentumQuota))
-        {
-            if (selectedSet.Add(signal.AssetId)) selected.Add(signal.AssetId);
-        }
-
-        foreach (var id in recentIds)
-        {
-            if (selected.Count >= MaxDiscoveryIds) break;
-            if (selectedSet.Add(id)) selected.Add(id);
-        }
-
-        foreach (var signal in ordered)
-        {
-            if (selected.Count >= MaxDiscoveryIds) break;
-            if (selectedSet.Add(signal.AssetId)) selected.Add(signal.AssetId);
-        }
-
+        var selected = UgcDiscoverySelectionPolicy.Select(
+            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds);
         return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false);
     }
 
@@ -734,12 +729,17 @@ public sealed class RobloxUgcDiscoveryService
 
 public static class RobloxUgcCatalogDiscoveryParser
 {
-    public static IReadOnlyList<long> ParseDiscoveryIds(JsonElement root)
+    public static IReadOnlyList<long> ParseDiscoveryIds(JsonElement root) =>
+        ParseDiscoveryHits(root).Select(x => x.Id).ToArray();
+
+    // Keep the search-row asset type only for diversity reservations. These rows
+    // are still discovery-only and never establish price, stock, or sale status.
+    public static IReadOnlyList<(long Id, int AssetType)> ParseDiscoveryHits(JsonElement root)
     {
         if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-            return Array.Empty<long>();
+            return Array.Empty<(long Id, int AssetType)>();
 
-        var result = new List<long>();
+        var result = new List<(long Id, int AssetType)>();
         foreach (var row in data.EnumerateArray())
         {
             if (!TryGetInt64(row, "id", out var id) || id <= 0) continue;
@@ -754,7 +754,7 @@ public static class RobloxUgcCatalogDiscoveryParser
 
             var assetType = TryGetInt32(row, "assetType", out var parsedAssetType) ? parsedAssetType : 0;
             if (assetType > 0 && !IsSupportedUgcAssetType(assetType)) continue;
-            result.Add(id);
+            result.Add((id, assetType));
         }
         return result;
     }

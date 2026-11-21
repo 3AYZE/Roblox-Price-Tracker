@@ -187,7 +187,10 @@ public partial class MainWindow
         if (_liveDropScope == "Official")
         {
             _liveDropStatus.Text = _officialLastRefreshUtc is { } last
-                ? $"Roblox-published Limiteds · Updated {last.ToLocalTime():h:mm tt} · {_officialRows.Count:N0} items"
+                ? $"Roblox-published Limiteds · Updated {last.ToLocalTime():h:mm tt} · " +
+                  $"{_officialRows.Count:N0} items · " +
+                  $"RAP {_officialRows.Count(x => x.Rap is > 0):N0} · " +
+                  $"7D {_officialRows.Count(x => x.HasRecentSalesCoverage):N0} verified"
                 : "Roblox-published Limiteds · Refresh to load resale prices, RAP and sales";
         }
         else
@@ -308,7 +311,7 @@ public partial class MainWindow
         {
             Width = 140, Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
-            ToolTip = "Maximum verified original creator price. Default: 1,000 R$. Higher prices can be inspected by changing the filter."
+            ToolTip = "Maximum verified original creator price. Default: 500 R$. Higher prices remain available through the filter."
         };
         foreach (var option in new[]
         {
@@ -316,7 +319,7 @@ public partial class MainWindow
             "≤ 5,000 R$", "Any verified price"
         })
             _ugcMaximumPrice.Items.Add(option);
-        _ugcMaximumPrice.SelectedIndex = 1;
+        _ugcMaximumPrice.SelectedIndex = 0;
         _ugcMaximumPrice.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
         filterPanel.Children.Add(_ugcMaximumPrice);
 

@@ -1,5 +1,14 @@
 # Roblox Price Tracker changelog
 
+## v0.15.7 — Broader UGC discovery and Official Limited resale-data recovery
+- **UGC Limiteds:** Default price screen is now ≤500 R$, adjustable to 1,000/2,500/5,000 R$ or Any. This is a buyer budget filter, not an official dynamic floor or a manipulation verdict.
+- **UGC discovery:** Add a single recent-community discovery page and reserve distinct ID slots across existing feeds, recent candidates and verified emote types while retaining the 120-ID per-scan hydration cap. Marketplace-verified positive original stock is still mandatory for active UGC results.
+- **Official Limiteds:** Rotate the bounded 36-item resale-enrichment budget across up to 180 discovered Official assets instead of repeatedly targeting the same initial assets; reuse short-lived, in-memory evidence across scans.
+- **Official RAP and sales:** Attempt modern collectible Marketplace Sales recovery when old Economy price/volume history has become demonstrably stale; obtain missing collectible IDs through anonymous public asset detail when available. Don't label historical volume as current 7-day sales. Missing RAP/sales remain unavailable; verified zero volume displays 0.
+- **Official visibility:** Show compact RAP and fresh 7-day data-coverage counts in the Official scanner status.
+- Preserve the existing single-EXE updater, Official/UGC isolation, item thumbnails, original-vs-resale distinction, alerts, saved data and no-cookie architecture. Synthetic regression tests cover mixed-category reserves, bounded selection, stale history, zero sales, rotated coverage and migrated collectible fallback. Live Roblox data availability still varies.
+
+
 ## v0.15.6 — Verified creator stock and simpler market workspaces
 - UGC scanner is now **verified in-stock original inventory only**. Missing, expired, zero, sold-out, catalog-only, mismatched-ID or resale-only stock never enters active results. Includes verified Limited animation bundles, with bundles still research-only.
 - Verify the candidate asset ID AND collectible ID against Marketplace; original price and remaining count must come from the matching Marketplace item. Use only a validated original-stock total, not inferred resale counts.
