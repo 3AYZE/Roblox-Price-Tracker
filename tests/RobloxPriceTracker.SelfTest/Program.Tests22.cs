@@ -16,9 +16,9 @@ internal static partial class Program
         var selected = UgcDiscoverySelectionPolicy.Select(ranked, feeds, recent, emotes, capacity: 120);
         AssertEqual(120, selected.Count);
         AssertEqual(120, selected.Distinct().Count());
-        AssertTrue(emotes.Take(10).All(selected.Contains));
-        AssertTrue(recent.Take(20).All(selected.Contains));
-        AssertTrue(feeds.All(feed => feed.Take(4).All(selected.Contains)));
+        AssertTrue(emotes.Take(10).All(id => selected.Contains(id)));
+        AssertTrue(recent.Take(20).All(id => selected.Contains(id)));
+        AssertTrue(feeds.All(feed => feed.Take(4).All(id => selected.Contains(id))));
         AssertTrue(selected.SequenceEqual(
             UgcDiscoverySelectionPolicy.Select(ranked, feeds, recent, emotes, capacity: 120)));
 
