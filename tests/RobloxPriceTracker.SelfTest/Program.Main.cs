@@ -50,6 +50,8 @@ internal static partial class Program
             ("UGC hydrated experience-only Limited is excluded", TestUgcHydratedExperienceOnlyLimitedIsExcludedAsync),
             ("UGC discovery completes anonymous CSRF hydration", TestUgcDiscoveryRetriesAnonymousCsrfAndHydratesAsync),
             ("UGC discovery combines multiple Limited feeds", TestUgcDiscoveryCombinesMultipleLimitedFeedsAsync),
+            ("UGC discovery selects unique IDs from different feeds without increasing the cap", TestUgcDiscoverySelectionPreservesSourceDiversityAsync),
+            ("UGC emote source reserve requires explicit asset type", TestUgcDiscoveryEmoteReserveRequiresTypedSourceAsync),
             ("UGC discovery falls back from protocol route errors", TestUgcDiscoveryFallsBackFromProtocolErrorAsync),
             ("UGC discovery keeps valid rows from a partially bad detail batch", TestUgcDiscoveryRecoversPartialBadDetailBatchAsync),
             ("UGC Hunter accepts positive category-specific original prices", TestUgcHunterMinimumPrimaryPricePolicyAsync),
