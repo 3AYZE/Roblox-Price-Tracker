@@ -164,7 +164,7 @@ public sealed class RobloxUgcDiscoveryService
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
     private const int MaxDiscoveryIds = 120;
-    private const int RecentReserve = MaxDiscoveryIds - MomentumQuota;
+    private const int RecentReserve = UgcDiscoverySelectionPolicy.RecentReserve;
     private const int MaxDetailBatchSize = 40;
     private const int DetailIsolationChunkSize = 10;
     private const int MaxMarketplaceBatchSize = 40;
