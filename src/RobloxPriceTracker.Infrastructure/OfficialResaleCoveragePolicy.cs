@@ -9,7 +9,7 @@ public static class OfficialResaleCoveragePolicy
 {
     public static readonly TimeSpan MaximumVolumeLag = TimeSpan.FromHours(48);
     public static readonly TimeSpan MaximumLegacySeriesLag = TimeSpan.FromDays(30);
-    public static readonly TimeSpan MaximumCachedMarketAge = TimeSpan.FromMinutes(20);
+    public static readonly TimeSpan MaximumCachedMarketAge = TimeSpan.FromMinutes(40);
 
     public static bool HasRecentVolume(
         IReadOnlyList<ResaleDataPoint>? series,
