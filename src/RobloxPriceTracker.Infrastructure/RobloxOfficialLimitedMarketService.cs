@@ -40,7 +40,10 @@ public sealed record RobloxOfficialLimitedMarketItem(
     int AssetType,
     bool IsEnriched,
     string EvidenceText,
-    string ReasonText);
+    string ReasonText)
+{
+    public bool HasRecentSalesCoverage { get; init; }
+}
 
 public sealed record RobloxOfficialLimitedScanResult(
     IReadOnlyList<RobloxOfficialLimitedMarketItem> Items,
@@ -78,6 +81,8 @@ public sealed class RobloxOfficialLimitedMarketService
     private readonly string? _statePath;
     private readonly SemaphoreSlim _scanGate = new(1, 1);
     private Dictionary<long, FloorHistoryEntry> _history = new();
+    private readonly Dictionary<long, DateTimeOffset> _resaleAttemptedAt = new();
+    private readonly Dictionary<long, (RobloxResaleMarketData Data, DateTimeOffset FetchedAt)> _recentResale = new();
     private bool _historyLoaded;
 
     public RobloxOfficialLimitedMarketService(
@@ -174,17 +179,29 @@ public sealed class RobloxOfficialLimitedMarketService
                     : "Official Limited discovery is temporarily unavailable or rate-limited. Try Refresh again in a moment.";
             }
 
-            var enrichmentTargets = catalogItems
-                .Where(x => x.FloorPrice is > 0)
-                .Take(MaxEnrichedItems)
-                .ToArray();
-
-            IReadOnlyDictionary<long, RobloxResaleMarketData> resale = new Dictionary<long, RobloxResaleMarketData>();
-            if (enrichmentTargets.Length > 0)
+            // Keep the 36-asset request budget per scan, but rotate through
+            // untried and oldest-attempted Official items across refreshes.
+            var selectedIds = OfficialResaleCoveragePolicy.SelectNext(
+                catalogItems.Where(x => x.FloorPrice is > 0).Select(x => x.AssetId),
+                _resaleAttemptedAt, MaxEnrichedItems);
+            IReadOnlyDictionary<long, RobloxResaleMarketData> resale =
+                new Dictionary<long, RobloxResaleMarketData>();
+            if (selectedIds.Count > 0)
             {
                 try
                 {
-                    resale = await _resaleDataService.GetManyAsync(enrichmentTargets.Select(x => x.AssetId), cancellationToken).ConfigureAwait(false);
+                    resale = await _resaleDataService.GetManyAsync(selectedIds, cancellationToken).ConfigureAwait(false);
+                    var updatedAt = DateTimeOffset.UtcNow;
+                    foreach (var id in selectedIds)
+                    {
+                        _resaleAttemptedAt[id] = updatedAt;
+                        if (resale.TryGetValue(id, out var market) &&
+                            market.IsAvailable &&
+                            !OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(market, updatedAt))
+                            _recentResale[id] = (market, updatedAt);
+                        else
+                            _recentResale.Remove(id);
+                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -197,13 +214,22 @@ public sealed class RobloxOfficialLimitedMarketService
                 }
             }
 
-            var enrichedIds = enrichmentTargets.Select(x => x.AssetId).ToHashSet();
+            var knownIds = catalogItems.Select(x => x.AssetId).ToHashSet();
+            foreach (var id in _recentResale.Keys.ToArray())
+                if (!knownIds.Contains(id) ||
+                    observedAt - _recentResale[id].FetchedAt > OfficialResaleCoveragePolicy.MaximumCachedMarketAge)
+                    _recentResale.Remove(id);
+            foreach (var id in _resaleAttemptedAt.Keys.ToArray())
+                if (!knownIds.Contains(id))
+                    _resaleAttemptedAt.Remove(id);
+
             var result = new List<RobloxOfficialLimitedMarketItem>(catalogItems.Length);
             foreach (var item in catalogItems)
             {
                 _history.TryGetValue(item.AssetId, out var history);
-                resale.TryGetValue(item.AssetId, out var market);
-                var row = enrichedIds.Contains(item.AssetId)
+                var market = _recentResale.TryGetValue(item.AssetId, out var cached)
+                    ? cached.Data : null;
+                var row = market is { IsAvailable: true }
                     ? OfficialLimitedHuntScoring.Evaluate(item, market, history?.LastFloor, history is null)
                     : OfficialLimitedHuntScoring.Unenriched(item, history?.LastFloor, history is null);
                 result.Add(row);
@@ -225,7 +251,7 @@ public sealed class RobloxOfficialLimitedMarketService
             return new RobloxOfficialLimitedScanResult(
                 result.OrderByDescending(x => x.HuntScore).ThenByDescending(x => x.EvidenceScore).ToArray(),
                 catalogItems.Length,
-                enrichedIds.Count,
+                result.Count(x => x.IsEnriched),
                 observedAt,
                 warning);
         }
@@ -429,15 +455,24 @@ public static class OfficialLimitedHuntScoring
         bool isFresh = false)
     {
         var floor = item.FloorPrice;
-        var rap = market?.RecentAveragePrice is > 0 ? market.RecentAveragePrice : null;
-        var validPrices = market?.PriceDataPoints.Where(x => x.Value > 0).OrderBy(x => x.Date).ToArray() ?? [];
-        var recentPrices = validPrices.Where(x => x.Date >= (validPrices.LastOrDefault()?.Date ?? DateTimeOffset.UtcNow) - TimeSpan.FromDays(30)).Select(x => x.Value).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        var staleLegacy = market is not null &&
+            OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(market, now);
+        var rap = !staleLegacy && market?.RecentAveragePrice is > 0
+            ? market.RecentAveragePrice : null;
+        var validPrices = !staleLegacy
+            ? market?.PriceDataPoints.Where(x => x.Value > 0 && x.Date <= now &&
+                 x.Date >= now - TimeSpan.FromDays(30)).OrderBy(x => x.Date).ToArray() ?? []
+            : Array.Empty<ResaleDataPoint>();
+        var recentPrices = validPrices.Select(x => x.Value).ToArray();
+        var hasRecentSales = !staleLegacy &&
+            OfficialResaleCoveragePolicy.HasRecentVolume(market?.VolumeDataPoints, now);
         var recentMedian = Median(recentPrices);
         var fair = ConservativeFairValue(rap, recentMedian);
         double? discount = floor is > 0 && fair is > 0 ? (fair.Value - floor.Value) / fair.Value : null;
-        var sales7 = SumRecent(market?.VolumeDataPoints, 7.25);
-        var sales30 = SumRecent(market?.VolumeDataPoints, 30.25);
-        var evidence = EvidenceScore(market, rap, recentPrices.Length);
+        var sales7 = hasRecentSales ? SumRecent(market?.VolumeDataPoints, 7.25, now) : 0d;
+        var sales30 = hasRecentSales ? SumRecent(market?.VolumeDataPoints, 30.25, now) : 0d;
+        var evidence = EvidenceScore(market, rap, recentPrices.Length, hasRecentSales, now);
         var liquidity = LiquidityScore(sales7);
         var stability = StabilityScore(recentPrices);
         var value = ValueScore(discount);
@@ -455,13 +490,20 @@ public static class OfficialLimitedHuntScoring
         var floorChange = CalculateChange(floor, previousFloor);
         var trend = Trend(validPrices);
         var status = Status(hunt, isCandidate, isFresh, floorChange, floor, fair);
-        var evidenceText = $"RAP {(rap is > 0 ? "yes" : "no")} · price series {recentPrices.Length} pts · 7d sales {sales7:0.#} · 30d sales {sales30:0.#}";
-        var reason = BuildReason(discount, sales7, stability, evidence, floorChange);
+        var evidenceText = $"RAP {(rap is > 0 ? "yes" : "unavailable")} · " +
+            $"current price series {recentPrices.Length} pts · " +
+            $"7d sales {(hasRecentSales ? sales7.ToString("0.#") : "unavailable")} · " +
+            $"30d sales {(hasRecentSales ? sales30.ToString("0.#") : "unavailable")}";
+        var reason = BuildReason(discount, hasRecentSales ? sales7 : null, stability, evidence, floorChange);
+        var usable = rap is > 0 || recentPrices.Length > 0 || hasRecentSales;
 
         return new RobloxOfficialLimitedMarketItem(
             item.AssetId, item.Name, floor, rap, sales7, sales30, fair, discount,
             hunt, value, flip, stability, evidence, upside, risk, status, trend, isCandidate, isFresh, floorChange,
-            item.FavoriteCount, item.PurchaseCount, item.AssetType, true, evidenceText, reason);
+            item.FavoriteCount, item.PurchaseCount, item.AssetType, usable, evidenceText, reason)
+        {
+            HasRecentSalesCoverage = hasRecentSales
+        };
     }
 
     private static string Status(int hunt, bool candidate, bool fresh, double? floorChange, long? floor, double? fair)
@@ -475,13 +517,15 @@ public static class OfficialLimitedHuntScoring
         return "MARKET";
     }
 
-    private static string BuildReason(double? discount, double sales7, int stability, int evidence, double? floorChange)
+    private static string BuildReason(double? discount, double? sales7, int stability, int evidence, double? floorChange)
     {
         var parts = new List<string>();
         if (discount is >= .10) parts.Add($"floor is {discount.Value:P0} below conservative fair value");
         else if (discount is > 0) parts.Add($"floor is {discount.Value:P0} below fair value");
         else parts.Add("no verified discount to fair value");
-        parts.Add(sales7 >= 14 ? "strong weekly liquidity" : sales7 >= 4 ? "usable weekly liquidity" : "thin weekly liquidity");
+        parts.Add(sales7 is null ? "weekly resale volume unavailable" :
+            sales7 >= 14 ? "strong weekly liquidity" :
+            sales7 >= 4 ? "usable weekly liquidity" : "thin weekly liquidity");
         parts.Add(stability >= 70 ? "stable recent pricing" : "volatile recent pricing");
         if (evidence < 60) parts.Add("limited evidence");
         if (floorChange is <= -.10) parts.Add($"floor dropped {Math.Abs(floorChange.Value):P0} since the prior scan");
@@ -494,14 +538,17 @@ public static class OfficialLimitedHuntScoring
         return rap is > 0 ? rap : median is > 0 ? median : null;
     }
 
-    private static int EvidenceScore(RobloxResaleMarketData? market, double? rap, int recentPriceCount)
+    private static int EvidenceScore(RobloxResaleMarketData? market, double? rap,
+        int recentPriceCount, bool hasRecentSales, DateTimeOffset nowUtc)
     {
         var score = 10;
         if (market?.IsAvailable == true) score += 20;
         if (rap is > 0) score += 25;
         if (recentPriceCount >= 7) score += 25;
         else if (recentPriceCount >= 3) score += 15;
-        if (market?.VolumeDataPoints.Count(x => x.Value >= 0) >= 7) score += 20;
+        if (hasRecentSales && market?.VolumeDataPoints.Count(x =>
+            x.Value >= 0 && x.Date <= nowUtc && x.Date >= nowUtc - TimeSpan.FromDays(30)) >= 7)
+            score += 20;
         return Clamp(score);
     }
 
@@ -544,13 +591,14 @@ public static class OfficialLimitedHuntScoring
         return change >= .05 ? "RISING" : change <= -.05 ? "FALLING" : "STABLE";
     }
 
-    private static double SumRecent(IReadOnlyList<ResaleDataPoint>? points, double days)
+    private static double SumRecent(IReadOnlyList<ResaleDataPoint>? points, double days,
+        DateTimeOffset nowUtc)
     {
         if (points is null || points.Count == 0) return 0;
         var valid = points.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
         if (valid.Length == 0) return 0;
-        var newest = valid[0].Date;
-        return valid.Where(x => x.Date >= newest - TimeSpan.FromDays(days)).Sum(x => x.Value);
+        return valid.Where(x => x.Date <= nowUtc &&
+            x.Date >= nowUtc - TimeSpan.FromDays(days)).Sum(x => x.Value);
     }
 
     private static double? Median(IEnumerable<double> values)
