@@ -629,6 +629,7 @@ public sealed class OfficialLimitedRow
         IsFresh = item.IsFresh;
         FloorChangePct = item.FloorChangePct;
         IsEnriched = item.IsEnriched;
+        HasRecentSalesCoverage = item.HasRecentSalesCoverage;
         EvidenceText = item.EvidenceText;
         ReasonText = item.ReasonText;
         ThumbnailUrl = thumbnailUrl;
@@ -655,6 +656,7 @@ public sealed class OfficialLimitedRow
     public bool IsFresh { get; }
     public double? FloorChangePct { get; }
     public bool IsEnriched { get; }
+    public bool HasRecentSalesCoverage { get; }
     public string EvidenceText { get; }
     public string ReasonText { get; }
     public string? ThumbnailUrl { get; }
@@ -663,8 +665,8 @@ public sealed class OfficialLimitedRow
     public string FairValueText => FairValue is > 0 ? $"{FairValue.Value:N0} R$" : "—";
     public string BuyZoneText => FairValue is > 0 ? $"≤ {Math.Floor(FairValue.Value * .88):N0} R$" : "—";
     public string DiscountText => DiscountPct is { } value ? value.ToString("+0%;-0%;0%") : "—";
-    public string Sales7dText => IsEnriched ? Sales7d.ToString("0.#") : "—";
-    public string Sales30dText => IsEnriched ? Sales30d.ToString("0.#") : "—";
+    public string Sales7dText => HasRecentSalesCoverage ? Sales7d.ToString("0.#") : "—";
+    public string Sales30dText => HasRecentSalesCoverage ? Sales30d.ToString("0.#") : "—";
     public string HuntText => IsEnriched ? HuntScore.ToString() : "—";
     public string EvidenceScoreText => IsEnriched ? EvidenceScore.ToString() : "PENDING";
 }
