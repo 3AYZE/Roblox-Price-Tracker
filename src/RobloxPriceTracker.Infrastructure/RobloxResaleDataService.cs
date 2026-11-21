@@ -113,7 +113,12 @@ public sealed class RobloxResaleDataService
                     null,
                     cancellationToken).ConfigureAwait(false);
 
-                if (HasMeaningfulMarketData(legacy))
+                // Roblox's old Economy feed can return a populated RAP and
+                // historical price/volume series that stopped updating. Never
+                // let such a response prevent the modern collectible lookup.
+                var staleLegacy = OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(
+                    legacy, DateTimeOffset.UtcNow);
+                if (HasMeaningfulMarketData(legacy) && !staleLegacy)
                 {
                     result = legacy;
                 }
@@ -129,15 +134,24 @@ public sealed class RobloxResaleDataService
                             "Roblox Marketplace Sales",
                             collectibleId,
                             cancellationToken).ConfigureAwait(false);
-                        result = HasMeaningfulMarketData(modern) ? modern : legacy with
-                        {
-                            CollectibleItemId = collectibleId,
-                            Error = modern.Error ?? legacy.Error ?? "Roblox returned no usable resale aggregates for this item."
-                        };
+                        result = HasMeaningfulMarketData(modern) ? modern :
+                            staleLegacy
+                                ? Unavailable(assetId,
+                                    "Legacy Roblox resale history is stale; current data is unavailable.",
+                                    "Roblox Marketplace Sales", collectibleId)
+                                : legacy with
+                                {
+                                    CollectibleItemId = collectibleId,
+                                    Error = modern.Error ?? legacy.Error ??
+                                        "Roblox returned no usable resale aggregates for this item."
+                                };
                     }
                     else
                     {
-                        result = legacy;
+                        result = staleLegacy
+                            ? Unavailable(assetId,
+                                "Legacy Roblox resale history is stale and a collectible ID could not be resolved.")
+                            : legacy;
                     }
                 }
             }
@@ -232,33 +246,87 @@ public sealed class RobloxResaleDataService
         return RobloxResaleDataParser.Parse(assetId, document.RootElement, source, collectibleItemId);
     }
 
-    private async Task<string?> ResolveCollectibleItemIdAsync(long assetId, CancellationToken cancellationToken)
+    private async Task<string?> ResolveCollectibleItemIdAsync(
+        long assetId, CancellationToken cancellationToken)
     {
-        var payload = new { items = new[] { new { itemType = "Asset", id = assetId } } };
-        HttpResponseMessage response = await SendCatalogRequestAsync(payload, _anonymousCsrfToken, cancellationToken).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.Forbidden && TryGetCsrfToken(response, out var token))
+        // Prefer catalog batch details. If it omits a collectibleItemId, Roblox
+        // Economy's asset-detail endpoint can supply the migrated identifier.
+        // A missing identifier is never replaced with the numeric asset ID.
+        try
         {
-            response.Dispose();
-            _anonymousCsrfToken = token;
-            response = await SendCatalogRequestAsync(payload, token, cancellationToken).ConfigureAwait(false);
-        }
-
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode) return null;
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) return null;
-            foreach (var item in data.EnumerateArray())
+            var payload = new { items = new[] { new { itemType = "Asset", id = assetId } } };
+            HttpResponseMessage response = await SendCatalogRequestAsync(
+                payload, _anonymousCsrfToken, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Forbidden &&
+                TryGetCsrfToken(response, out var token))
             {
-                if (!item.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var returnedId) || returnedId != assetId) continue;
-                if (item.TryGetProperty("collectibleItemId", out var collectible) && collectible.ValueKind == JsonValueKind.String)
+                response.Dispose();
+                _anonymousCsrfToken = token;
+                response = await SendCatalogRequestAsync(payload, token, cancellationToken).ConfigureAwait(false);
+            }
+
+            using (response)
+            {
+                if (response.IsSuccessStatusCode)
                 {
-                    return collectible.GetString();
+                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    using var doc = await JsonDocument.ParseAsync(stream,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                    if (doc.RootElement.TryGetProperty("data", out var data) &&
+                        data.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in data.EnumerateArray())
+                        {
+                            if (!item.TryGetProperty("id", out var returned) ||
+                                !returned.TryGetInt64(out var returnedId) || returnedId != assetId)
+                                continue;
+                            if (item.TryGetProperty("collectibleItemId", out var id) &&
+                                id.ValueKind == JsonValueKind.String &&
+                                !string.IsNullOrWhiteSpace(id.GetString()))
+                                return id.GetString();
+                        }
+                    }
                 }
             }
-            return null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Info($"Catalog collectible ID lookup failed for asset {assetId}: {ex.Message}");
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get, $"https://economy.roblox.com/v2/assets/{assetId}/details");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var response = await _httpClient.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return null;
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(stream,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (doc.RootElement.TryGetProperty("collectibleItemId", out var id) &&
+                id.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(id.GetString()))
+                return id.GetString();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Info($"Economy collectible ID lookup failed for asset {assetId}: {ex.Message}");
+        }
+
+        return null;
     }
 
     private async Task<HttpResponseMessage> SendCatalogRequestAsync<TPayload>(TPayload payload, string? csrfToken, CancellationToken cancellationToken)
