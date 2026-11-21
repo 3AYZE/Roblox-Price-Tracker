@@ -426,10 +426,10 @@ public sealed class RobloxUgcDiscoveryService
                 {
                     producedPage = true;
                     pagesUsed++;
-                    var pageIds = RobloxUgcCatalogDiscoveryParser.ParseDiscoveryIds(document.RootElement);
-                    for (var rowIndex = 0; rowIndex < pageIds.Count && rowsConsidered < feed.Budget; rowIndex++)
+                    var pageHits = RobloxUgcCatalogDiscoveryParser.ParseDiscoveryHits(document.RootElement);
+                    for (var rowIndex = 0; rowIndex < pageHits.Count && rowsConsidered < feed.Budget; rowIndex++)
                     {
-                        var id = pageIds[rowIndex];
+                        var id = pageHits[rowIndex].Id;
                         rowsConsidered++;
                         var rank = page * 30 + rowIndex + 1;
                         if (!signals.TryGetValue(id, out var signal))
@@ -441,7 +441,8 @@ public sealed class RobloxUgcDiscoveryService
                         signal.Observe(feed.Name, rank, feed.Weight);
                         if (idsFromFeedSeen.Add(id)) idsFromFeed.Add(id);
                         if (feed.ReserveRecent && recentSeen.Add(id)) recentIds.Add(id);
-                        if (feed.ReserveEmotes && emoteSeen.Add(id)) emoteIds.Add(id);
+                        if (feed.ReserveEmotes && pageHits[rowIndex].AssetType == 61 &&
+                            emoteSeen.Add(id)) emoteIds.Add(id);
                     }
 
                     cursor = GetNextPageCursor(document.RootElement);
@@ -728,12 +729,17 @@ public sealed class RobloxUgcDiscoveryService
 
 public static class RobloxUgcCatalogDiscoveryParser
 {
-    public static IReadOnlyList<long> ParseDiscoveryIds(JsonElement root)
+    public static IReadOnlyList<long> ParseDiscoveryIds(JsonElement root) =>
+        ParseDiscoveryHits(root).Select(x => x.Id).ToArray();
+
+    // Keep the search-row asset type only for diversity reservations. These rows
+    // are still discovery-only and never establish price, stock, or sale status.
+    public static IReadOnlyList<(long Id, int AssetType)> ParseDiscoveryHits(JsonElement root)
     {
         if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
-            return Array.Empty<long>();
+            return Array.Empty<(long Id, int AssetType)>();
 
-        var result = new List<long>();
+        var result = new List<(long Id, int AssetType)>();
         foreach (var row in data.EnumerateArray())
         {
             if (!TryGetInt64(row, "id", out var id) || id <= 0) continue;
@@ -748,7 +754,7 @@ public static class RobloxUgcCatalogDiscoveryParser
 
             var assetType = TryGetInt32(row, "assetType", out var parsedAssetType) ? parsedAssetType : 0;
             if (assetType > 0 && !IsSupportedUgcAssetType(assetType)) continue;
-            result.Add(id);
+            result.Add((id, assetType));
         }
         return result;
     }
