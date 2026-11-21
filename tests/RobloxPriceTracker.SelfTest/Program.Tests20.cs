@@ -5,7 +5,8 @@ internal static partial class Program
     static Task TestUgcScanPriceVisibilityAsync()
     {
         const int cap = UgcScannerPriceVisibilityPolicy.DefaultMaximumRobux;
-        AssertEqual(1000, cap);
+        AssertEqual(500, cap);
+        AssertTrue(!UgcScannerPriceVisibilityPolicy.Include(750, true, cap, true));
         AssertTrue(!UgcScannerPriceVisibilityPolicy.Include(754759847, true, cap, false));
         AssertTrue(!UgcScannerPriceVisibilityPolicy.Include(5001, true, cap, false));
         AssertTrue(UgcScannerPriceVisibilityPolicy.Include(95, true, cap, false));
