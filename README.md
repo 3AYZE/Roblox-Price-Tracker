@@ -16,7 +16,7 @@ Requires **Windows 10/11 (64-bit)** and the [.NET 9 Desktop Runtime](https://dot
 - **Paper Portfolio:** Test potential UGC entries without spending Robux; items include thumbnails.
 - **Simple updates:** One Windows EXE with in-app update checks and SHA-256 verification.
 
-**Important:** Original creator inventory is separate from resale stock. UGC items with unknown, expired, sold-out or unverified original stock are excluded from the active scanner. Counts are recent API snapshots, not a purchase guarantee. The default 1,000 R$ UGC price cap is adjustable, not an official Roblox minimum or fair-value estimate. Animation packs remain research-only. Scores and forecasts are estimates, not guarantees.
+**Important:** Original creator inventory is separate from resale stock. UGC items with unknown, expired, sold-out or unverified original stock are excluded from the active scanner. Counts are recent API snapshots, not a purchase guarantee. The default 500 R$ UGC price cap is adjustable, not an official Roblox minimum or fair-value estimate. Animation packs remain research-only. Scores and forecasts are estimates, not guarantees.
 
 For detailed evidence rules and limitations, see [UGC pricing research](docs/PRIMARY_PRICE_CATEGORY_RESEARCH_2026-11-17.md) and [price-integrity methodology](docs/UGC_PRICE_INTEGRITY_RESEARCH_2026-11-17.md).
 
