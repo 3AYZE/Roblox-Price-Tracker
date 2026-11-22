@@ -12,7 +12,8 @@ public sealed record RobloxOfficialLimitedCatalogItem(
     long FavoriteCount,
     long? PurchaseCount,
     int AssetType,
-    int DiscoveryStrength);
+    int DiscoveryStrength,
+    string? CollectibleItemId = null);
 
 public sealed record RobloxOfficialLimitedMarketItem(
     long AssetId,
@@ -149,6 +150,7 @@ public sealed class RobloxOfficialLimitedMarketService
                                 if (item.FloorPrice is > 0) existing.FloorPrice = item.FloorPrice;
                                 existing.FavoriteCount = Math.Max(existing.FavoriteCount, item.FavoriteCount);
                                 existing.PurchaseCount = MaxNullable(existing.PurchaseCount, item.PurchaseCount);
+                                existing.CollectibleItemId ??= item.CollectibleItemId;
                             }
                             else
                             {
@@ -207,7 +209,10 @@ public sealed class RobloxOfficialLimitedMarketService
             {
                 try
                 {
-                    resale = await _resaleDataService.GetManyAsync(selectedIds, cancellationToken).ConfigureAwait(false);
+                    var catalogById = catalogItems.ToDictionary(x => x.AssetId);
+                    var requests = selectedIds.Select(id => (
+                        AssetId: id, CollectibleItemId: catalogById[id].CollectibleItemId));
+                    resale = await _resaleDataService.GetManyKnownCollectiblesAsync(requests, cancellationToken).ConfigureAwait(false);
                     var updatedAt = DateTimeOffset.UtcNow;
                     foreach (var id in selectedIds)
                     {
@@ -269,6 +274,7 @@ public sealed class RobloxOfficialLimitedMarketService
                 $"enrichmentAvailable={resale.Values.Count(x => x.IsAvailable)}, " +
                 $"RAP={result.Count(x => x.Rap is > 0)}, " +
                 $"current7d={result.Count(x => x.HasRecentSalesCoverage)}, " +
+                $"catalogIds={catalogItems.Count(x => !string.IsNullOrWhiteSpace(x.CollectibleItemId))}, " +
                 $"cached={_recentResale.Count}, unavailable={resale.Values.Count(x => !x.IsAvailable)}, " +
                 $"rateLimited={resale.Values.Count(x => x.RateLimited)}.");
             PersistHistory();
@@ -386,6 +392,7 @@ public sealed class RobloxOfficialLimitedMarketService
             PurchaseCount = item.PurchaseCount;
             AssetType = item.AssetType;
             DiscoveryStrength = item.DiscoveryStrength;
+            CollectibleItemId = item.CollectibleItemId;
         }
 
         public long AssetId { get; }
@@ -396,8 +403,9 @@ public sealed class RobloxOfficialLimitedMarketService
         public long? PurchaseCount { get; set; }
         public int AssetType { get; }
         public int DiscoveryStrength { get; set; }
+        public string? CollectibleItemId { get; set; }
 
-        public RobloxOfficialLimitedCatalogItem ToRecord() => new(AssetId, Name, FloorPrice, ListedPrice, FavoriteCount, PurchaseCount, AssetType, DiscoveryStrength);
+        public RobloxOfficialLimitedCatalogItem ToRecord() => new(AssetId, Name, FloorPrice, ListedPrice, FavoriteCount, PurchaseCount, AssetType, DiscoveryStrength, CollectibleItemId);
     }
 
     public sealed record FloorHistoryEntry(long AssetId, long LastFloor, long LowestFloor, DateTimeOffset FirstSeenUtc, DateTimeOffset LastSeenUtc);
@@ -434,7 +442,10 @@ public static class RobloxOfficialLimitedCatalogParser
             var favorites = TryInt64(node, "favoriteCount", out var favoriteValue) && favoriteValue > 0 ? favoriteValue : 0;
             long? purchases = TryInt64(node, "purchaseCount", out var purchaseValue) && purchaseValue >= 0 ? purchaseValue : null;
             var assetType = TryInt64(node, "assetType", out var assetTypeValue) ? (int)Math.Clamp(assetTypeValue, 0, int.MaxValue) : 0;
-            items.Add(new RobloxOfficialLimitedCatalogItem(id, ReadString(node, "name") ?? $"Asset {id}", floor, listed, favorites, purchases, assetType, 0));
+            var collectibleId = ReadString(node, "collectibleItemId");
+            if (!Guid.TryParse(collectibleId, out var parsedCollectibleId)) collectibleId = null;
+            else collectibleId = parsedCollectibleId.ToString("D");
+            items.Add(new RobloxOfficialLimitedCatalogItem(id, ReadString(node, "name") ?? $"Asset {id}", floor, listed, favorites, purchases, assetType, 0, collectibleId));
         }
 
         return new RobloxOfficialLimitedCatalogParseResult(items, ReadCursor(root));

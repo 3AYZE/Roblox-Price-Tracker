@@ -249,4 +249,118 @@ internal static partial class Program
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
+
+    static async Task TestOfficialKnownCollectibleUsesDirectModernResaleAsync()
+    {
+        const string firstId = "5512fbf9-a499-4b9a-8af6-d06f8247fc11";
+        const string secondId = "5512fbf9-a499-4b9a-8af6-d06f8247fc12";
+        var recent = DateTimeOffset.UtcNow.AddHours(-2);
+        var payload = JsonSerializer.Serialize(new
+        {
+            recentAveragePrice = 1350,
+            volumeDataPoints = new[] { new { date = recent, value = 0 } },
+            priceDataPoints = new[] { new { date = recent, value = 1350 } }
+        });
+        var requests = new System.Collections.Concurrent.ConcurrentBag<string>();
+        using var client = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            var uri = request.RequestUri!;
+            requests.Add(uri.AbsolutePath);
+            AssertEqual("apis.roblox.com", uri.Host);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(payload)
+            });
+        }));
+        var root = Path.Combine(Path.GetTempPath(), "rpt-known-guid", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxResaleDataService(client, new AppLogger(Path.Combine(root, "test.log")));
+            var batch = await service.GetManyKnownCollectiblesAsync(
+                [(812, "invalid-guid"), (812, firstId), (813, secondId), (813, null)]);
+            AssertEqual(2, batch.Count);
+            AssertTrue(batch.Values.All(x => x.RecentAveragePrice == 1350 && x.HasSalesCoverage(DateTimeOffset.UtcNow)));
+            AssertEqual(0d, batch[812].SalesLast7d);
+            AssertEqual(2, requests.Count);
+            AssertTrue(requests.All(x => x.Contains("/marketplace-sales/v1/item/", StringComparison.Ordinal)));
+            var cached = await service.GetKnownCollectibleAsync(812, firstId);
+            AssertEqual(1350d, cached.RecentAveragePrice!.Value);
+            AssertEqual(2, requests.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    static async Task TestOfficialKnownCollectiblePartialRapFallbackAsync()
+    {
+        const string collectibleId = "5512fbf9-a499-4b9a-8af6-d06f8247fc13";
+        var recent = DateTimeOffset.UtcNow.AddHours(-3);
+        var legacyDay = DateTimeOffset.UtcNow.AddDays(-3);
+        var modernJson = JsonSerializer.Serialize(new
+        {
+            recentAveragePrice = (double?)null,
+            volumeDataPoints = new[] { new { date = recent, value = 4 } }
+        });
+        var legacyJson = JsonSerializer.Serialize(new
+        {
+            recentAveragePrice = 950,
+            volumeDataPoints = new[] { new { date = legacyDay, value = 7 } }
+        });
+        var calls = new List<string>();
+        using var client = new HttpClient(new DelegateHandler((request, _) =>
+        {
+            var uri = request.RequestUri!;
+            calls.Add(uri.AbsolutePath);
+            var json = uri.Host == "economy.roblox.com" ? legacyJson : modernJson;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json)
+            });
+        }));
+        var root = Path.Combine(Path.GetTempPath(), "rpt-partial-rap", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxResaleDataService(client, new AppLogger(Path.Combine(root, "test.log")));
+            var result = await service.GetKnownCollectibleAsync(814, collectibleId);
+            AssertEqual(950d, result.RecentAveragePrice!.Value);
+            AssertEqual(4d, result.SalesLast7d);
+            AssertEqual(2, calls.Count);
+            AssertEqual(1, calls.Count(x => x.Contains("marketplace-sales", StringComparison.Ordinal)));
+            AssertEqual(1, calls.Count(x => x == "/v1/assets/814/resale-data"));
+            await service.GetKnownCollectibleAsync(814, collectibleId);
+            AssertEqual(2, calls.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    static async Task TestOfficialKnownCollectibleRateLimitAsync()
+    {
+        const string collectibleId = "5512fbf9-a499-4b9a-8af6-d06f8247fc14";
+        var requests = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            Interlocked.Increment(ref requests);
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(5));
+            return Task.FromResult(response);
+        }));
+        var root = Path.Combine(Path.GetTempPath(), "rpt-known-429", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxResaleDataService(client, new AppLogger(Path.Combine(root, "test.log")));
+            var first = await service.GetKnownCollectibleAsync(815, collectibleId);
+            var next = await service.GetKnownCollectibleAsync(816, "5512fbf9-a499-4b9a-8af6-d06f8247fc15");
+            AssertTrue(first.RateLimited && next.RateLimited);
+            AssertEqual(1, requests);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
 }

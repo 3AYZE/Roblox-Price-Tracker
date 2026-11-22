@@ -58,6 +58,7 @@ public sealed class RobloxResaleDataService
     private readonly SemaphoreSlim _requestGate = new(3, 3);
     private readonly ConcurrentDictionary<long, CacheEntry> _cache = new();
     private readonly ConcurrentDictionary<string, CacheEntry> _modernCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<long, CacheEntry> _legacyOnlyCache = new();
     private string? _anonymousCsrfToken;
     private long _cooldownUntilUtcTicks;
 
@@ -77,6 +78,92 @@ public sealed class RobloxResaleDataService
             await GetAsync(id, cancellationToken).ConfigureAwait(false)));
         var pairs = await Task.WhenAll(tasks).ConfigureAwait(false);
         return pairs.ToDictionary(x => x.Key, x => x.Value);
+    }
+
+    // Official catalog search already returns a collectible ID for migrated items.
+    // Prefer that validated ID so each supported asset needs one resale GET,
+    // avoiding an unnecessary Economy request and catalog ID lookup.
+    public async Task<IReadOnlyDictionary<long, RobloxResaleMarketData>> GetManyKnownCollectiblesAsync(
+        IEnumerable<(long AssetId, string? CollectibleItemId)> assets,
+        CancellationToken cancellationToken = default)
+    {
+        var distinct = assets.Where(x => x.AssetId > 0)
+            .GroupBy(x => x.AssetId)
+            .Select(group => group.OrderByDescending(x =>
+                Guid.TryParse(x.CollectibleItemId, out _)).First())
+            .ToArray();
+        var tasks = distinct.Select(async asset => new KeyValuePair<long, RobloxResaleMarketData>(
+            asset.AssetId,
+            await GetKnownCollectibleAsync(asset.AssetId, asset.CollectibleItemId, cancellationToken)
+                .ConfigureAwait(false)));
+        var pairs = await Task.WhenAll(tasks).ConfigureAwait(false);
+        return pairs.ToDictionary(x => x.Key, x => x.Value);
+    }
+
+    public async Task<RobloxResaleMarketData> GetKnownCollectibleAsync(
+        long assetId, string? collectibleItemId, CancellationToken cancellationToken = default)
+    {
+        if (assetId <= 0 || !Guid.TryParse(collectibleItemId, out var parsedId))
+            return await GetAsync(assetId, cancellationToken).ConfigureAwait(false);
+
+        var knownId = parsedId.ToString("D");
+        var modern = await GetModernAsync(assetId, knownId, cancellationToken).ConfigureAwait(false);
+        // An independently verified RAP is useful even when Roblox has no
+        // current sale buckets. Never request another endpoint just to fill 7d.
+        if (modern.RateLimited || modern.RecentAveragePrice is > 0)
+            return modern;
+
+        // With a known GUID, only legacy RAP may add useful independent
+        // coverage. Fetch it directly, without resolving the ID or repeating
+        // the modern request; reject legacy history that demonstrably stopped.
+        var legacy = await GetLegacyForKnownAsync(assetId, cancellationToken).ConfigureAwait(false);
+        if (legacy.RateLimited)
+            return modern.IsAvailable ? modern with
+            {
+                RateLimited = true,
+                RetryAfterUtc = legacy.RetryAfterUtc,
+                Error = "Legacy RAP rate-limited; retaining available Marketplace data."
+            } : legacy;
+        return MergeIndependentCoverage(legacy, modern,
+            OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(legacy, DateTimeOffset.UtcNow), knownId);
+    }
+
+    private async Task<RobloxResaleMarketData> GetLegacyForKnownAsync(
+        long assetId, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (_legacyOnlyCache.TryGetValue(assetId, out var cached) && cached.ExpiresAtUtc > now)
+            return cached.Data;
+
+        await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            now = DateTimeOffset.UtcNow;
+            if (_legacyOnlyCache.TryGetValue(assetId, out cached) && cached.ExpiresAtUtc > now)
+                return cached.Data;
+            if (GetCooldown(now, assetId) is { } coolingDown) return coolingDown;
+
+            RobloxResaleMarketData result;
+            try
+            {
+                result = await FetchResaleDataAsync(
+                    new Uri($"https://economy.roblox.com/v1/assets/{assetId}/resale-data"),
+                    assetId, "Roblox Economy", null, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.Info($"Resale legacy RAP fallback failed for asset {assetId}: {ex.Message}");
+                result = Unavailable(assetId, ex.Message, "Roblox Economy");
+            }
+
+            if (result.RateLimited) ApplyCooldown(result.RetryAfterUtc);
+            var expires = DateTimeOffset.UtcNow + (result.IsAvailable ? TimeSpan.FromMinutes(15) : TimeSpan.FromMinutes(3));
+            if (result.RetryAfterUtc is { } retryAfter && retryAfter > expires) expires = retryAfter;
+            _legacyOnlyCache[assetId] = new CacheEntry(result, expires);
+            return result;
+        }
+        finally { _requestGate.Release(); }
     }
 
     public async Task<RobloxResaleMarketData> GetAsync(long assetId, CancellationToken cancellationToken = default)

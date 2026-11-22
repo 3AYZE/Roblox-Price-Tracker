@@ -231,16 +231,37 @@ public sealed class RobloxUgcDiscoveryService
         var candidates = new List<RobloxUgcCatalogCandidate>(catalogCandidates.Count);
         var verified = 0;
         var rejectedUnavailable = 0;
+        var missingCollectibleId = 0;
+        var missingMarketplaceQuote = 0;
+        var invalidOriginalStock = 0;
+        var rejectedCandidates = new List<RobloxUgcCatalogCandidate>();
+        var rejectionReasons = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var candidate in catalogCandidates)
         {
             // Catalog-only data is discovery evidence, not an active stock quote.
             // Never use its remaining count, seller book, or resale price as proof.
-            if (string.IsNullOrWhiteSpace(candidate.CollectibleItemId) ||
-                !marketplace.TryGetValue(candidate.CollectibleItemId, out var authoritative) ||
-                !UgcActiveStockPolicy.IsMarketplaceVerified(
-                    candidate.AssetId, candidate.CollectibleItemId, authoritative))
+            if (string.IsNullOrWhiteSpace(candidate.CollectibleItemId))
             {
+                missingCollectibleId++;
                 rejectedUnavailable++;
+                rejectedCandidates.Add(candidate);
+                continue;
+            }
+            if (!marketplace.TryGetValue(candidate.CollectibleItemId, out var authoritative))
+            {
+                missingMarketplaceQuote++;
+                rejectedUnavailable++;
+                rejectedCandidates.Add(candidate);
+                continue;
+            }
+            var reason = UgcActiveStockPolicy.MarketplaceRejectionReason(
+                candidate.AssetId, candidate.CollectibleItemId, authoritative);
+            if (reason is not null)
+            {
+                invalidOriginalStock++;
+                rejectedUnavailable++;
+                rejectedCandidates.Add(candidate);
+                rejectionReasons[reason] = rejectionReasons.GetValueOrDefault(reason) + 1;
                 continue;
             }
 
@@ -260,12 +281,16 @@ public sealed class RobloxUgcDiscoveryService
             });
         }
 
+        var rejectionSummary = string.Join(",", rejectionReasons.OrderBy(x => x.Key).Select(x => $"{x.Key}:{x.Value}"));
         _logger.Info(
             $"UGC Hunter resilient momentum discovery: {discovery.FeedsUsed} feed(s), {discovery.PagesUsed} page(s), " +
             $"{discovery.Ids.Length} selected IDs{(discovery.FromCache ? " (cached discovery)" : string.Empty)}, " +
             $"{detailRequests} detail request(s), {hydratedRows} catalog rows, {verified} marketplace-verified, " +
-            $"{rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates. " +
-            $"Hydrated types: {TypeCounts(catalogCandidates)}; active types: {TypeCounts(candidates)}.");
+            $"{rejectedUnavailable} unavailable rejected (missing ID={missingCollectibleId}, " +
+            $"missing Marketplace quote={missingMarketplaceQuote}, invalid original stock={invalidOriginalStock}, " +
+            $"reasons={rejectionSummary}), " +
+            $"{candidates.Count} active candidates. Hydrated types: {TypeCounts(catalogCandidates)}; " +
+            $"active types: {TypeCounts(candidates)}; rejected types: {TypeCounts(rejectedCandidates)}.");
 
         return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows);
     }
@@ -782,7 +807,11 @@ public static class RobloxUgcCatalogDiscoveryParser
     {
         candidate = default!;
         if (!TryGetInt64(row, "id", out var id) || id <= 0) return false;
-        if (!TryGetInt32(row, "price", out var price) || price <= 0) return false;
+        // Search and catalog hydration may omit/zero the original sale price.
+        // It is only a discovery hint: Marketplace Items must independently
+        // confirm a positive creator price and active original stock later.
+        var price = TryGetInt32(row, "price", out var catalogPrice) && catalogPrice > 0
+            ? catalogPrice : 0;
         if (!string.Equals(GetString(row, "itemType"), "Asset", StringComparison.OrdinalIgnoreCase)) return false;
         if (!HasLimitedRestriction(row)) return false;
 
@@ -801,7 +830,7 @@ public static class RobloxUgcCatalogDiscoveryParser
             return false;
 
         var saleLocationType = GetString(row, "saleLocationType");
-        if (string.IsNullOrWhiteSpace(saleLocationType) ||
+        if (!string.IsNullOrWhiteSpace(saleLocationType) &&
             !saleLocationType.StartsWith("Shop", StringComparison.OrdinalIgnoreCase))
             return false;
 

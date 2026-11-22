@@ -46,6 +46,7 @@ public sealed class RobloxMarketplaceItemService
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string? _anonymousCsrfToken;
+    private long _cooldownUntilUtcTicks;
 
     public RobloxMarketplaceItemService(HttpClient httpClient, AppLogger logger)
     {
@@ -94,11 +95,58 @@ public sealed class RobloxMarketplaceItemService
 
             if (stillMissing.Count == 0) return result;
 
+            if (Interlocked.Read(ref _cooldownUntilUtcTicks) > DateTimeOffset.UtcNow.UtcTicks)
+            {
+                foreach (var id in stillMissing)
+                    result[id] = new RobloxMarketplaceItemData(0, id, false, null, null, null,
+                        null, null, false, null, null, null, "Marketplace HTTP 429 cooldown active.");
+                return result;
+            }
+
             IReadOnlyList<RobloxMarketplaceItemData> fetched;
             try
             {
                 using var document = await FetchAsync(stillMissing.ToArray(), cancellationToken).ConfigureAwait(false);
                 fetched = RobloxMarketplaceItemParser.Parse(document.RootElement);
+                if (fetched.Count == 0)
+                {
+                    // Roblox occasionally acknowledges a batch with HTTP 200 but
+                    // returns no rows. Recover in smaller requests once; empty
+                    // responses are never proof of available creator inventory.
+                    _logger.Info($"MarketplaceItemService.GetManyAsync: empty batch response for " +
+                        $"{stillMissing.Count} collectible IDs; retrying once in smaller batches. " +
+                        "No stock will be accepted without a matching Marketplace row.");
+                    var recovered = new List<RobloxMarketplaceItemData>();
+                    var batchSize = Math.Max(1, (stillMissing.Count + 1) / 2);
+                    foreach (var chunk in stillMissing.Chunk(batchSize))
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(650), cancellationToken).ConfigureAwait(false);
+                        try
+                        {
+                            using var retry = await FetchAsync(chunk, cancellationToken).ConfigureAwait(false);
+                            recovered.AddRange(RobloxMarketplaceItemParser.Parse(retry.RootElement));
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+                        {
+                            _logger.Info("MarketplaceItemService.GetManyAsync: recovery stopped by HTTP 429; " +
+                                "unresolved IDs remain unverified. Check Roblox Retry-After before refreshing.");
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Info($"MarketplaceItemService.GetManyAsync: recovery chunk unavailable ({ex.Message}); " +
+                                "unresolved creator stock remains unverified.");
+                        }
+                    }
+
+                    fetched = recovered;
+                    _logger.Info($"MarketplaceItemService.GetManyAsync: empty batch recovery returned " +
+                        $"{recovered.Count}/{stillMissing.Count} rows; missing IDs remain unavailable.");
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -114,7 +162,8 @@ public sealed class RobloxMarketplaceItemService
 
             var fetchedById = fetched
                 .Where(x => !string.IsNullOrWhiteSpace(x.CollectibleItemId))
-                .ToDictionary(x => x.CollectibleItemId, StringComparer.OrdinalIgnoreCase);
+                .GroupBy(x => x.CollectibleItemId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
             foreach (var id in stillMissing)
             {
                 var data = fetchedById.TryGetValue(id, out var value)
@@ -141,16 +190,22 @@ public sealed class RobloxMarketplaceItemService
             var response = await SendWithCsrfHandshakeAsync(collectibleItemIds, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                var retry = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(3);
+                var retryHeader = response.Headers.RetryAfter;
+                var retry = retryHeader?.Delta ??
+                    (retryHeader?.Date is { } retryAt ? retryAt - DateTimeOffset.UtcNow : TimeSpan.FromSeconds(3));
+                retry = retry < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : retry;
                 response.Dispose();
-                if (attempt + 1 < MaxAttempts)
+                if (attempt + 1 < MaxAttempts && retry <= TimeSpan.FromSeconds(8))
                 {
-                    var delay = TimeSpan.FromMilliseconds(Math.Clamp(retry.TotalMilliseconds, 1000d, 8000d));
-                    _logger.Info($"Marketplace item details rate limited; retrying after {delay.TotalSeconds:0.#}s.");
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    _logger.Info($"Marketplace item details rate limited; retrying after {retry.TotalSeconds:0.#}s.");
+                    await Task.Delay(retry, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
+                var resumeAt = DateTimeOffset.UtcNow.Add(retry);
+                Interlocked.Exchange(ref _cooldownUntilUtcTicks, resumeAt.UtcTicks);
+                _logger.Info($"MarketplaceItemService.FetchAsync: HTTP 429 cooldown until {resumeAt:O}; " +
+                    "creator stock will remain unverified until then.");
                 throw new HttpRequestException("Roblox Marketplace Items returned HTTP 429.", null, HttpStatusCode.TooManyRequests);
             }
 

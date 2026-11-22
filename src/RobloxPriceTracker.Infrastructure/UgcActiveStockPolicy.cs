@@ -12,19 +12,33 @@ public static class UgcActiveStockPolicy
     public static bool IsMarketplaceVerified(
         long expectedAssetId,
         string? expectedCollectibleItemId,
+        RobloxMarketplaceItemData? marketplace) =>
+        MarketplaceRejectionReason(expectedAssetId, expectedCollectibleItemId, marketplace) is null;
+
+    // Stable diagnostic categories; discovery logs counts rather than per-item
+    // warnings so a failing public API cannot flood the user's application log.
+    public static string? MarketplaceRejectionReason(
+        long expectedAssetId,
+        string? expectedCollectibleItemId,
         RobloxMarketplaceItemData? marketplace)
     {
-        if (expectedAssetId <= 0 ||
-            string.IsNullOrWhiteSpace(expectedCollectibleItemId) ||
-            marketplace is null ||
-            marketplace.AssetId != expectedAssetId ||
+        if (expectedAssetId <= 0 || string.IsNullOrWhiteSpace(expectedCollectibleItemId))
+            return "missing expected identity";
+        if (marketplace is null) return "missing Marketplace quote";
+        if (marketplace.AssetId != expectedAssetId ||
             !string.Equals(marketplace.CollectibleItemId, expectedCollectibleItemId,
-                StringComparison.OrdinalIgnoreCase) ||
-            !marketplace.IsPrimaryPurchasable)
-            return false;
-
-        return marketplace.TotalStock is not { } total ||
-            total >= marketplace.UnitsAvailable!.Value;
+                StringComparison.OrdinalIgnoreCase))
+            return "mismatched asset or collectible ID";
+        if (!marketplace.IsAvailable) return "Marketplace unavailable or error";
+        if (marketplace.Price is not > 0) return "unknown or zero primary price";
+        if (marketplace.UnitsAvailable is null) return "unknown original remaining";
+        if (marketplace.UnitsAvailable <= 0) return "sold out original inventory";
+        if (string.IsNullOrWhiteSpace(marketplace.SaleLocationType)) return "unknown sale location";
+        if (!marketplace.SaleLocationType.StartsWith("Shop", StringComparison.OrdinalIgnoreCase))
+            return "not purchasable in Shop";
+        if (marketplace.TotalStock is { } total && total < marketplace.UnitsAvailable)
+            return "remaining exceeds original total";
+        return null;
     }
 
     public static bool IsActiveSnapshot(

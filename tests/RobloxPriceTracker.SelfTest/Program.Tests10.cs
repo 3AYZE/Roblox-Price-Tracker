@@ -60,8 +60,20 @@ internal static partial class Program
               "creatorType": "User",
               "assetType": 8,
               "lowestPrice": 950,
+              "collectibleItemId": "6fc33531-3a2d-4c27-9d47-74f4bdc2d6f0",
               "favoriteCount": 12000,
               "purchaseCount": 5000,
+              "itemRestrictions": ["Limited"]
+            },
+            {
+              "id": 1004,
+              "itemType": "Asset",
+              "name": "Official Invalid GUID",
+              "creatorTargetId": 1,
+              "creatorType": "User",
+              "assetType": 8,
+              "lowestPrice": 800,
+              "collectibleItemId": "not-a-valid-guid",
               "itemRestrictions": ["Limited"]
             },
             {
@@ -90,9 +102,11 @@ internal static partial class Program
 
         using var doc = JsonDocument.Parse(json);
         var parsed = RobloxOfficialLimitedCatalogParser.Parse(doc.RootElement);
-        AssertEqual(1, parsed.Items.Count);
+        AssertEqual(2, parsed.Items.Count);
         AssertEqual(1001L, parsed.Items[0].AssetId);
         AssertEqual(950L, parsed.Items[0].FloorPrice!.Value);
+        AssertEqual("6fc33531-3a2d-4c27-9d47-74f4bdc2d6f0", parsed.Items[0].CollectibleItemId);
+        AssertTrue(parsed.Items[1].CollectibleItemId is null);
         AssertEqual("next-page", parsed.NextPageCursor);
         return Task.CompletedTask;
     }
