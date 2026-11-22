@@ -9,7 +9,8 @@ namespace RobloxPriceTracker.Infrastructure;
 public static class UgcDiscoverySelectionPolicy
 {
     public const int RecentReserve = 20;
-    public const int EmoteReserve = 10;
+    public const int EmoteReserve = 4;
+    public const int MaximumEmotes = 8;
     public const int FeedDiversityReserve = 28;
     public const int PerFeedReserve = 4;
 
@@ -18,22 +19,43 @@ public static class UgcDiscoverySelectionPolicy
         IReadOnlyList<IReadOnlyList<long>> feedIds,
         IReadOnlyList<long> recentIds,
         IReadOnlyList<long> emoteIds,
-        int capacity)
+        int capacity,
+        IReadOnlyDictionary<long, int>? assetTypes = null)
     {
         if (capacity <= 0) return Array.Empty<long>();
 
         var selected = new List<long>(capacity);
         var seen = new HashSet<long>();
+        var typeCounts = new Dictionary<int, int>();
         var momentumCapacity = capacity - Math.Min(RecentReserve, Math.Max(1, capacity / 6));
 
         bool TryAdd(long id, int limit)
         {
-            if (id <= 0 || selected.Count >= limit || !seen.Add(id)) return false;
+            if (id <= 0 || selected.Count >= limit || seen.Contains(id)) return false;
+            var type = assetTypes is not null && assetTypes.TryGetValue(id, out var knownType)
+                ? knownType : 0;
+            if (type == 61 && typeCounts.GetValueOrDefault(61) >= MaximumEmotes) return false;
+            seen.Add(id);
             selected.Add(id);
+            if (type > 0) typeCounts[type] = typeCounts.GetValueOrDefault(type) + 1;
             return true;
         }
 
-        // Dedicated emote coverage remains limited and is never inferred from a name.
+        // Give distinct known accessory types first access to the same ID budget.
+        // Search type is a discovery hint; hydration and Marketplace still verify stock.
+        if (assetTypes is not null)
+        {
+            var distinctTypes = rankedMomentumIds
+                .Where(id => assetTypes.TryGetValue(id, out var type) && type is > 0 and not 61)
+                .Select(id => assetTypes[id]).Distinct().ToArray();
+            foreach (var type in distinctTypes)
+            {
+                foreach (var id in rankedMomentumIds.Where(id => assetTypes.TryGetValue(id, out var t) && t == type).Take(4))
+                    TryAdd(id, momentumCapacity);
+            }
+        }
+
+        // Keep only a small typed emote reserve; never infer emotes from names.
         foreach (var id in emoteIds.Take(EmoteReserve))
             TryAdd(id, momentumCapacity);
 

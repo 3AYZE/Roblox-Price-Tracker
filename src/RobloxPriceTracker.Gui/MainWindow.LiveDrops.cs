@@ -134,7 +134,7 @@ public partial class MainWindow
         if (_liveDropHeading is not null)
             _liveDropHeading.Text = scope == "Official" ? "OFFICIAL LIMITEDS" : "UGC LIMITEDS";
         if (_liveDropOnlyOpportunities is not null)
-            _liveDropOnlyOpportunities.IsChecked = false;
+            _liveDropOnlyOpportunities.IsChecked = scope == "UGC";
         if (_ugcMaximumPrice is not null)
             _ugcMaximumPrice.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
         if (_ugcStockFilter is not null)

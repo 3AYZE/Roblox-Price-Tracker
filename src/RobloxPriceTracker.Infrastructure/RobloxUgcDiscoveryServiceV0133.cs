@@ -58,9 +58,8 @@ public sealed record RobloxUgcDiscoveryResult(
 
 /// <summary>
 /// UGC Limited discovery with bounded multi-window momentum scanning and defensive compatibility
-/// fallbacks. Roblox's legacy catalog V1 search surface is useful but not actively maintained, so
-/// Hunter never treats one fragile category route as mandatory. Collectibles (Category=2) is the
-/// primary V1 bucket, Category=1 is the protocol fallback, and CommunityCreations is supplemental.
+/// fallbacks. Verified Category=1 Limited feeds cover typed accessories and emotes.
+/// Unsupported category and subcategory routes are excluded from production scanning.
 /// Search rows only discover IDs; hydrated catalog and Marketplace Item data remain authoritative.
 /// </summary>
 public sealed class RobloxUgcDiscoveryService
@@ -103,62 +102,51 @@ public sealed class RobloxUgcDiscoveryService
     private static readonly DiscoveryFeed[] DiscoveryFeeds =
     [
         new(
-            "collectibles-sales-day",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
+            "limited-sales-day",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30"),
             MaxPages: 2,
             Budget: 60,
             Weight: 1.35d),
         new(
-            "collectibles-sales-week",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
+            "limited-sales-week",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
+            null,
             MaxPages: 3,
             Budget: 90,
             Weight: 1.50d),
         new(
-            "collectibles-sales-month",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=2&SortAggregation=4&Limit=30"),
+            "limited-sales-month",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=4&Limit=30"),
+            null,
             MaxPages: 2,
             Budget: 60,
             Weight: 1.05d),
         new(
-            "community-sales-week",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
-            null,
-            MaxPages: 3,
-            Budget: 90,
-            Weight: 1.10d),
-        // Supplement popularity feeds with newly published community collectibles.
-        // One extra page every discovery-cache interval; Marketplace remains the
-        // only authority for active original stock.
-        new(
-            "recent-community",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30"),
-            null,
-            MaxPages: 1,
-            Budget: 30,
-            Weight: 0.25d,
-            ReserveRecent: true),
-        new(
-            "recent-collectibles",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=3&Limit=30"),
+            "recent-limiteds",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30"),
+            null,
             MaxPages: 1,
             Budget: 30,
-            Weight: 0.20d,
-            ReserveRecent: true),
-        // Dedicated single-page emote coverage, paced sequentially just like the
-        // existing feeds; do not expand the scanner's 120-ID cap.
+            Weight: 0.50d,
+            ReserveRecent: true,
+            ReserveEmotes: true),
+        // Keyword routes for hair and hats have succeeded on the public Category=1
+        // surface. They diversify discovery without increasing hydration's 120-ID cap.
         new(
-            "recent-limited-emotes",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=12&Subcategory=39&salesTypeFilter=2&SortType=3&Limit=30"),
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&Subcategory=39&salesTypeFilter=2&SortType=3&Limit=30"),
+            "accessory-hair",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Keyword=Hair&Limit=30"),
+            null,
             MaxPages: 1,
             Budget: 30,
-            Weight: 0.35d,
-            ReserveEmotes: true)
+            Weight: 0.65d),
+        new(
+            "accessory-hat",
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Keyword=Hat&Limit=30"),
+            null,
+            MaxPages: 1,
+            Budget: 30,
+            Weight: 0.65d)
     ];
 
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
@@ -168,7 +156,7 @@ public sealed class RobloxUgcDiscoveryService
     private const int MaxDetailBatchSize = 40;
     private const int DetailIsolationChunkSize = 10;
     private const int MaxMarketplaceBatchSize = 40;
-    private const int MaxRateLimitAttempts = 2;
+    private const int MaxRateLimitAttempts = 1;
     private static readonly TimeSpan DiscoveryCacheDuration = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan InterPageDelay = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan InterFeedDelay = TimeSpan.FromMilliseconds(400);
@@ -276,7 +264,8 @@ public sealed class RobloxUgcDiscoveryService
             $"UGC Hunter resilient momentum discovery: {discovery.FeedsUsed} feed(s), {discovery.PagesUsed} page(s), " +
             $"{discovery.Ids.Length} selected IDs{(discovery.FromCache ? " (cached discovery)" : string.Empty)}, " +
             $"{detailRequests} detail request(s), {hydratedRows} catalog rows, {verified} marketplace-verified, " +
-            $"{rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
+            $"{rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates. " +
+            $"Hydrated types: {TypeCounts(catalogCandidates)}; active types: {TypeCounts(candidates)}.");
 
         return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows);
     }
@@ -376,17 +365,12 @@ public sealed class RobloxUgcDiscoveryService
         var feedsUsed = 0;
         var pagesUsed = 0;
         RobloxUgcDiscoveryException? firstFailure = null;
-        var unsupportedCollectiblesCategory = false;
         var discoveryRateLimited = false;
+        var assetTypes = new Dictionary<long, int>();
 
         foreach (var feed in feeds)
         {
-            // A rejected category route stays rejected for this scan. Other sort
-            // windows can still be queried through their own supported fallback.
-            var activeEndpoint = unsupportedCollectiblesCategory &&
-                feed.PrimaryEndpoint.Query.Contains("Category=2", StringComparison.OrdinalIgnoreCase)
-                    ? feed.FallbackEndpoint ?? feed.PrimaryEndpoint
-                    : feed.PrimaryEndpoint;
+            var activeEndpoint = feed.PrimaryEndpoint;
             string? cursor = null;
             var rowsConsidered = 0;
             var producedPage = false;
@@ -405,13 +389,10 @@ public sealed class RobloxUgcDiscoveryService
                     feed.FallbackEndpoint is not null &&
                     ex.Kind == RobloxUgcDiscoveryFailureKind.Protocol)
                 {
-                    if (ex.StatusCode == 400 &&
-                        activeEndpoint.Query.Contains("Category=2", StringComparison.OrdinalIgnoreCase))
-                        unsupportedCollectiblesCategory = true;
                     activeEndpoint = feed.FallbackEndpoint;
                     cursor = null;
                     _logger.Info(
-                        $"UGC Hunter {feed.Name} primary route returned protocol error; retrying with broad Collectibles fallback. " +
+                        $"UGC Hunter {feed.Name} primary route returned protocol error; retrying with supported alternate sort. " +
                         ex.Message);
                     try
                     {
@@ -443,6 +424,8 @@ public sealed class RobloxUgcDiscoveryService
                     for (var rowIndex = 0; rowIndex < pageHits.Count && rowsConsidered < feed.Budget; rowIndex++)
                     {
                         var id = pageHits[rowIndex].Id;
+                        if (pageHits[rowIndex].AssetType > 0)
+                            assetTypes[id] = pageHits[rowIndex].AssetType;
                         rowsConsidered++;
                         var rank = page * 30 + rowIndex + 1;
                         if (!signals.TryGetValue(id, out var signal))
@@ -489,9 +472,13 @@ public sealed class RobloxUgcDiscoveryService
             .ToArray();
 
         var selected = UgcDiscoverySelectionPolicy.Select(
-            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds);
+            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds, assetTypes);
         return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false);
     }
+
+    private static string TypeCounts(IEnumerable<RobloxUgcCatalogCandidate> rows) =>
+        string.Join(",", rows.GroupBy(x => x.AssetType).OrderBy(x => x.Key)
+            .Select(group => $"{group.Key}:{group.Count()}"));
 
     private static Uri BuildPageUri(Uri endpoint, string? cursor)
     {

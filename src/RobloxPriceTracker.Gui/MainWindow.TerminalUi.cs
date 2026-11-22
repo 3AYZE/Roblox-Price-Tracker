@@ -202,12 +202,12 @@ public partial class MainWindow : Window
         {
             Width = 172,
             Margin = new Thickness(7, 0, 0, 0),
-            ToolTip = "Observed lows compare Marketplace-verified ORIGINAL stock only within the same asset type and material class. Not an official Roblox floor.",
+            ToolTip = "Qualified: verified scarce original stock, sustained depletion, completed resales, net profit after fees and acceptable risk.",
             SelectedIndex = 0
         };
         foreach (var mode in new[]
         {
-            "Observed low (material + type)",
+            "Qualified opportunities",
             "All verified originals",
             "All original candidates",
             "All + excluded (research)"

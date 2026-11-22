@@ -87,8 +87,18 @@ function Assert-PublishedIcon([string]$ExePath) {
 
 function Assert-PublishedStartup([string]$ExePath) {
     Write-Step 'Smoke-testing packaged WPF startup and native tray host...'
-    $process = Start-Process -FilePath $ExePath -ArgumentList '--background' -PassThru
+    # A published app can coexist with an installed instance during packaging.
+    # Use an isolated profile so the smoke check owns its mutex and data files.
+    $smokeProfile = Join-Path ([IO.Path]::GetTempPath()) ('rpt-build-smoke-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force -Path $smokeProfile | Out-Null
+    $startInfo = [Diagnostics.ProcessStartInfo]::new($ExePath)
+    $startInfo.ArgumentList.Add('--background')
+    $startInfo.UseShellExecute = $false
+    $startInfo.Environment['RPT_DATA_DIR'] = $smokeProfile
+    $process = $null
     try {
+        $process = [Diagnostics.Process]::Start($startInfo)
+        if ($null -eq $process) { throw 'Packaged app could not be started.' }
         Start-Sleep -Seconds 10
         $process.Refresh()
         if ($process.HasExited) {
@@ -98,14 +108,15 @@ function Assert-PublishedStartup([string]$ExePath) {
     }
     finally {
         try {
-            $process.Refresh()
-            if (-not $process.HasExited) {
+            if ($null -ne $process) { $process.Refresh() }
+            if ($null -ne $process -and -not $process.HasExited) {
                 Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
                 $process.WaitForExit(5000) | Out-Null
             }
         }
         catch { }
-        $process.Dispose()
+        if ($null -ne $process) { $process.Dispose() }
+        Remove-Item -LiteralPath $smokeProfile -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

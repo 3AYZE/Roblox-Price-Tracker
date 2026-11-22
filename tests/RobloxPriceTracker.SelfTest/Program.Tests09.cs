@@ -51,7 +51,8 @@ internal static partial class Program
                 var isCursorPage = query.Contains("cursor=", StringComparison.OrdinalIgnoreCase);
                 sawCursorRequest |= isCursorPage;
 
-                var isCollectiblesMomentum = query.Contains("Category=2", StringComparison.OrdinalIgnoreCase) &&
+                var isCollectiblesMomentum = query.Contains("Category=1", StringComparison.OrdinalIgnoreCase) &&
+                                             query.Contains("salesTypeFilter=2", StringComparison.OrdinalIgnoreCase) &&
                                              query.Contains("SortType=2", StringComparison.OrdinalIgnoreCase) &&
                                              (query.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase) ||
                                               query.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase) ||
@@ -149,7 +150,8 @@ internal static partial class Program
         AssertEqual(result.DiscoveredCount, result.HydratedCount);
         AssertTrue(sawCaesarHydrated); // Discovery and catalog hydration reached the older item.
         AssertEqual(0, result.Items.Count); // Catalog-only rows lack verified original stock.
-        AssertTrue(searchQueries.Any(x => x.Contains("Category=2", StringComparison.OrdinalIgnoreCase)));
+        AssertTrue(searchQueries.All(x => x.Contains("Category=1", StringComparison.OrdinalIgnoreCase)));
+        AssertTrue(searchQueries.All(x => x.Contains("salesTypeFilter=2", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=1", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=3", StringComparison.OrdinalIgnoreCase)));
         AssertTrue(searchQueries.Any(x => x.Contains("SortAggregation=4", StringComparison.OrdinalIgnoreCase)));

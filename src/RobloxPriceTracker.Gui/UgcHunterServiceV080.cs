@@ -266,7 +266,12 @@ public sealed class UgcHunterService
         if (baseline.Count == 0) return baseline;
 
         var selected = baseline
-            .OrderByDescending(x => x.ResalePotentialScore)
+            .OrderByDescending(x => x.PrimaryMarketVerified && x.TotalSupply is > 0 &&
+                                    x.UnitsAvailable is > 0 and <= 300 &&
+                                    x.UnitsAvailable <= x.TotalSupply * 0.25 &&
+                                    x.ObservationCount >= 2 && x.VelocityPerMinute > 0)
+            .ThenBy(x => x.UnitsAvailable ?? long.MaxValue)
+            .ThenByDescending(x => x.ResalePotentialScore)
             .ThenByDescending(x => x.EntryScore)
             .Take(ResaleEnrichmentLimit)
             .ToArray();
@@ -441,11 +446,8 @@ public sealed class UgcHunterService
             ? Math.Clamp((velocity1 - velocity5) / velocity5, -2.0, 4.0)
             : 0.0;
 
-        long? totalSupply = item.TotalQuantity is > 0
-            ? item.TotalQuantity
-            : item.UnitsAvailable is { } remaining
-                ? Math.Max(1, item.PurchaseCount + remaining)
-                : null;
+        // Purchase count is not proof of the original issued quantity.
+        long? totalSupply = item.TotalQuantity is > 0 ? item.TotalQuantity : null;
         var remainingPct = totalSupply is { } supply && item.UnitsAvailable is { } left
             ? Math.Clamp((double)left / supply, 0d, 1d)
             : (double?)null;
@@ -726,14 +728,13 @@ public sealed class UgcHunterService
                 "All scanned candidates are excluded from investment rankings by verified price integrity.");
         var average = eligible.Average(x => x.ResalePotentialScore);
         var averageVelocity = eligible.Average(x => x.VelocityPerMinute);
-        var strong = eligible.Count(x => x.ResalePotentialScore >= 75 && x.EntryScore >= 55 &&
-            x.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW"));
+        var strong = eligible.Count(x => x.IsQualifiedOpportunity);
         var regime = average >= 76 || strong >= 5 ? "VERY HOT"
             : average >= 66 || strong >= 3 ? "HOT"
             : average >= 54 ? "NORMAL"
             : average >= 42 ? "COOLING"
             : "WEAK";
-        var detail = $"{strong} high-resale drop{(strong == 1 ? string.Empty : "s")} · avg resale {average:0} · avg velocity {averageVelocity:0.0}/m";
+        var detail = $"{strong} qualified opportunit{(strong == 1 ? "y" : "ies")} · avg resale {average:0} · avg velocity {averageVelocity:0.0}/m";
         return new UgcMarketState(regime, items.Count, strong, average, detail);
     }
 
@@ -932,6 +933,14 @@ public sealed record UgcHunterItem(
     public double? VerifiedDailyAverageResaleMedian30d { get; init; }
     public int ResalePriceEvidenceDays { get; init; }
     public bool IsExcludedPriceDistortion => PriceIntegrityClassification == UgcPriceIntegrityPolicy.Excluded;
+    public bool IsQualifiedOpportunity => UgcQualifiedOpportunityPolicy.Evaluate(
+        new UgcQualifiedOpportunityPolicy.Evidence(
+            PrimaryMarketVerified, ObservedAtUtc, Price, UnitsAvailable, TotalSupply,
+            ObservationCount, VelocityPerMinute, HasRecentResaleVolume,
+            VerifiedCompletedResales30d, ResaleVolumeEvidenceDays,
+            VerifiedDailyAverageResaleMedian30d, ResalePriceEvidenceDays,
+            CurrentResaleFloor, RiskScore, IsExcludedPriceDistortion),
+        DateTimeOffset.UtcNow).Qualified;
     public string PriceIntegrityText => PriceIntegrityClassification switch
     {
         UgcPriceIntegrityPolicy.Excluded => "EXCLUDED · PRICE",

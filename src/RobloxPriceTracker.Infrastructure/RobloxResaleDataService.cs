@@ -119,7 +119,8 @@ public sealed class RobloxResaleDataService
                 // let such a response prevent the modern collectible lookup.
                 var staleLegacy = OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(
                     legacy, DateTimeOffset.UtcNow);
-                if (legacy.RateLimited || (HasMeaningfulMarketData(legacy) && !staleLegacy))
+                if (legacy.RateLimited ||
+                    (HasMeaningfulMarketData(legacy) && !staleLegacy && legacy.HasSalesCoverage(DateTimeOffset.UtcNow)))
                 {
                     result = legacy;
                 }
@@ -135,24 +136,18 @@ public sealed class RobloxResaleDataService
                             "Roblox Marketplace Sales",
                             collectibleId,
                             cancellationToken).ConfigureAwait(false);
-                        result = modern.RateLimited || HasMeaningfulMarketData(modern) ? modern :
-                            staleLegacy
-                                ? Unavailable(assetId,
-                                    "Legacy Roblox resale history is stale; current data is unavailable.",
-                                    "Roblox Marketplace Sales", collectibleId)
-                                : legacy with
-                                {
-                                    CollectibleItemId = collectibleId,
-                                    Error = modern.Error ?? legacy.Error ??
-                                        "Roblox returned no usable resale aggregates for this item."
-                                };
+                        result = MergeIndependentCoverage(legacy, modern, staleLegacy, collectibleId);
                     }
                     else
                     {
                         result = staleLegacy
                             ? Unavailable(assetId,
                                 "Legacy Roblox resale history is stale and a collectible ID could not be resolved.")
-                            : legacy;
+                            : legacy with
+                            {
+                                Error = legacy.HasSalesCoverage(DateTimeOffset.UtcNow) ? legacy.Error :
+                                    "Current sales unavailable: collectible ID could not be resolved."
+                            };
                     }
                 }
             }
@@ -378,6 +373,45 @@ public sealed class RobloxResaleDataService
     private static bool HasMeaningfulMarketData(RobloxResaleMarketData data) =>
         data.RecentAveragePrice is > 0 || data.PriceDataPoints.Any(x => x.Value > 0) ||
         data.VolumeDataPoints.Any(x => x.Value > 0) || data.HasSalesSeries;
+
+    // RAP and current volume are independent observations. A legacy RAP may still be
+    // trustworthy when its daily volume has stopped, while modern sales can be fresh.
+    // Historical series from an expired legacy feed must never become current evidence.
+    public static RobloxResaleMarketData MergeIndependentCoverage(
+        RobloxResaleMarketData legacy, RobloxResaleMarketData modern,
+        bool staleLegacy, string collectibleId)
+    {
+        var fallback = !staleLegacy && HasMeaningfulMarketData(legacy) ? legacy : null;
+        if (!HasMeaningfulMarketData(modern) && fallback is null)
+            return modern.RateLimited ? modern : Unavailable(legacy.AssetId,
+                staleLegacy ? "Legacy history stale; current Marketplace sales unavailable." :
+                    modern.Error ?? legacy.Error ?? "Roblox returned no usable resale aggregates.",
+                "Roblox Marketplace Sales", collectibleId);
+
+        var now = DateTimeOffset.UtcNow;
+        var source = HasMeaningfulMarketData(modern) ? modern : fallback!;
+        var rap = modern.RecentAveragePrice is > 0 ? modern.RecentAveragePrice : fallback?.RecentAveragePrice;
+        var prices = modern.PriceDataPoints.Any(p => p.Value > 0)
+            ? modern.PriceDataPoints : fallback?.PriceDataPoints ?? [];
+        var volumes = modern.HasSalesCoverage(now) ? modern.VolumeDataPoints :
+            fallback?.HasSalesCoverage(now) == true ? fallback.VolumeDataPoints :
+            modern.VolumeDataPoints.Count > 0 ? modern.VolumeDataPoints : fallback?.VolumeDataPoints ?? [];
+
+        return source with
+        {
+            IsAvailable = rap is > 0 || prices.Any(p => p.Value > 0) ||
+                OfficialResaleCoveragePolicy.HasRecentVolume(volumes, now),
+            RecentAveragePrice = rap,
+            PriceDataPoints = prices,
+            VolumeDataPoints = volumes,
+            CollectibleItemId = collectibleId,
+            RateLimited = modern.RateLimited,
+            RetryAfterUtc = modern.RetryAfterUtc,
+            Error = modern.RateLimited ? "Current Marketplace sales rate-limited; showing previously verified data." :
+                !OfficialResaleCoveragePolicy.HasRecentVolume(volumes, now)
+                    ? modern.Error ?? "Current sale volume unavailable from Roblox." : null
+        };
+    }
 
     private RobloxResaleMarketData? GetCooldown(DateTimeOffset now, long assetId)
     {

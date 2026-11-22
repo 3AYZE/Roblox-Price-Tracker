@@ -46,10 +46,7 @@ public partial class MainWindow
             return false;
         return mode switch
         {
-            // During an upgrade, old validated cached rows remain visible but
-            // marked "NO COMPARISON" until a new scan supplies per-type prices.
-            0 => row.IsLowestObservedOriginalSale ||
-                 (row.AssetType == 0 && row.PrimaryMarketVerified),
+            0 => row.IsQualifiedOpportunity,
             1 => row.PrimaryMarketVerified,
             2 => true,
             3 => true,
@@ -175,9 +172,7 @@ public partial class MainWindow
             _hunterLiveCountText.Text = visible.Length.ToString("N0");
         if (_hunterStrongCountText is not null)
         {
-            var strong = visible.Count(x => !x.IsExcludedPriceDistortion &&
-                x.ResalePotentialScore >= 75 && x.EntryScore >= 55 &&
-                x.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW"));
+            var strong = visible.Count(x => x.IsQualifiedOpportunity);
             _hunterStrongCountText.Text = strong.ToString("N0");
         }
     }

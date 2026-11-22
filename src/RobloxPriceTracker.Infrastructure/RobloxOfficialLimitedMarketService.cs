@@ -216,8 +216,9 @@ public sealed class RobloxOfficialLimitedMarketService
                             market.IsAvailable &&
                             !OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(market, updatedAt))
                             _recentResale[id] = (market, updatedAt);
-                        else
-                            _recentResale.Remove(id);
+                        // A transient unavailable or rate-limited response must not
+                        // discard still-valid, previously verified market evidence.
+                        // The normal 40-minute expiry below remains authoritative.
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -264,6 +265,12 @@ public sealed class RobloxOfficialLimitedMarketService
                 }
             }
 
+            _logger.Info($"Official resale coverage: discovered={catalogItems.Length}, selected={selectedIds.Count}, " +
+                $"enrichmentAvailable={resale.Values.Count(x => x.IsAvailable)}, " +
+                $"RAP={result.Count(x => x.Rap is > 0)}, " +
+                $"current7d={result.Count(x => x.HasRecentSalesCoverage)}, " +
+                $"cached={_recentResale.Count}, unavailable={resale.Values.Count(x => !x.IsAvailable)}, " +
+                $"rateLimited={resale.Values.Count(x => x.RateLimited)}.");
             PersistHistory();
             return new RobloxOfficialLimitedScanResult(
                 result.OrderByDescending(x => x.HuntScore).ThenByDescending(x => x.EvidenceScore).ToArray(),
