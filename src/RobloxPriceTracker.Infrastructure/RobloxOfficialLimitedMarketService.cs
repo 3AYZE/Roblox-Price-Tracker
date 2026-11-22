@@ -50,7 +50,17 @@ public sealed record RobloxOfficialLimitedScanResult(
     int DiscoveredCount,
     int EnrichedCount,
     DateTimeOffset ObservedAtUtc,
-    string? Warning);
+    string? Warning)
+{
+    // A 200 response containing no matching items is different from failed discovery.
+    public bool DiscoveryComplete { get; init; } = true;
+}
+
+public static class OfficialLimitedRefreshPolicy
+{
+    public static bool ShouldReplaceRows(RobloxOfficialLimitedScanResult scan) =>
+        scan.Items.Count > 0 || scan.DiscoveryComplete;
+}
 
 /// <summary>
 /// Discovers Roblox-published Limiteds separately from UGC Hunter. Discovery is broad and cheap;
@@ -113,6 +123,7 @@ public sealed class RobloxOfficialLimitedMarketService
             var observedAt = DateTimeOffset.UtcNow;
             var discovered = new Dictionary<long, MutableCandidate>();
             string? warning = null;
+            var discoveryComplete = true;
 
             for (var feedIndex = 0; feedIndex < DiscoveryQueries.Length && discovered.Count < MaxDiscoveredItems; feedIndex++)
             {
@@ -156,6 +167,7 @@ public sealed class RobloxOfficialLimitedMarketService
                     }
                     catch (Exception ex)
                     {
+                        discoveryComplete = false;
                         warning ??= "Some official Limited discovery pages could not be refreshed.";
                         _logger.Info($"Official Limited discovery feed {feedIndex + 1} page {page + 1} stopped: {ex.Message}");
                         break;
@@ -177,6 +189,11 @@ public sealed class RobloxOfficialLimitedMarketService
                 warning = warning is null
                     ? "Roblox returned no official Limited rows. Try Refresh again in a moment."
                     : "Official Limited discovery is temporarily unavailable or rate-limited. Try Refresh again in a moment.";
+                // A failed search must not erase resale coverage or advance history.
+                if (!discoveryComplete)
+                    return new RobloxOfficialLimitedScanResult(
+                        Array.Empty<RobloxOfficialLimitedMarketItem>(), 0, 0, observedAt, warning)
+                    { DiscoveryComplete = false };
             }
 
             // Keep the 36-asset request budget per scan, but rotate through
@@ -253,7 +270,7 @@ public sealed class RobloxOfficialLimitedMarketService
                 catalogItems.Length,
                 result.Count(x => x.IsEnriched),
                 observedAt,
-                warning);
+                warning) { DiscoveryComplete = discoveryComplete };
         }
         finally
         {

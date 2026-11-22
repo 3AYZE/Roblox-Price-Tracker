@@ -5,6 +5,71 @@ using RobloxPriceTracker.Infrastructure;
 
 internal static partial class Program
 {
+    static async Task TestUgcDiscoverySuppressesUnsupportedRouteAsync()
+    {
+        var categoryTwoCalls = 0;
+        var fallbackCalls = 0;
+        using var handler = new DelegateHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                var query = request.RequestUri?.Query ?? string.Empty;
+                if (query.Contains("Category=2", StringComparison.OrdinalIgnoreCase))
+                {
+                    categoryTwoCalls++;
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    { Content = new StringContent("Category subcategory selection not supported") });
+                }
+                if (query.Contains("Category=1", StringComparison.OrdinalIgnoreCase)) fallbackCalls++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent("{\"data\":[]}") });
+            }
+            throw new InvalidOperationException("Empty discovery should not request hydration.");
+        });
+        using var http = new HttpClient(handler);
+        var logger = new AppLogger(Path.Combine(Path.GetTempPath(), "rpt-selftest", Guid.NewGuid().ToString("N"), "app.log"));
+        var service = new RobloxUgcDiscoveryService(http, logger);
+        var result = await service.DiscoverAsync();
+        AssertEqual(1, categoryTwoCalls);
+        AssertTrue(fallbackCalls >= 4);
+        AssertEqual(0, result.DiscoveredCount);
+    }
+
+    static async Task TestUgcDiscoveryStopsOnRateLimitAsync()
+    {
+        var searchCalls = 0;
+        var detailCalls = 0;
+        var queries = new List<string>();
+        using var handler = new DelegateHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                searchCalls++;
+                queries.Add(request.RequestUri?.Query ?? "");
+                if (searchCalls > 1)
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                        {"data":[{"id":76001,"itemType":"Asset","assetType":8,
+                        "creatorTargetId":4321,"itemRestrictions":["Collectible"]}]}
+                        """)
+                });
+            }
+            detailCalls++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent("{\"data\":[]}") });
+        });
+        using var http = new HttpClient(handler);
+        var logger = new AppLogger(Path.Combine(Path.GetTempPath(), "rpt-selftest", Guid.NewGuid().ToString("N"), "app.log"));
+        var service = new RobloxUgcDiscoveryService(http, logger);
+        var result = await service.DiscoverAsync();
+        AssertEqual(3, searchCalls); // One successful page, one 429 and its bounded retry.
+        AssertTrue(queries.All(x => x.Contains("Category=2", StringComparison.OrdinalIgnoreCase)));
+        AssertEqual(1, detailCalls);
+        AssertEqual(1, result.DiscoveredCount);
+    }
+
     static async Task TestUgcDiscoveryFallsBackFromProtocolErrorAsync()
     {
         var searchCalls = 0;

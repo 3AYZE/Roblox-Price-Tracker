@@ -51,7 +51,23 @@ function Assert-LiteStartup([string]$ExePath) {
     $desktopRuntime = & dotnet --list-runtimes | Select-String -Pattern '^Microsoft\.WindowsDesktop\.App 9\.'
     if (-not $desktopRuntime) { throw 'The build runner does not have the .NET 9 Windows Desktop Runtime.' }
 
-    $process = Start-Process -FilePath $ExePath -ArgumentList '--background' -PassThru
+    $smokeProfile = Join-Path $isolatedDir 'smoke-profile'
+    New-Item -ItemType Directory -Force -Path $smokeProfile | Out-Null
+    @{
+        AutoUpdateEnabled = $false
+        StartMonitoringOnLaunch = $false
+        StartWithWindows = $false
+        StartMinimizedToTray = $true
+        MinimizeToTrayOnClose = $false
+        StartupDelaySeconds = 0
+    } | ConvertTo-Json | Set-Content -Path (Join-Path $smokeProfile 'app-settings.json') -Encoding UTF8
+
+    $previousDataDir = $env:RPT_DATA_DIR
+    try {
+        $env:RPT_DATA_DIR = $smokeProfile
+        $process = Start-Process -FilePath $ExePath -ArgumentList '--background' -PassThru
+    }
+    finally { $env:RPT_DATA_DIR = $previousDataDir }
     try {
         Start-Sleep -Seconds 8
         $process.Refresh()

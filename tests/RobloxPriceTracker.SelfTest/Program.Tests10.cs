@@ -1,8 +1,51 @@
+using System.Net;
 using System.Text.Json;
 using RobloxPriceTracker.Infrastructure;
 
 internal static partial class Program
 {
+    static async Task TestOfficialDiscoveryFailurePreservesRowsAsync()
+    {
+        var failed = false;
+        using var handler = new DelegateHandler((request, _) => Task.FromResult(
+            failed
+                ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("unsupported route") }
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                        {"data":[{"id":71001,"itemType":"Asset","name":"Live Official Limited",
+                        "creatorTargetId":1,"creatorType":"User","assetType":8,
+                        "favoriteCount":100,"itemRestrictions":["Limited"]}]}
+                        """)
+                }));
+        using var http = new HttpClient(handler);
+        var root = Path.Combine(Path.GetTempPath(), "rpt-official-refresh", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var logger = new AppLogger(Path.Combine(root, "test.log"));
+            var service = new RobloxOfficialLimitedMarketService(http, logger,
+                new RobloxResaleDataService(http, logger), Path.Combine(root, "state.json"));
+            var fresh = await service.ScanAsync();
+            AssertTrue(fresh.DiscoveryComplete);
+            AssertEqual(1, fresh.Items.Count);
+            AssertTrue(OfficialLimitedRefreshPolicy.ShouldReplaceRows(fresh));
+
+            failed = true;
+            var unavailable = await service.ScanAsync();
+            AssertTrue(!unavailable.DiscoveryComplete);
+            AssertEqual(0, unavailable.Items.Count);
+            AssertTrue(!OfficialLimitedRefreshPolicy.ShouldReplaceRows(unavailable));
+
+            // The selection policy also permits an authoritative empty success.
+            var emptySuccess = unavailable with { DiscoveryComplete = true };
+            AssertTrue(OfficialLimitedRefreshPolicy.ShouldReplaceRows(emptySuccess));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     static Task TestOfficialLimitedParserKeepsRobloxLimitedsAsync()
     {
         const string json = """

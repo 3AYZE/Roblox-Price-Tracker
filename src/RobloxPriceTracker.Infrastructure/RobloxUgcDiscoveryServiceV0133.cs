@@ -376,10 +376,17 @@ public sealed class RobloxUgcDiscoveryService
         var feedsUsed = 0;
         var pagesUsed = 0;
         RobloxUgcDiscoveryException? firstFailure = null;
+        var unsupportedCollectiblesCategory = false;
+        var discoveryRateLimited = false;
 
         foreach (var feed in feeds)
         {
-            var activeEndpoint = feed.PrimaryEndpoint;
+            // A rejected category route stays rejected for this scan. Other sort
+            // windows can still be queried through their own supported fallback.
+            var activeEndpoint = unsupportedCollectiblesCategory &&
+                feed.PrimaryEndpoint.Query.Contains("Category=2", StringComparison.OrdinalIgnoreCase)
+                    ? feed.FallbackEndpoint ?? feed.PrimaryEndpoint
+                    : feed.PrimaryEndpoint;
             string? cursor = null;
             var rowsConsidered = 0;
             var producedPage = false;
@@ -398,7 +405,9 @@ public sealed class RobloxUgcDiscoveryService
                     feed.FallbackEndpoint is not null &&
                     ex.Kind == RobloxUgcDiscoveryFailureKind.Protocol)
                 {
-                    firstFailure ??= ex;
+                    if (ex.StatusCode == 400 &&
+                        activeEndpoint.Query.Contains("Category=2", StringComparison.OrdinalIgnoreCase))
+                        unsupportedCollectiblesCategory = true;
                     activeEndpoint = feed.FallbackEndpoint;
                     cursor = null;
                     _logger.Info(
@@ -412,6 +421,8 @@ public sealed class RobloxUgcDiscoveryService
                     {
                         firstFailure ??= fallbackEx;
                         _logger.Info($"UGC Hunter skipped {feed.Name}: fallback failed: {fallbackEx.Message}");
+                        if (fallbackEx.Kind == RobloxUgcDiscoveryFailureKind.RateLimited)
+                            discoveryRateLimited = true;
                         break;
                     }
                 }
@@ -419,6 +430,8 @@ public sealed class RobloxUgcDiscoveryService
                 {
                     firstFailure ??= ex;
                     _logger.Info($"UGC Hunter discovery skipped {feed.Name} page {page + 1}: {ex.Message}");
+                    if (ex.Kind == RobloxUgcDiscoveryFailureKind.RateLimited)
+                        discoveryRateLimited = true;
                     break;
                 }
 
@@ -456,6 +469,12 @@ public sealed class RobloxUgcDiscoveryService
 
             if (producedPage) feedsUsed++;
             if (idsFromFeed.Count > 0) feedIdLists.Add(idsFromFeed);
+            // Retry-After applies to the entire scanner, not just one feed.
+            if (discoveryRateLimited)
+            {
+                _logger.Info($"UGC Hunter stopped remaining discovery feeds after HTTP 429; retaining {signals.Count} discovered IDs.");
+                break;
+            }
             await Task.Delay(InterFeedDelay, cancellationToken).ConfigureAwait(false);
         }
 
