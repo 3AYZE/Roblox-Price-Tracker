@@ -33,6 +33,8 @@ public sealed class UgcHunterService
     private readonly ScanDiagnostics? _scanDiagnostics;
     private readonly string _historyPath;
     private readonly UgcPriceIntegrityLedger _integrityLedger;
+    private UgcCategoryBuyingPricePolicy.Configuration _buyingPriceRules = new();
+    private long _resaleEnrichmentRotation;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<long, List<UgcHunterObservation>> _history = new();
     private bool _initialized;
@@ -73,6 +75,8 @@ public sealed class UgcHunterService
                 }
             }
             await _integrityLedger.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            _buyingPriceRules = await UgcCategoryBuyingPricePolicy.LoadAsync(
+                Path.GetDirectoryName(_historyPath)!, _logger, cancellationToken).ConfigureAwait(false);
             _initialized = true;
         }
         finally
@@ -163,9 +167,9 @@ public sealed class UgcHunterService
         }
 
         var enriched = _scanDiagnostics is null
-            ? await EnrichResaleEvidenceAsync(baseline, cancellationToken).ConfigureAwait(false)
+            ? await EnrichResaleEvidenceAsync(baseline, now, cancellationToken).ConfigureAwait(false)
             : await _scanDiagnostics.MeasureAsync("ugc-resale-analysis",
-                token => EnrichResaleEvidenceAsync(baseline, token), cancellationToken).ConfigureAwait(false);
+                token => EnrichResaleEvidenceAsync(baseline, now, token), cancellationToken).ConfigureAwait(false);
         // The observed primary low is scoped to this scan, per exact asset type.
         // Never substitute seller floor/RAP, or call it Roblox's official floor.
         var lowest = UgcCategoryPrimaryPricePolicy.FindLowestObservedOriginalPricesByMaterial(
@@ -180,15 +184,50 @@ public sealed class UgcHunterService
                     out var low) ? low : null
             })
             .Select(x => ApplyPriceIntegrity(x, now))
-            .OrderBy(x => x.PriceIntegrityClassification == UgcPriceIntegrityPolicy.Excluded ? 1 : 0)
+            .Select(x => ApplyBuyingPrice(x, now))
+            .OrderBy(x => x.IsGoodBuyingPrice && !x.IsExcludedPriceDistortion ? 0 : 1)
             .ThenByDescending(x => x.ResalePotentialScore)
             .ThenByDescending(x => x.EntryScore)
             .ThenBy(x => x.SelloutEta ?? TimeSpan.MaxValue)
             .ToArray();
 
+        _logger.Info($"UgcHunterService.RefreshCoreAsync: candidates={ranked.Length}, buying-price good={ranked.Count(x => x.IsGoodBuyingPrice)}, " +
+            $"above={ranked.Count(x => x.BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Above)}, " +
+            $"repriced={ranked.Count(x => x.EarlierLowerVerifiedOriginalPrice is not null && x.BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Above)}, " +
+            $"insufficient={ranked.Count(x => x.BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Insufficient)}; " +
+            "decision=exclude above/unknown from buying ranks; next=inspect item reference and Marketplace proof in research.");
+
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
-            PriceIntegrityPolicyVersion = 2
+            PriceIntegrityPolicyVersion = 3
+        };
+    }
+
+    private UgcHunterItem ApplyBuyingPrice(UgcHunterItem item, DateTimeOffset now)
+    {
+        var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
+            item.AssetId, item.CreatorId, item.AssetType, item.Price,
+            item.UnitsAvailable, now, item.PrimaryMarketVerified, "RobloxMarketplacePrimary");
+        var result = UgcCategoryBuyingPricePolicy.Evaluate(
+            current, item.MaterialClass, _integrityLedger.History(item.AssetId), _buyingPriceRules);
+        var updated = item with
+        {
+            BuyingPriceClassification = result.Classification,
+            BuyingPriceCeiling = result.CeilingRobux,
+            BuyingPriceExplanation = result.Explanation,
+            EarlierLowerVerifiedOriginalPrice = result.EarlierVerifiedPrice
+        };
+        if (result.IsGoodBuyingPrice) return updated;
+        return updated with
+        {
+            Recommendation = item.IsExcludedPriceDistortion ? "EXCLUDED" :
+                result.Classification == UgcCategoryBuyingPricePolicy.Above ? result.StatusText : "DATA REVIEW",
+            OpportunityScore = 0,
+            ResalePotentialScore = 0,
+            EntryScore = 0,
+            ProfitabilityScore = 0,
+            ProjectedNetRoi = 0,
+            EntryWindow = result.Classification == UgcCategoryBuyingPricePolicy.Above ? "OVER PRICE" : "VERIFY"
         };
     }
 
@@ -261,20 +300,38 @@ public sealed class UgcHunterService
 
     private async Task<IReadOnlyList<UgcHunterItem>> EnrichResaleEvidenceAsync(
         IReadOnlyList<UgcHunterItem> baseline,
+        DateTimeOffset observedAtUtc,
         CancellationToken cancellationToken)
     {
         if (baseline.Count == 0) return baseline;
 
-        var selected = baseline
-            .OrderByDescending(x => x.PrimaryMarketVerified && x.TotalSupply is > 0 &&
-                                    x.UnitsAvailable is > 0 and <= 300 &&
-                                    x.UnitsAvailable <= x.TotalSupply * 0.25 &&
-                                    x.ObservationCount >= 2 && x.VelocityPerMinute > 0)
-            .ThenBy(x => x.UnitsAvailable ?? long.MaxValue)
-            .ThenByDescending(x => x.ResalePotentialScore)
-            .ThenByDescending(x => x.EntryScore)
-            .Take(ResaleEnrichmentLimit)
-            .ToArray();
+        var selectionCandidates = baseline.Select(item =>
+        {
+            var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
+                item.AssetId, item.CreatorId, item.AssetType, item.Price,
+                item.UnitsAvailable, observedAtUtc, item.PrimaryMarketVerified,
+                "RobloxMarketplacePrimary");
+            var buyingPrice = UgcCategoryBuyingPricePolicy.Evaluate(
+                current, item.MaterialClass, _integrityLedger.History(item.AssetId), _buyingPriceRules);
+            return new UgcResaleEnrichmentSelectionPolicy.Candidate(
+                item.AssetId, item.AssetType, item.PrimaryMarketVerified,
+                buyingPrice.IsGoodBuyingPrice, item.UnitsAvailable, item.TotalSupply,
+                item.ObservationCount, item.VelocityPerMinute,
+                item.ResalePotentialScore, item.EntryScore);
+        }).ToArray();
+        var selectedCandidates = UgcResaleEnrichmentSelectionPolicy.Select(
+            selectionCandidates, ResaleEnrichmentLimit,
+            Interlocked.Increment(ref _resaleEnrichmentRotation) - 1);
+        var itemsById = baseline.ToDictionary(x => x.AssetId);
+        var selected = selectedCandidates.Select(x => itemsById[x.AssetId]).ToArray();
+        var buyingReadyCount = selectedCandidates.Count(x => x.IsBuyingCandidate);
+        var categoryCount = selectedCandidates.Select(x => x.AssetType).Distinct().Count();
+        _logger.Info($"UgcHunterService.EnrichResaleEvidenceAsync: selected={selected.Length}/{ResaleEnrichmentLimit}, " +
+            $"buying-pool={selectionCandidates.Count(x => x.IsBuyingCandidate)}, " +
+            $"research-pool={selectionCandidates.Count(x => !x.IsBuyingCandidate)}, " +
+            $"buying-ready={buyingReadyCount}, research={selected.Length - buyingReadyCount}, " +
+            $"categories={categoryCount}; decision=use the full bounded budget for verified in-ceiling stock first; " +
+            "research-only candidates fill unused capacity; next=collect resale evidence and re-evaluate all buy gates.");
 
         var tasks = selected.Select(async item =>
         {
@@ -722,10 +779,10 @@ public sealed class UgcHunterService
         if (items.Count == 0)
             return new UgcMarketState("QUIET", 0, 0, 0, "No qualifying paid catalog-buyable UGC Limiteds found in the current scan.");
 
-        var eligible = items.Where(x => x.PriceIntegrityClassification != UgcPriceIntegrityPolicy.Excluded).ToArray();
+        var eligible = items.Where(x => x.IsGoodBuyingPrice && !x.IsExcludedPriceDistortion).ToArray();
         if (eligible.Length == 0)
             return new UgcMarketState("QUIET", 0, 0, 0,
-                "All scanned candidates are excluded from investment rankings by verified price integrity.");
+                "No items currently pass the category entry-price and price-integrity buying gates.");
         var average = eligible.Average(x => x.ResalePotentialScore);
         var averageVelocity = eligible.Average(x => x.VelocityPerMinute);
         var strong = eligible.Count(x => x.IsQualifiedOpportunity);
@@ -926,6 +983,18 @@ public sealed record UgcHunterItem(
     public string PriceIntegrityClassification { get; init; } = UgcPriceIntegrityPolicy.Insufficient;
     public IReadOnlyList<string> PriceIntegrityReasonCodes { get; init; } = [];
     public string PriceIntegrityExplanation { get; init; } = "Verified creator price history has not been evaluated.";
+    public string BuyingPriceClassification { get; init; } = UgcCategoryBuyingPricePolicy.Insufficient;
+    public int? BuyingPriceCeiling { get; init; }
+    public string BuyingPriceExplanation { get; init; } = "Category buying reference has not been verified.";
+    public int? EarlierLowerVerifiedOriginalPrice { get; init; }
+    public bool IsGoodBuyingPrice => BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Good;
+    public string BuyingPriceText => BuyingPriceClassification switch
+    {
+        UgcCategoryBuyingPricePolicy.Good => "GOOD BUYING PRICE",
+        UgcCategoryBuyingPricePolicy.Above when EarlierLowerVerifiedOriginalPrice is not null => "ABOVE ENTRY PRICE — CREATOR REPRICED",
+        UgcCategoryBuyingPricePolicy.Above => "ABOVE ENTRY PRICE",
+        _ => "ENTRY PRICE — INSUFFICIENT EVIDENCE"
+    };
     public int? EarliestVerifiedOriginalPrice { get; init; }
     public double? VerifiedCreatorPriceMultiple { get; init; }
     public double? VerifiedCompletedResales30d { get; init; }
@@ -939,7 +1008,7 @@ public sealed record UgcHunterItem(
             ObservationCount, VelocityPerMinute, HasRecentResaleVolume,
             VerifiedCompletedResales30d, ResaleVolumeEvidenceDays,
             VerifiedDailyAverageResaleMedian30d, ResalePriceEvidenceDays,
-            CurrentResaleFloor, RiskScore, IsExcludedPriceDistortion),
+            CurrentResaleFloor, RiskScore, IsExcludedPriceDistortion, IsGoodBuyingPrice),
         DateTimeOffset.UtcNow).Qualified;
     public string PriceIntegrityText => PriceIntegrityClassification switch
     {

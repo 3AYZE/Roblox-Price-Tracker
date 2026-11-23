@@ -868,10 +868,23 @@ public static class RobloxUgcCatalogDiscoveryParser
             GetString(row, "collectibleItemId"))
         {
             IsEmissive = TryGetBoolean(row, "isEmissive", out var emissive) ? emissive : null,
-            IsPbr = TryGetBoolean(row, "isPbr", out var pbr) ||
-                    TryGetBoolean(row, "isAdvancedMaterials", out pbr) ? pbr : null
+            IsPbr = ReadConsistentMaterialFlag(row, "isPbr", "isAdvancedMaterials")
         };
         return true;
+    }
+
+    private static bool? ReadConsistentMaterialFlag(JsonElement row, string primaryName, string alternateName)
+    {
+        var hasPrimaryProperty = row.TryGetProperty(primaryName, out _);
+        var hasAlternateProperty = row.TryGetProperty(alternateName, out _);
+        var hasPrimary = TryGetBoolean(row, primaryName, out var primary);
+        var hasAlternate = TryGetBoolean(row, alternateName, out var alternate);
+        // A present but malformed value is uncertainty, even when the alias
+        // contains a valid boolean. Never turn partial metadata into STANDARD.
+        if ((hasPrimaryProperty && !hasPrimary) || (hasAlternateProperty && !hasAlternate)) return null;
+        if (hasPrimary && hasAlternate && primary != alternate) return null;
+        if (hasPrimary) return primary;
+        return hasAlternate ? alternate : null;
     }
 
     public static bool IsSupportedUgcAssetType(int assetType) =>

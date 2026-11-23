@@ -54,6 +54,10 @@ public sealed class PaperPortfolioStore
     public async Task<PaperPosition> AddAsync(UgcHunterItem item, int quantity = 1, CancellationToken cancellationToken = default)
     {
         if (quantity < 1 || quantity > 999) throw new ArgumentOutOfRangeException(nameof(quantity));
+        if (!item.PrimaryMarketVerified || item.Recommendation == "DATA REVIEW" ||
+            !item.IsGoodBuyingPrice || item.IsExcludedPriceDistortion)
+            throw new InvalidOperationException(
+                "UGC paper entry rejected: original stock, data review, price-integrity, and category entry-price gates must all pass.");
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         var position = new PaperPosition(
             Guid.NewGuid().ToString("N"),

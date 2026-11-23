@@ -599,11 +599,12 @@ public partial class MainWindow
             Id = item.AssetId, Name = item.Name, Creator = item.CreatorName,
             Kind = "UGC",
             Category = item.AssetType == 61 ? "Emote"
-                : item.IsEmissive == true ? "Emissive"
-                : item.IsPbr == true ? "PBR"
+                : item.MaterialClass == UgcCategoryPrimaryPricePolicy.Emissive ? "Emissive"
+                : item.MaterialClass == UgcCategoryPrimaryPricePolicy.Pbr ? "PBR"
                 : item.Category,
             IsEmote = item.AssetType == 61,
-            IsVerifiedSpecialMaterial = item.IsEmissive == true || item.IsPbr == true,
+            IsVerifiedSpecialMaterial = item.MaterialClass is
+                UgcCategoryPrimaryPricePolicy.Emissive or UgcCategoryPrimaryPricePolicy.Pbr,
             ThumbnailUrl = item.ThumbnailUrl,
             OriginalPrice = item.PrimaryMarketVerified ? $"{item.Price:N0} R$" : "—",
             CatalogQuote = item.PrimaryMarketVerified ? "—" : $"{item.Price:N0} R$",
@@ -613,15 +614,18 @@ public partial class MainWindow
             QuotedPrice = item.Price, PrimaryVerified = item.PrimaryMarketVerified,
             ResaleAsk = item.CurrentResaleFloor is > 0 ? item.CurrentResaleText : "Unavailable",
             Score = item.PrimaryMarketVerified && item.Recommendation != "DATA REVIEW" &&
-                    !item.IsExcludedPriceDistortion ? item.ResalePotentialText : "—",
+                    !item.IsExcludedPriceDistortion && item.IsGoodBuyingPrice ? item.ResalePotentialText : "—",
             Status = item.IsExcludedPriceDistortion ? "EXCLUDED"
                 : !item.PrimaryMarketVerified ? "CATALOG ONLY"
+                : item.BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Above ? item.BuyingPriceText
+                : !item.IsGoodBuyingPrice ? "DATA REVIEW"
                 : eligible ? "OPPORTUNITY"
                 : item.Recommendation,
             Evidence = item.PrimaryMarketVerified
                 ? $"Purchasable original stock verified · {item.MaterialText}"
                 : "Catalog price is only a quote; original stock not verified and no buy recommendation",
-            Explanation = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}\n" +
+            Explanation = $"PRICE INTEGRITY {item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}\n" +
+                $"{item.BuyingPriceText}\n{item.BuyingPriceExplanation}\n" +
                 string.Join("\n", item.Reasons.Take(2)),
             RobloxUrl = $"https://www.roblox.com/catalog/{item.AssetId}",
             Ugc = item, IsOpportunity = eligible,
@@ -731,7 +735,8 @@ public partial class MainWindow
             row.OriginalUnitsLeft > maximumLeft) return false;
         // Price-distortion exclusions aren't normal shopping results.
         // Research-only Any price mode permits manual inspection.
-        if (max is not null && row.Ugc?.IsExcludedPriceDistortion == true)
+        if (max is not null && row.Ugc is { } ugc &&
+            (ugc.IsExcludedPriceDistortion || !ugc.IsGoodBuyingPrice))
             return false;
 
         return filter switch
@@ -873,7 +878,7 @@ public partial class MainWindow
     {
         if (_liveDropGrid?.SelectedItem is not LiveDropRow row || !row.IsOpportunity ||
             row.Ugc is not { PrimaryMarketVerified: true } item ||
-            item.IsExcludedPriceDistortion || item.Recommendation == "DATA REVIEW" ||
+            (item.IsExcludedPriceDistortion || !item.IsGoodBuyingPrice) || item.Recommendation == "DATA REVIEW" ||
             !IsLiveDropOriginalStockCurrent(row) ||
             string.IsNullOrWhiteSpace(item.CollectibleItemId)) return;
         try

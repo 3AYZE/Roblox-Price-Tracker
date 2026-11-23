@@ -22,7 +22,8 @@ public static class UgcQualifiedOpportunityPolicy
         int PriceEvidenceDays,
         long? ResaleFloor,
         double RiskScore,
-        bool IsExcludedPriceDistortion);
+        bool IsExcludedPriceDistortion,
+        bool IsGoodBuyingPrice);
 
     public sealed record Decision(bool Qualified, string Reason);
 
@@ -30,6 +31,8 @@ public static class UgcQualifiedOpportunityPolicy
     {
         if (!item.PrimaryMarketVerified || item.OriginalPrice <= 0)
             return new(false, "UNVERIFIED_ORIGINAL_LISTING");
+        if (!item.IsGoodBuyingPrice)
+            return new(false, "ENTRY_PRICE_NOT_APPROVED");
         if (item.ObservedAtUtc == default || item.ObservedAtUtc > nowUtc ||
             nowUtc - item.ObservedAtUtc > TimeSpan.FromMinutes(2))
             return new(false, "STALE_ORIGINAL_STOCK");

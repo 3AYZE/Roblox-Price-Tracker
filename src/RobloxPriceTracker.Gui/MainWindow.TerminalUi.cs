@@ -653,8 +653,8 @@ public partial class MainWindow : Window
         {
             if (category == "Dance? (name)" && !row.PossibleDanceByName) return false;
             else if (category == "Emissive? (name)" && !row.PossibleEmissiveByName) return false;
-            else if (category == "Emissive (verified)" && row.IsEmissive != true) return false;
-            else if (category == "PBR (verified)" && row.IsPbr != true) return false;
+            else if (category == "Emissive (verified)" && row.MaterialClass != UgcCategoryPrimaryPricePolicy.Emissive) return false;
+            else if (category == "PBR (verified)" && row.MaterialClass != UgcCategoryPrimaryPricePolicy.Pbr) return false;
             else if (category is not ("Dance? (name)" or "Emissive? (name)" or "Emissive (verified)" or "PBR (verified)") &&
                      !row.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) return false;
         }
@@ -869,6 +869,7 @@ public partial class MainWindow : Window
     private static string FormatHunterPrimaryReference(UgcHunterItem item) =>
         $"{item.ObservedCategoryLowText} observed · {item.MaterialText} · {item.PrimaryPriceStatusText}\n" +
         $"Historical category reference: {item.HistoricalReferenceText}\n" +
+        $"Buying reference: {(item.BuyingPriceCeiling is { } ceiling ? $"{ceiling:N0} R$" : "INSUFFICIENT EVIDENCE")}\n" +
         "Live official category floor: UNVERIFIED";
 
     private void UpdateHunterInspector()
@@ -877,7 +878,8 @@ public partial class MainWindow : Window
         var enabled = item is not null;
         if (_hunterOpenRobloxButton is not null) _hunterOpenRobloxButton.IsEnabled = enabled;
         if (_hunterTrackButton is not null)
-            _hunterTrackButton.IsEnabled = enabled && item?.PrimaryMarketVerified == true && item.IsExcludedPriceDistortion != true && item.Recommendation != "DATA REVIEW";
+            _hunterTrackButton.IsEnabled = enabled && item?.PrimaryMarketVerified == true &&
+                item.IsGoodBuyingPrice && item.IsExcludedPriceDistortion != true && item.Recommendation != "DATA REVIEW";
         if (item is null) return;
 
         if (_hunterInspectorTitle is not null) _hunterInspectorTitle.Text = item.Name;
@@ -900,10 +902,13 @@ public partial class MainWindow : Window
             _hunterInspectorPrimaryReference.Text =
                 FormatHunterPrimaryReference(item);
         if (_hunterInspectorIntegrity is not null)
-            _hunterInspectorIntegrity.Text = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}";
+            _hunterInspectorIntegrity.Text = $"PRICE INTEGRITY {item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}\n" +
+                $"{item.BuyingPriceText}\n{item.BuyingPriceExplanation}";
         if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"FLOOR {item.CurrentResaleText} · RAP {item.RapText} · SELLERS {item.ResellersText}\nSALES {item.SalesText} · BREAK-EVEN {item.BreakEvenText}\nMODEL {item.ForecastText} · BASE {item.BaseValueText} · NET ROI {item.NetRoiText}";
         if (_hunterInspectorReasons is not null)
-            _hunterInspectorReasons.Text = item.IsExcludedPriceDistortion
+            _hunterInspectorReasons.Text = !item.IsGoodBuyingPrice
+                ? $"BUYING RECOMMENDATION BLOCKED. {item.BuyingPriceExplanation}"
+                : item.IsExcludedPriceDistortion
                 ? "INVESTMENT RECOMMENDATION BLOCKED. Creator listing price is not independent fair value."
                 : string.Join("\n", item.Reasons.Select(x => $"+ {x}"));
         if (_hunterInspectorRisks is not null)
@@ -931,15 +936,28 @@ public partial class MainWindow : Window
     private async Task TrackSelectedHunterAsync()
     {
         if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
-        if (!item.PrimaryMarketVerified || item.Recommendation == "DATA REVIEW")
+        if (!item.PrimaryMarketVerified)
         {
             ShowBanner("Original-stock price not verified", "Marketplace primary-stock evidence is required before recording an entry.");
+            return;
+        }
+        if (item.Recommendation == "DATA REVIEW")
+        {
+            var explanation = item.PriceIntegrityClassification == UgcPriceIntegrityPolicy.Insufficient
+                ? item.PriceIntegrityExplanation
+                : item.BuyingPriceExplanation;
+            ShowBanner("Market evidence needs review", explanation);
             return;
         }
         if (item.IsExcludedPriceDistortion)
         {
             ShowBanner("Excluded from investment selections",
                 item.PriceIntegrityExplanation);
+            return;
+        }
+        if (!item.IsGoodBuyingPrice)
+        {
+            ShowBanner("Entry price not approved", item.BuyingPriceExplanation);
             return;
         }
         await _services.PaperPortfolioStore.AddAsync(item, 1);

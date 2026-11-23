@@ -20,9 +20,12 @@ internal static partial class Program
             PriceEvidenceDays: 3,
             ResaleFloor: 180,
             RiskScore: 25,
-            IsExcludedPriceDistortion: false);
+            IsExcludedPriceDistortion: false,
+            IsGoodBuyingPrice: true);
 
         AssertTrue(UgcQualifiedOpportunityPolicy.Evaluate(good, now).Qualified);
+        AssertEqual("ENTRY_PRICE_NOT_APPROVED", UgcQualifiedOpportunityPolicy.Evaluate(
+            good with { IsGoodBuyingPrice = false }, now).Reason);
         AssertEqual("ORIGINAL_STOCK_NOT_SCARCE", UgcQualifiedOpportunityPolicy.Evaluate(
             good with { OriginalUnitsRemaining = 2_900, VerifiedOriginalTotal = 3_000 }, now).Reason);
         AssertEqual("ORIGINAL_STOCK_NOT_SCARCE", UgcQualifiedOpportunityPolicy.Evaluate(

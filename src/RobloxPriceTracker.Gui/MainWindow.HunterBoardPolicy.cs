@@ -42,7 +42,7 @@ public partial class MainWindow
         // Older UI price anchors may include unverified catalog quotes. They
         // are informational only; hard investment exclusion is controlled by
         // the new evidence-verified policy, never this legacy 1.75x heuristic.
-        if (mode != 3 && row.IsExcludedPriceDistortion)
+        if (mode != 3 && (row.IsExcludedPriceDistortion || !row.IsGoodBuyingPrice))
             return false;
         return mode switch
         {

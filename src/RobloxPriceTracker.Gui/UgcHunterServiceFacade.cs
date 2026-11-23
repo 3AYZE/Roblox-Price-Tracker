@@ -172,9 +172,11 @@ public sealed class UgcHunterServiceFacade : IDisposable
     }
 
     private static bool SnapshotMatchesEntryPricePolicy(UgcHunterMarketSnapshot snapshot) =>
-        snapshot.PriceIntegrityPolicyVersion >= 2 &&
+        snapshot.PriceIntegrityPolicyVersion >= 3 &&
         snapshot.Items.All(item =>
             UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price) &&
+            item.BuyingPriceClassification is
+                (UgcCategoryBuyingPricePolicy.Good or UgcCategoryBuyingPricePolicy.Above or UgcCategoryBuyingPricePolicy.Insufficient) &&
             item.PriceIntegrityClassification is
                 (UgcPriceIntegrityPolicy.Passed or UgcPriceIntegrityPolicy.Insufficient or UgcPriceIntegrityPolicy.Excluded));
 

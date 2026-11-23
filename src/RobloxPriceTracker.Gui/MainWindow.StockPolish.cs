@@ -528,14 +528,22 @@ public partial class MainWindow
         _ => "WATCH"
     };
 
-    private static string UgcStockSignal(UgcHunterItem item) => item.Recommendation switch
+    private static string UgcStockSignal(UgcHunterItem item)
     {
-        "HIGH RESALE" => "STRONG",
-        "STRONG" => "BUY WATCH",
-        "SPECULATIVE" => "SPECULATIVE",
-        "AVOID" => "AVOID",
-        _ => item.ResalePotentialScore >= 78 && item.RiskScore < 55 ? "BUY WATCH" : "WATCH"
-    };
+        if (item.BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Above)
+            return "OVER PRICE";
+        if (!item.IsGoodBuyingPrice)
+            return "DATA REVIEW";
+
+        return item.Recommendation switch
+        {
+            "HIGH RESALE" => "STRONG",
+            "STRONG" => "BUY WATCH",
+            "SPECULATIVE" => "SPECULATIVE",
+            "AVOID" => "AVOID",
+            _ => item.ResalePotentialScore >= 78 && item.RiskScore < 55 ? "BUY WATCH" : "WATCH"
+        };
+    }
 
     private void InsertAnalyzerSignalStrip()
     {
