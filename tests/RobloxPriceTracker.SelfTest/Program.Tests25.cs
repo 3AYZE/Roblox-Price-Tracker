@@ -134,6 +134,50 @@ internal static partial class Program
         return Task.CompletedTask;
     }
 
+    static Task TestUgcAffordableLowStockAndSmallRepricingAsync()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
+            91001, 2002, 8, 109, 12, now, true, "RobloxMarketplacePrimary");
+        var original = current with { PrimaryPrice = 95, ObservedAtUtc = now.AddHours(-1) };
+        foreach (var material in new[] { "STANDARD", "UNKNOWN" })
+        {
+            var decision = UgcCategoryBuyingPricePolicy.Evaluate(current, material, [original]);
+            AssertEqual(UgcCategoryBuyingPricePolicy.Above, decision.Classification);
+            AssertEqual(95, decision.EarlierVerifiedPrice);
+            AssertTrue(!UgcCategoryBuyingPricePolicy.IsAffordableListing(
+                decision.Classification, 109, decision.CeilingRobux, false));
+        }
+
+        // A smaller rise inside the category ceiling also blocks entry.
+        var within = current with { PrimaryPrice = 95 };
+        var lower = original with { PrimaryPrice = 90 };
+        var raised = UgcCategoryBuyingPricePolicy.Evaluate(within, "STANDARD", [lower]);
+        AssertEqual(UgcCategoryBuyingPricePolicy.Above, raised.Classification);
+        AssertEqual(90, raised.CeilingRobux);
+        AssertTrue(!raised.IsGoodBuyingPrice);
+
+        // A low-priced item with missing material metadata is researchable,
+        // not a qualified investment. Unknown material never grants a premium.
+        var unknown = UgcCategoryBuyingPricePolicy.Evaluate(within, "UNKNOWN", []);
+        AssertEqual(UgcCategoryBuyingPricePolicy.Insufficient, unknown.Classification);
+        AssertTrue(!unknown.IsGoodBuyingPrice);
+        AssertTrue(UgcCategoryBuyingPricePolicy.IsAffordableListing(
+            unknown.Classification, 95, unknown.CeilingRobux, false));
+        var highUnknown = UgcCategoryBuyingPricePolicy.Evaluate(current, "UNKNOWN", []);
+        AssertTrue(!UgcCategoryBuyingPricePolicy.IsAffordableListing(
+            highUnknown.Classification, 109, highUnknown.CeilingRobux, false));
+        AssertTrue(!UgcCategoryBuyingPricePolicy.IsAffordableListing(
+            unknown.Classification, 95, unknown.CeilingRobux, true));
+
+        AssertEqual(12L, UgcCategoryBuyingPricePolicy.AffordableStockOrder(true, 12));
+        AssertTrue(UgcCategoryBuyingPricePolicy.AffordableStockOrder(true, 12) <
+            UgcCategoryBuyingPricePolicy.AffordableStockOrder(true, 2891));
+        AssertEqual(long.MaxValue, UgcCategoryBuyingPricePolicy.AffordableStockOrder(false, 1));
+        AssertEqual(long.MaxValue, UgcCategoryBuyingPricePolicy.AffordableStockOrder(true, 0));
+        return Task.CompletedTask;
+    }
+
     static Task TestUgcMaterialMetadataRequiresBothFlagsAsync()
     {
         const string json = """
@@ -205,7 +249,7 @@ internal static partial class Program
             var decision = UgcCategoryBuyingPricePolicy.Evaluate(
                 Offer(index), classes[index], [], rules);
             AssertEqual(UgcCategoryBuyingPricePolicy.Insufficient, decision.Classification);
-            AssertTrue(decision.CeilingRobux is null);
+            AssertEqual(95, decision.CeilingRobux);
         }
         AssertEqual(UgcCategoryBuyingPricePolicy.Good,
             UgcCategoryBuyingPricePolicy.Evaluate(Offer(4), classes[4], [], rules).Classification);

@@ -60,6 +60,7 @@ internal static partial class Program
             ("UGC category entry ceilings are strict and category-specific", TestUgcCategoryEntryPricesAsync),
             ("Dominus Rex 95 to 249 creator repricing blocks buys despite integrity PASS", TestUgcRepricingBlocksBuyIndependentlyAsync),
             ("UGC entry checks require primary evidence and trusted material benchmarks", TestUgcEntryPriceEvidenceAndMaterialsAsync),
+            ("UGC small creator repricing and affordable low-stock research", TestUgcAffordableLowStockAndSmallRepricingAsync),
             ("UGC material pricing requires complete consistent metadata", TestUgcMaterialMetadataRequiresBothFlagsAsync),
             ("UGC resale enrichment prioritizes affordable candidates with category fairness", TestUgcResaleEnrichmentSelectionPolicyAsync),
             ("UGC emote source reserve requires explicit asset type", TestUgcDiscoveryEmoteReserveRequiresTypedSourceAsync),

@@ -199,7 +199,7 @@ public sealed class UgcHunterService
 
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
-            PriceIntegrityPolicyVersion = 3
+            PriceIntegrityPolicyVersion = 4
         };
     }
 

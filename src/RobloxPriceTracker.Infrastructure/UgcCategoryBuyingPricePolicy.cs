@@ -97,21 +97,23 @@ public static class UgcCategoryBuyingPricePolicy
             return new(Insufficient, null, "Creator original-stock price is not verified by Marketplace.");
 
         var rules = configured is { IsValid: true } ? configured : new Configuration();
-        int? ceiling;
-        if (materialClass == UgcCategoryPrimaryPricePolicy.Standard)
+        // Missing material metadata never establishes a standard material or
+        // unlocks premium pricing. The standard reference is only a conservative
+        // display bound for affordable research candidates with unknown material.
+        var standardCeiling = current.AssetType switch
         {
-            ceiling = current.AssetType switch
-            {
-                8 => rules.Hat,
-                41 => rules.Hair,
-                42 => rules.Face,
-                43 => rules.Neck,
-                44 => rules.Shoulder,
-                46 => rules.Back,
-                61 => rules.Emote,
-                _ => null // Front, waist, clothing, dynamic heads, makeup etc. unverified.
-            };
-        }
+            8 => (int?)rules.Hat,
+            41 => rules.Hair,
+            42 => rules.Face,
+            43 => rules.Neck,
+            44 => rules.Shoulder,
+            46 => rules.Back,
+            61 => rules.Emote,
+            _ => null
+        };
+        int? ceiling;
+        if (materialClass is UgcCategoryPrimaryPricePolicy.Standard or UgcCategoryPrimaryPricePolicy.Unknown)
+            ceiling = standardCeiling;
         else if (materialClass is UgcCategoryPrimaryPricePolicy.Emissive or UgcCategoryPrimaryPricePolicy.Pbr &&
                  rules.SpecialMaterialBenchmarks.TryGetValue($"{current.AssetType}:{materialClass}", out var benchmark) &&
                  benchmark.IsUsable(current.ObservedAtUtc))
@@ -119,14 +121,9 @@ public static class UgcCategoryBuyingPricePolicy
         else
             ceiling = null;
 
-        if (ceiling is not > 0)
-            return new(Insufficient, null,
-                $"No trusted {materialClass.ToLowerInvariant()} buying benchmark for category {current.AssetType}; research only.");
-
-        if (current.PrimaryPrice <= ceiling.Value)
-            return new(Good, ceiling,
-                $"Verified creator price {current.PrimaryPrice:N0} R$ is within the {rules.ReferencePeriod} category buying reference {ceiling:N0} R$. Other opportunity checks still apply.");
-
+        // Evaluate verified historical increases BEFORE the category ceiling.
+        // Even a small increase, or one still inside the category ceiling, is
+        // not an entry at the previously available price.
         var earlier = history
             .Where(p => UgcPriceIntegrityPolicy.IsVerifiedOriginal(p) &&
                         p.AssetId == current.AssetId && p.CreatorId == current.CreatorId &&
@@ -135,9 +132,36 @@ public static class UgcCategoryBuyingPricePolicy
             .OrderBy(p => p.PrimaryPrice)
             .ThenBy(p => p.ObservedAtUtc)
             .FirstOrDefault();
-        var description = $"Above category buying reference: {current.PrimaryPrice:N0} R$ vs {ceiling:N0} R$ ({rules.ReferencePeriod}).";
         if (earlier is not null)
-            description += $" Earlier Marketplace-verified creator price: {earlier.PrimaryPrice:N0} R$; price increased (intent unknown).";
-        return new(Above, ceiling, description, earlier?.PrimaryPrice);
+        {
+            var effectiveCeiling = ceiling is > 0 ? Math.Min(ceiling.Value, earlier.PrimaryPrice) : earlier.PrimaryPrice;
+            var description = $"Above entry price: {current.PrimaryPrice:N0} R$ vs {effectiveCeiling:N0} R$. Earlier Marketplace-verified creator price: {earlier.PrimaryPrice:N0} R$; price increased (intent unknown).";
+            return new(Above, effectiveCeiling, description, earlier.PrimaryPrice);
+        }
+
+        if (ceiling is not > 0)
+            return new(Insufficient, null,
+                $"No trusted {materialClass.ToLowerInvariant()} buying benchmark for category {current.AssetType}; research only.");
+
+        if (materialClass == UgcCategoryPrimaryPricePolicy.Unknown)
+            return new(Insufficient, ceiling,
+                $"Material unverified. Standard category research limit: {ceiling:N0} R$ ({rules.ReferencePeriod}); not a qualified buying price.");
+
+        if (current.PrimaryPrice <= ceiling.Value)
+            return new(Good, ceiling,
+                $"Verified creator price {current.PrimaryPrice:N0} R$ is within the {rules.ReferencePeriod} category buying reference {ceiling:N0} R$. Other opportunity checks still apply.");
+
+        return new(Above, ceiling,
+            $"Above category buying reference: {current.PrimaryPrice:N0} R$ vs {ceiling:N0} R$ ({rules.ReferencePeriod}).");
     }
+
+    // The normal affordable scanner is not the qualified investment shortlist.
+    // Unknown material below a conservative reference can be researched, never
+    // recommended for purchase. Repriced and excluded listings are opt-in only.
+    public static bool IsAffordableListing(string classification, int price, int? ceiling, bool excluded) =>
+        !excluded && price > 0 && ceiling is > 0 && price <= ceiling.Value &&
+        classification is (Good or Insufficient);
+
+    public static long AffordableStockOrder(bool affordable, long? remaining) =>
+        affordable && remaining is > 0 ? remaining.Value : long.MaxValue;
 }

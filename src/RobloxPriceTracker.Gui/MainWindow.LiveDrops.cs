@@ -49,6 +49,11 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public bool IsVerifiedSpecialMaterial { get; init; }
     public int ScoreRank { get; init; }
     public int OpportunityRank => IsOpportunity ? 1 : 0;
+    public bool IsAffordableListing => Ugc is { } item &&
+        UgcCategoryBuyingPricePolicy.IsAffordableListing(item.BuyingPriceClassification,
+            item.Price, item.BuyingPriceCeiling, item.IsExcludedPriceDistortion);
+    public long AffordableStockOrder => UgcCategoryBuyingPricePolicy.AffordableStockOrder(
+        IsAffordableListing, OriginalUnitsLeft);
     public UgcHunterItem? Ugc { get; init; }
     public OfficialLimitedRow? Official { get; init; }
     public RobloxAnimationBundleOffer? Bundle { get; init; }
@@ -130,11 +135,12 @@ public partial class MainWindow
     private void SetLiveDropScope(string scope)
     {
         if (scope is not ("UGC" or "Official")) return;
+        var scopeChanged = _liveDropScope != scope;
         _liveDropScope = scope;
         if (_liveDropHeading is not null)
             _liveDropHeading.Text = scope == "Official" ? "OFFICIAL LIMITEDS" : "UGC LIMITEDS";
-        if (_liveDropOnlyOpportunities is not null)
-            _liveDropOnlyOpportunities.IsChecked = scope == "UGC";
+        if (scopeChanged && _liveDropOnlyOpportunities is not null)
+            _liveDropOnlyOpportunities.IsChecked = false;
         if (_ugcMaximumPrice is not null)
             _ugcMaximumPrice.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
         if (_ugcStockFilter is not null)
@@ -152,7 +158,7 @@ public partial class MainWindow
             _liveDropTypeFilter.Items.Clear();
             var options = scope == "Official"
                 ? new[] { "All Official", "Below RAP", "High liquidity", "Price drops" }
-                : new[] { "All UGC", "Accessories", "Emotes", "Animation Packs", "Emissive / PBR" };
+                : new[] { "All UGC", "Accessories", "Emotes", "Animation Packs", "Emissive / PBR", "All verified (research)" };
             foreach (var item in options) _liveDropTypeFilter.Items.Add(item);
             _liveDropTypeFilter.SelectedIndex = 0;
         }
@@ -174,6 +180,7 @@ public partial class MainWindow
 
             _liveDropGrid.SelectedItem = null;
         }
+        ApplyLiveDropSort();
         UpdateLiveDropVisibleRows();
         if (_liveDropGrid is not null)
             _liveDropGrid.SelectedItem = _liveDropView?.Cast<object>().FirstOrDefault();
@@ -311,7 +318,7 @@ public partial class MainWindow
         {
             Width = 140, Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
-            ToolTip = "Maximum verified original creator price. Default: 500 R$. Higher prices remain available through the filter."
+            ToolTip = "Maximum verified creator price. To inspect above-reference items, choose All verified (research). Default: 500 R$."
         };
         foreach (var option in new[]
         {
@@ -340,6 +347,7 @@ public partial class MainWindow
         _liveDropOnlyOpportunities = new CheckBox
         {
             Content = "Opportunities only",
+            IsChecked = false,
             Foreground = TerminalText,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 0, 0),
@@ -733,10 +741,11 @@ public partial class MainWindow
         };
         if (row.OriginalUnitsLeft is not > 0 ||
             row.OriginalUnitsLeft > maximumLeft) return false;
-        // Price-distortion exclusions aren't normal shopping results.
-        // Research-only Any price mode permits manual inspection.
-        if (max is not null && row.Ugc is { } ugc &&
-            (ugc.IsExcludedPriceDistortion || !ugc.IsGoodBuyingPrice))
+        // A price ceiling selector never disables the affordability screen.
+        // Overpriced or repriced items require an explicit research view.
+        // Bundles remain research-only; their dedicated filter is preserved.
+        if (filter != "All verified (research)" && row.Ugc is not null &&
+            !row.IsAffordableListing)
             return false;
 
         return filter switch
@@ -775,6 +784,13 @@ public partial class MainWindow
             default:
                 _liveDropView.SortDescriptions.Add(new SortDescription(
                     nameof(LiveDropRow.OpportunityRank), ListSortDirection.Descending));
+                if (_liveDropScope == "UGC")
+                {
+                    _liveDropView.SortDescriptions.Add(new SortDescription(
+                        nameof(LiveDropRow.AffordableStockOrder), ListSortDirection.Ascending));
+                    _liveDropView.SortDescriptions.Add(new SortDescription(
+                        nameof(LiveDropRow.SortPriceLow), ListSortDirection.Ascending));
+                }
                 _liveDropView.SortDescriptions.Add(new SortDescription(
                     nameof(LiveDropRow.ScoreRank), ListSortDirection.Descending));
                 break;
@@ -821,6 +837,10 @@ public partial class MainWindow
                 LiveDropScopePolicy.Accepts(_liveDropScope, x.Kind) &&
                 IsLiveDropOriginalStockCurrent(x));
             _liveDropCount.Text = $"{visible:N0} shown / {available:N0} total";
+            if (_liveDropScope == "UGC" && visible == 0)
+                _liveDropCount.Text += available > 0
+                    ? (_liveDropOnlyOpportunities?.IsChecked == true ? " · No qualified matches" : " · No affordable/filter matches")
+                    : " · No current verified stock";
         }
     }
 
