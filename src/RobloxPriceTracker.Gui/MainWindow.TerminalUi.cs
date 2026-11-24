@@ -702,11 +702,8 @@ public partial class MainWindow : Window
             if (_hunterLastRefreshUtc != snapshot.ObservedAtUtc)
             {
                 _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
-                using (_hunterView?.DeferRefresh())
-                {
-                    _hunterRows.Clear();
-                    foreach (var item in snapshot.Items) _hunterRows.Add(item);
-                }
+                _hunterRows.Clear();
+                foreach (var item in snapshot.Items) _hunterRows.Add(item);
             }
             _hunterView?.Refresh();
             if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;

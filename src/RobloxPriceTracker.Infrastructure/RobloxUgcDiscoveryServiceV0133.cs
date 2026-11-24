@@ -306,7 +306,7 @@ public sealed class RobloxUgcDiscoveryService
         // Successful, explicitly sold-out or off-shop rows are not uncertainty.
         isPartial |= hydratedRows < discovery.Ids.Length || missingCollectibleId > 0 ||
             missingMarketplaceQuote > 0 || rejectionReasons.Keys.Any(reason =>
-                reason != "sold out" && reason != "not for sale");
+                reason != "sold out original inventory" && reason != "not purchasable in Shop");
         return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows)
         { IsPartial = isPartial };
     }

@@ -146,6 +146,7 @@ internal static partial class Program
                 client, new AppLogger(Path.Combine(directory, "test.log")), expandDiscovery: false);
             var result = await service.DiscoverAsync();
             AssertEqual(3, result.Items.Count);
+            AssertTrue(result.IsPartial);
             var item = result.Items.Single(x => x.AssetId == 1101);
             AssertEqual(1101L, item.AssetId);
             AssertTrue(item.PrimaryMarketVerified);

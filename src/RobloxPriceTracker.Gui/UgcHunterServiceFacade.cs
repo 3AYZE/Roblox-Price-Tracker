@@ -119,9 +119,9 @@ public sealed class UgcHunterServiceFacade : IDisposable
 
         lock (_stateGate)
         {
-            // A partial empty response is not a successful empty market. Keep
-            // the recovery file, but return the actual result to the active UI.
-            if (snapshot.IsPartial && snapshot.Items.Count == 0)
+            // Partial results are useful in the active UI, but must not
+            // replace the last complete recovery file with incomplete data.
+            if (snapshot.IsPartial)
             {
                 _logger.Info($"UGC stock verification incomplete; retained recovery snapshot ({_cachedSnapshot?.Items.Count ?? 0} previous items).");
                 return snapshot;
