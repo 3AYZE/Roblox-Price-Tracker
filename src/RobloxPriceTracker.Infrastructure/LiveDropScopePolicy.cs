@@ -19,7 +19,7 @@ public static class LiveDropScopePolicy
         if (scope == "UGC")
             return new SourcePlan(
                 false,
-                force || lastUgc is null || now - lastUgc > TimeSpan.FromSeconds(105),
+                force || lastUgc is null || now - lastUgc >= TimeSpan.FromSeconds(60),
                 force || lastBundles is null || now - lastBundles > TimeSpan.FromSeconds(105));
         return default;
     }

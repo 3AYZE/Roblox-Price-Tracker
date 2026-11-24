@@ -21,6 +21,10 @@ public sealed record RobloxMarketplaceItemData(
     string? CollectibleProductId,
     string? Error)
 {
+    // Set only when a Marketplace response is actually received. Cached reads
+    // retain this timestamp and never renew stock verification.
+    public DateTimeOffset? VerifiedAtUtc { get; init; }
+
     public bool IsPrimaryPurchasable =>
         IsAvailable &&
         Price is > 0 &&
@@ -107,7 +111,9 @@ public sealed class RobloxMarketplaceItemService
             try
             {
                 using var document = await FetchAsync(stillMissing.ToArray(), cancellationToken).ConfigureAwait(false);
-                fetched = RobloxMarketplaceItemParser.Parse(document.RootElement);
+                var receivedAt = DateTimeOffset.UtcNow;
+                fetched = RobloxMarketplaceItemParser.Parse(document.RootElement)
+                    .Select(x => x with { VerifiedAtUtc = receivedAt }).ToArray();
                 if (fetched.Count == 0)
                 {
                     // Roblox occasionally acknowledges a batch with HTTP 200 but
@@ -124,7 +130,9 @@ public sealed class RobloxMarketplaceItemService
                         try
                         {
                             using var retry = await FetchAsync(chunk, cancellationToken).ConfigureAwait(false);
-                            recovered.AddRange(RobloxMarketplaceItemParser.Parse(retry.RootElement));
+                            var retryReceivedAt = DateTimeOffset.UtcNow;
+                            recovered.AddRange(RobloxMarketplaceItemParser.Parse(retry.RootElement)
+                                .Select(x => x with { VerifiedAtUtc = retryReceivedAt }));
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {

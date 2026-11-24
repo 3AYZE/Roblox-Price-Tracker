@@ -49,12 +49,18 @@ public sealed record RobloxUgcCatalogCandidate(
     bool HasResellers = false,
     bool PrimaryMarketVerified = false,
     bool? IsEmissive = null,
-    bool? IsPbr = null);
+    bool? IsPbr = null)
+{
+    public DateTimeOffset? VerifiedAtUtc { get; init; }
+}
 
 public sealed record RobloxUgcDiscoveryResult(
     IReadOnlyList<RobloxUgcCatalogCandidate> Items,
     int DiscoveredCount,
-    int HydratedCount);
+    int HydratedCount)
+{
+    public bool IsPartial { get; init; }
+}
 
 /// <summary>
 /// UGC Limited discovery with bounded multi-window momentum scanning and defensive compatibility
@@ -96,7 +102,7 @@ public sealed class RobloxUgcDiscoveryService
         public double CompositeScore => Score + Math.Max(0, FeedHits - 1) * 18d;
     }
 
-    private sealed record DiscoveryIdSet(long[] Ids, int FeedsUsed, int PagesUsed, bool FromCache);
+    private sealed record DiscoveryIdSet(long[] Ids, int FeedsUsed, int PagesUsed, bool FromCache, bool IsPartial);
     private sealed record HydrationResult(IReadOnlyList<RobloxUgcCatalogCandidate> Items, int Rows, int Requests);
 
     private static readonly DiscoveryFeed[] DiscoveryFeeds =
@@ -186,7 +192,8 @@ public sealed class RobloxUgcDiscoveryService
         if (discovery.Ids.Length == 0)
         {
             _logger.Info("UGC Hunter discovery returned no UGC Collectible asset IDs.");
-            return new RobloxUgcDiscoveryResult(Array.Empty<RobloxUgcCatalogCandidate>(), 0, 0);
+            return new RobloxUgcDiscoveryResult(Array.Empty<RobloxUgcCatalogCandidate>(), 0, 0)
+            { IsPartial = discovery.IsPartial };
         }
 
         await Task.Delay(
@@ -196,6 +203,7 @@ public sealed class RobloxUgcDiscoveryService
         var catalogCandidates = new List<RobloxUgcCatalogCandidate>(discovery.Ids.Length);
         var hydratedRows = 0;
         var detailRequests = 0;
+        var isPartial = discovery.IsPartial;
 
         foreach (var batch in discovery.Ids.Chunk(MaxDetailBatchSize))
         {
@@ -208,6 +216,7 @@ public sealed class RobloxUgcDiscoveryService
             }
             catch (RobloxUgcDiscoveryException ex) when (catalogCandidates.Count > 0)
             {
+                isPartial = true;
                 _logger.Info($"UGC Hunter kept {catalogCandidates.Count} hydrated candidates after a later detail batch failed: {ex.Message}");
                 break;
             }
@@ -277,6 +286,7 @@ public sealed class RobloxUgcDiscoveryService
                 LowestResalePrice = authoritative.LowestResalePrice,
                 HasResellers = authoritative.HasResellers,
                 PrimaryMarketVerified = true,
+                VerifiedAtUtc = authoritative.VerifiedAtUtc,
                 CollectibleItemId = authoritative.CollectibleItemId
             });
         }
@@ -292,7 +302,13 @@ public sealed class RobloxUgcDiscoveryService
             $"{candidates.Count} active candidates. Hydrated types: {TypeCounts(catalogCandidates)}; " +
             $"active types: {TypeCounts(candidates)}; rejected types: {TypeCounts(rejectedCandidates)}.");
 
-        return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows);
+        // An absent or ambiguous response is not proof of a sold-out market.
+        // Successful, explicitly sold-out or off-shop rows are not uncertainty.
+        isPartial |= hydratedRows < discovery.Ids.Length || missingCollectibleId > 0 ||
+            missingMarketplaceQuote > 0 || rejectionReasons.Keys.Any(reason =>
+                reason != "sold out" && reason != "not for sale");
+        return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows)
+        { IsPartial = isPartial };
     }
 
     private async Task<HydrationResult> HydrateBatchResilientAsync(long[] batch, CancellationToken cancellationToken)
@@ -367,8 +383,11 @@ public sealed class RobloxUgcDiscoveryService
                 return insideCached with { FromCache = true };
 
             var refreshed = await DiscoverIdsFromFeedsAsync(DiscoveryFeeds, cancellationToken).ConfigureAwait(false);
-            _cachedDiscovery = refreshed with { FromCache = false };
-            _cachedDiscoveryExpiresAtUtc = DateTimeOffset.UtcNow + DiscoveryCacheDuration;
+            if (!refreshed.IsPartial)
+            {
+                _cachedDiscovery = refreshed with { FromCache = false };
+                _cachedDiscoveryExpiresAtUtc = DateTimeOffset.UtcNow + DiscoveryCacheDuration;
+            }
             return refreshed;
         }
         finally
@@ -498,7 +517,8 @@ public sealed class RobloxUgcDiscoveryService
 
         var selected = UgcDiscoverySelectionPolicy.Select(
             ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds, assetTypes);
-        return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false);
+        return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false,
+            IsPartial: firstFailure is not null || discoveryRateLimited);
     }
 
     private static string TypeCounts(IEnumerable<RobloxUgcCatalogCandidate> rows) =>

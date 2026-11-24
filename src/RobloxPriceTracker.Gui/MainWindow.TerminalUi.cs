@@ -56,6 +56,8 @@ public partial class MainWindow : Window
     private TextBlock? _portfolioStatusText;
     private DispatcherTimer? _hunterTimer;
     private bool _hunterRefreshInProgress;
+    private bool _hunterScanPartial;
+    private bool _hunterRefreshFailed;
     private bool _portfolioRefreshInProgress;
     private DateTimeOffset? _hunterLastRefreshUtc;
 
@@ -695,10 +697,18 @@ public partial class MainWindow : Window
         {
             var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
             var snapshot = await _services.UgcHunterService.RefreshAsync();
-            _hunterRows.Clear();
-            foreach (var item in snapshot.Items) _hunterRows.Add(item);
+            _hunterScanPartial = snapshot.IsPartial;
+            _hunterRefreshFailed = false;
+            if (_hunterLastRefreshUtc != snapshot.ObservedAtUtc)
+            {
+                _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
+                using (_hunterView?.DeferRefresh())
+                {
+                    _hunterRows.Clear();
+                    foreach (var item in snapshot.Items) _hunterRows.Add(item);
+                }
+            }
             _hunterView?.Refresh();
-            _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
             if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;
 
             if (_hunterRegimeText is not null)
@@ -715,7 +725,9 @@ public partial class MainWindow : Window
             if (_hunterRegimeDetailText is not null) _hunterRegimeDetailText.Text = snapshot.Market.Detail;
             if (_hunterLiveCountText is not null) _hunterLiveCountText.Text = snapshot.Market.LiveDrops.ToString("N0");
             if (_hunterStrongCountText is not null) _hunterStrongCountText.Text = snapshot.Market.StrongDrops.ToString("N0");
-            if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = $"Updated {snapshot.ObservedAtUtc.ToLocalTime():h:mm:ss tt}";
+            if (_hunterUpdatedText is not null) _hunterUpdatedText.Text =
+                snapshot.IsPartial ? "Partial scan · some original stock unverified" :
+                $"Updated {snapshot.ObservedAtUtc.ToLocalTime():h:mm:ss tt}";
 
             if (_hunterGrid is not null)
             {
@@ -727,6 +739,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _hunterRefreshFailed = true;
             _services.Logger.Error($"UGC Hunter refresh failed: {ex}");
             var hasCachedRows = _hunterRows.Count > 0;
             if (_hunterUpdatedText is not null)

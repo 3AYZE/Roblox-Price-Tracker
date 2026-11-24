@@ -94,10 +94,11 @@ public sealed class UgcHunterService
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         var now = DateTimeOffset.UtcNow;
-        var raw = _scanDiagnostics is null
+        var discovered = _scanDiagnostics is null
             ? await FetchCandidatesAsync(now, cancellationToken).ConfigureAwait(false)
             : await _scanDiagnostics.MeasureAsync("ugc-discovery-verify",
                 token => FetchCandidatesAsync(now, token), cancellationToken).ConfigureAwait(false);
+        var raw = discovered.Items;
 
         IReadOnlyDictionary<long, string> thumbnails;
         try
@@ -132,11 +133,12 @@ public sealed class UgcHunterService
                     candidate.UnitsAvailable,
                     candidate.Price,
                     candidate.FavoriteCount,
-                    now);
+                    candidate.ObservedAtUtc);
 
-                if (observations.Count == 0 || now - observations[^1].ObservedAtUtc >= TimeSpan.FromSeconds(20))
+                if (observations.Count == 0 ||
+                    candidate.ObservedAtUtc - observations[^1].ObservedAtUtc >= TimeSpan.FromSeconds(20))
                     observations.Add(observation);
-                else
+                else if (candidate.ObservedAtUtc > observations[^1].ObservedAtUtc)
                     observations[^1] = observation;
 
                 observations.RemoveAll(x => now - x.ObservedAtUtc > TimeSpan.FromHours(24));
@@ -156,7 +158,7 @@ public sealed class UgcHunterService
                     continue;
                 _integrityLedger.Observe(new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
                     candidate.AssetId, candidate.CreatorId, candidate.AssetType,
-                    candidate.Price, candidate.UnitsAvailable, now, true,
+                    candidate.Price, candidate.UnitsAvailable, candidate.ObservedAtUtc, true,
                     "RobloxMarketplacePrimary"));
             }
             await _integrityLedger.SaveIfChangedAsync(cancellationToken).ConfigureAwait(false);
@@ -199,7 +201,8 @@ public sealed class UgcHunterService
 
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
-            PriceIntegrityPolicyVersion = 4
+            PriceIntegrityPolicyVersion = 4,
+            IsPartial = discovered.IsPartial
         };
     }
 
@@ -207,7 +210,7 @@ public sealed class UgcHunterService
     {
         var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
             item.AssetId, item.CreatorId, item.AssetType, item.Price,
-            item.UnitsAvailable, now, item.PrimaryMarketVerified, "RobloxMarketplacePrimary");
+            item.UnitsAvailable, item.ObservedAtUtc, item.PrimaryMarketVerified, "RobloxMarketplacePrimary");
         var result = UgcCategoryBuyingPricePolicy.Evaluate(
             current, item.MaterialClass, _integrityLedger.History(item.AssetId), _buyingPriceRules);
         var updated = item with
@@ -309,7 +312,7 @@ public sealed class UgcHunterService
         {
             var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
                 item.AssetId, item.CreatorId, item.AssetType, item.Price,
-                item.UnitsAvailable, observedAtUtc, item.PrimaryMarketVerified,
+                item.UnitsAvailable, item.ObservedAtUtc, item.PrimaryMarketVerified,
                 "RobloxMarketplacePrimary");
             var buyingPrice = UgcCategoryBuyingPricePolicy.Evaluate(
                 current, item.MaterialClass, _integrityLedger.History(item.AssetId), _buyingPriceRules);
@@ -362,7 +365,7 @@ public sealed class UgcHunterService
         return baseline.Select(x => byId.TryGetValue(x.AssetId, out var replacement) ? replacement : x).ToArray();
     }
 
-    private async Task<List<UgcRawCatalogItem>> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
+    private async Task<(List<UgcRawCatalogItem> Items, bool IsPartial)> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
     {
         // Roblox search is discovery-only: current Collectible rows can contain placeholder
         // price/sales fields. Hydrate IDs through batch details before filtering/scoring.
@@ -374,7 +377,7 @@ public sealed class UgcHunterService
         if (excludedByEntryPrice > 0)
             _logger.Info($"UGC Hunter excluded {excludedByEntryPrice} items without a positive original-sale price.");
 
-        return eligible.Select(item => new UgcRawCatalogItem(
+        return (eligible.Select(item => new UgcRawCatalogItem(
             item.AssetId,
             item.Name,
             item.CreatorName,
@@ -386,13 +389,13 @@ public sealed class UgcHunterService
             item.UnitsAvailable,
             item.TotalQuantity,
             item.FavoriteCount,
-            observedAtUtc,
+            item.VerifiedAtUtc ?? observedAtUtc,
             item.CollectibleItemId,
             item.LowestResalePrice,
             item.HasResellers,
             item.PrimaryMarketVerified,
             item.IsEmissive,
-            item.IsPbr)).ToList();
+            item.IsPbr)).ToList(), discovery.IsPartial);
     }
     private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync(string url, CancellationToken cancellationToken)
     {
@@ -921,6 +924,7 @@ public sealed record UgcHunterMarketSnapshot(
     // Old snapshots predate price-integrity exclusions. Never restore their
     // historical BUY labels or numeric scores as if they were screened.
     public int PriceIntegrityPolicyVersion { get; init; }
+    public bool IsPartial { get; init; }
 }
 
 public sealed record UgcMarketState(

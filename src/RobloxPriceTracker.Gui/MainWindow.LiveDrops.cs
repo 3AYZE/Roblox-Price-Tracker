@@ -206,16 +206,20 @@ public partial class MainWindow
                 .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty().Max();
             var verified = _hunterRows.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
                 x.PrimaryMarketVerified, x.UnitsAvailable, x.Price,
-                _hunterLastRefreshUtc, DateTimeOffset.UtcNow));
+                x.ObservedAtUtc, DateTimeOffset.UtcNow));
             var bundles = _liveBundles.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
                 x.PrimaryMarketVerified, x.OriginalUnitsAvailable, x.VerifiedOriginalPrice,
                 _liveBundleScanUtc, DateTimeOffset.UtcNow));
             _liveDropStatus.Text = verified + bundles == 0
-                ? "No verified in-stock UGC Limiteds found. Sold-out, unknown or expired stock is excluded."
+                ? (_hunterRefreshInProgress ? "Refreshing UGC original stock…" :
+                    _hunterRefreshFailed || _hunterScanPartial ? "Original-stock verification incomplete · retry when Roblox is available" :
+                    _hunterRows.Count > 0 || _liveBundles.Count > 0 ? "Previous stock verification expired · refresh to recheck availability" :
+                    "No verified in-stock UGC Limiteds found in this scan")
                 : $"Verified original-stock listings: {verified + bundles:N0} · " +
                   (last == default ? "Refresh to scan" : $"Last scan {last.ToLocalTime():h:mm tt}") +
                   " · Resale inventory excluded" +
-                  (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete");
+                  (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete") +
+                  (_hunterScanPartial || _hunterRefreshFailed ? " · UGC verification incomplete" : "");
         }
     }
 
@@ -686,7 +690,7 @@ public partial class MainWindow
     private bool IsLiveDropOriginalStockCurrent(LiveDropRow row)
     {
         if (row.Official is not null) return true;
-        var verifiedTime = row.Ugc is not null ? _hunterLastRefreshUtc : _liveBundleScanUtc;
+        var verifiedTime = row.Ugc?.ObservedAtUtc ?? _liveBundleScanUtc;
         return UgcActiveStockPolicy.IsActiveSnapshot(
             row.PrimaryVerified, row.OriginalUnitsLeft, row.QuotedPrice,
             verifiedTime, DateTimeOffset.UtcNow);
@@ -963,7 +967,9 @@ public partial class MainWindow
             {
                 var last = _hunterLastRefreshUtc;
                 await RefreshHunterAsync(silent: true);
-                if (last == _hunterLastRefreshUtc) errors.Add("UGC data may be stale");
+                if (_hunterRefreshFailed) errors.Add("UGC refresh failed; previous stock expires normally");
+                else if (_hunterScanPartial) errors.Add("UGC verification incomplete");
+                else if (last == _hunterLastRefreshUtc && _hunterRefreshInProgress) errors.Add("UGC refresh in progress");
             }
 
             if (scanOfficial)
@@ -995,7 +1001,7 @@ public partial class MainWindow
 
             if (scope == "UGC" && !string.IsNullOrWhiteSpace(_liveBundleScanError))
                 errors.Add("Animation packs unavailable (cached results retained)");
-            RebuildLiveDropRows();
+            if (scanUgc || scanOfficial || scanBundles) RebuildLiveDropRows();
             if (scope == "UGC" && _liveDropScope == "UGC")
                 await LoadLiveBundleImagesAsync();
             if (_liveDropScope == scope)

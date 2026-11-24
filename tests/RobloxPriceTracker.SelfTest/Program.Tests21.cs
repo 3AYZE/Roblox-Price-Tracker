@@ -191,7 +191,11 @@ internal static partial class Program
             AssertTrue(!UgcActiveStockPolicy.IsMarketplaceVerified(902, "c902", rows["c902"]));
             AssertEqual(12L, rows["c901"].UnitsAvailable!.Value);
             AssertTrue(rows["c902"].UnitsAvailable is null);
-            await service.GetManyAsync(["c901", "c902", "c901"]);
+            AssertTrue(rows["c901"].VerifiedAtUtc is not null);
+            var cached = await service.GetManyAsync(["c901", "c902", "c901"]);
+            AssertEqual(rows["c901"].VerifiedAtUtc, cached["c901"].VerifiedAtUtc);
+            AssertTrue(!UgcActiveStockPolicy.IsActiveSnapshot(true, 12, 65,
+                cached["c901"].VerifiedAtUtc, DateTimeOffset.UtcNow.AddSeconds(121)));
             AssertEqual(3, calls); // Cached valid and missing rows; duplicate ID does not refetch.
         }
         finally
