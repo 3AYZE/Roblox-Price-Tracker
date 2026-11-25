@@ -175,7 +175,13 @@ public sealed class RobloxMarketplaceItemService
             var fetchedById = fetched
                 .Where(x => !string.IsNullOrWhiteSpace(x.CollectibleItemId))
                 .GroupBy(x => x.CollectibleItemId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(x => x.Key, x =>
+                {
+                    var rows = x.Distinct().ToArray();
+                    return rows.Length == 1 ? rows[0] :
+                        new RobloxMarketplaceItemData(0, x.Key, false, null, null, null, null,
+                            null, false, null, null, null, "Conflicting Marketplace rows.");
+                }, StringComparer.OrdinalIgnoreCase);
             foreach (var id in stillMissing)
             {
                 var data = fetchedById.TryGetValue(id, out var value)

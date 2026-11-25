@@ -41,6 +41,34 @@ public static class UgcActiveStockPolicy
         return null;
     }
 
+    public readonly record struct DepletionObservation(
+        long? Remaining, long? Total, DateTimeOffset AtUtc, bool Verified);
+
+    // Measure actual remaining original stock, not catalog purchase counters.
+    // A restock, unknown total, stale sample or unverified observation breaks the series.
+    public static double DepletionPerMinute(
+        IReadOnlyList<DepletionObservation> history, TimeSpan window)
+    {
+        if (history.Count < 2 || window <= TimeSpan.Zero) return 0;
+        var latest = history[^1];
+        if (!Valid(latest)) return 0;
+        var oldest = latest;
+        for (var i = history.Count - 2; i >= 0; i--)
+        {
+            var point = history[i];
+            if (!Valid(point) || point.Total != latest.Total ||
+                point.AtUtc >= oldest.AtUtc || latest.AtUtc - point.AtUtc > window ||
+                point.Remaining < oldest.Remaining) break;
+            oldest = point;
+        }
+        var elapsed = latest.AtUtc - oldest.AtUtc;
+        return elapsed.TotalSeconds < 10 ? 0 :
+            (oldest.Remaining!.Value - latest.Remaining!.Value) / elapsed.TotalMinutes;
+
+        static bool Valid(DepletionObservation x) => x.Verified && x.AtUtc != default &&
+            x.Total is > 0 && x.Remaining is >= 0 && x.Remaining <= x.Total;
+    }
+
     public static bool IsActiveSnapshot(
         bool marketplaceVerified,
         long? creatorUnitsLeft,

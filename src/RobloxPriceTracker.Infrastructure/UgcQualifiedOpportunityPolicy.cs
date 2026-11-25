@@ -46,9 +46,11 @@ public static class UgcQualifiedOpportunityPolicy
             !double.IsFinite(item.UnitsDepletedPerMinute) || item.UnitsDepletedPerMinute <= 0)
             return new(false, "DEPLETION_UNCONFIRMED");
         if (!item.HasCurrentResaleVolume || item.VerifiedCompletedResales30d is not >= 3 ||
+            !double.IsFinite(item.VerifiedCompletedResales30d.Value) ||
             item.VolumeEvidenceDays < 2)
             return new(false, "RESALE_LIQUIDITY_UNCONFIRMED");
         if (item.VerifiedResalePriceMedian30d is not > 0 ||
+            !double.IsFinite(item.VerifiedResalePriceMedian30d.Value) ||
             item.PriceEvidenceDays < 2 || item.ResaleFloor is not > 0)
             return new(false, "RESALE_PRICE_EVIDENCE_MISSING");
         // Community Limited sellers retain 50% after the platform's resale share.

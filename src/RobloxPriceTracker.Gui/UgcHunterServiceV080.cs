@@ -133,7 +133,13 @@ public sealed class UgcHunterService
                     candidate.UnitsAvailable,
                     candidate.Price,
                     candidate.FavoriteCount,
-                    candidate.ObservedAtUtc);
+                    candidate.ObservedAtUtc)
+                {
+                    VerifiedOriginalStock = candidate.PrimaryMarketVerified,
+                    VerifiedTotal = candidate.TotalQuantity,
+                    CreatorId = candidate.CreatorId,
+                    CollectibleItemId = candidate.CollectibleItemId
+                };
 
                 if (observations.Count == 0 ||
                     candidate.ObservedAtUtc - observations[^1].ObservedAtUtc >= TimeSpan.FromSeconds(20))
@@ -201,7 +207,7 @@ public sealed class UgcHunterService
 
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
-            PriceIntegrityPolicyVersion = 4,
+            PriceIntegrityPolicyVersion = 5,
             IsPartial = discovered.IsPartial
         };
     }
@@ -498,9 +504,15 @@ public sealed class UgcHunterService
 
     private static UgcHunterItem Analyze(UgcRawCatalogItem item, IReadOnlyList<UgcHunterObservation> history, string? thumbnail)
     {
-        var velocity1 = Velocity(history, TimeSpan.FromMinutes(1));
-        var velocity5 = Velocity(history, TimeSpan.FromMinutes(5));
-        var velocity15 = Velocity(history, TimeSpan.FromMinutes(15));
+        var stockHistory = history.Select(x => new UgcActiveStockPolicy.DepletionObservation(
+            x.UnitsAvailable, x.VerifiedTotal, x.ObservedAtUtc,
+            x.VerifiedOriginalStock && x.CreatorId == item.CreatorId &&
+            !string.IsNullOrWhiteSpace(item.CollectibleItemId) &&
+            string.Equals(x.CollectibleItemId, item.CollectibleItemId, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        var velocity1 = UgcActiveStockPolicy.DepletionPerMinute(stockHistory, TimeSpan.FromMinutes(1));
+        var velocity5 = UgcActiveStockPolicy.DepletionPerMinute(stockHistory, TimeSpan.FromMinutes(5));
+        var velocity15 = UgcActiveStockPolicy.DepletionPerMinute(stockHistory, TimeSpan.FromMinutes(15));
         var bestVelocity = velocity1 > 0 ? velocity1 : velocity5 > 0 ? velocity5 : velocity15;
         var acceleration = velocity5 > 0 && velocity1 > 0
             ? Math.Clamp((velocity1 - velocity5) / velocity5, -2.0, 4.0)
@@ -727,24 +739,6 @@ public sealed class UgcHunterService
         : entry >= 45 ? "CLOSING"
         : "LATE";
 
-    private static double Velocity(IReadOnlyList<UgcHunterObservation> history, TimeSpan window)
-    {
-        if (history.Count < 2) return 0;
-        var latest = history[^1];
-        var cutoff = latest.ObservedAtUtc - window;
-        UgcHunterObservation? oldest = null;
-        for (var i = history.Count - 2; i >= 0; i--)
-        {
-            oldest = history[i];
-            if (oldest.Value.ObservedAtUtc <= cutoff) break;
-        }
-        if (oldest is null) return 0;
-        var elapsed = latest.ObservedAtUtc - oldest.Value.ObservedAtUtc;
-        if (elapsed.TotalSeconds < 10) return 0;
-        var delta = Math.Max(0, latest.PurchaseCount - oldest.Value.PurchaseCount);
-        return delta / elapsed.TotalMinutes;
-    }
-
     // Roblox resale-data volume points are secondary transactions, unlike the
     // catalog's primary purchaseCount. No reported days means UNKNOWN, not zero.
     private static double? VerifiedResales30d(RobloxResaleMarketData market)
@@ -914,7 +908,14 @@ public readonly record struct UgcHunterObservation(
     long? UnitsAvailable,
     int Price,
     long FavoriteCount,
-    DateTimeOffset ObservedAtUtc);
+    DateTimeOffset ObservedAtUtc)
+{
+    // Missing fields in legacy JSON intentionally deserialize as unverified.
+    public bool VerifiedOriginalStock { get; init; }
+    public long? VerifiedTotal { get; init; }
+    public long CreatorId { get; init; }
+    public string? CollectibleItemId { get; init; }
+}
 
 public sealed record UgcHunterMarketSnapshot(
     IReadOnlyList<UgcHunterItem> Items,
