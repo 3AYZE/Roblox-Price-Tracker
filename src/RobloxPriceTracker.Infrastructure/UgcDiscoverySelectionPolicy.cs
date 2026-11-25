@@ -14,6 +14,20 @@ public static class UgcDiscoverySelectionPolicy
     public const int FeedDiversityReserve = 28;
     public const int PerFeedReserve = 4;
 
+    // Two category keyword requests per uncached scan; the hydration budget stays
+    // unchanged. Search keywords are hints only, never proof of category/material.
+    private static readonly string[] CategoryKeywords =
+        ["Hair", "Hat", "Face", "Neck", "Shoulder", "Back", "Front", "Waist",
+         "Emote", "Jacket", "Shirt", "Pants", "Sweater", "Dress", "Shoes", "Emissive", "PBR", "Accessory"];
+
+    public static IReadOnlyList<string> CategoryKeywordsForScan(long rotation)
+    {
+        var pairs = CategoryKeywords.Length / 2;
+        var pair = (int)(rotation % pairs);
+        if (pair < 0) pair += pairs;
+        return new[] { CategoryKeywords[pair * 2], CategoryKeywords[pair * 2 + 1] };
+    }
+
     public static IReadOnlyList<long> Select(
         IReadOnlyList<long> rankedMomentumIds,
         IReadOnlyList<IReadOnlyList<long>> feedIds,

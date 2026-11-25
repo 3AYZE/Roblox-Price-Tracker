@@ -93,6 +93,7 @@ internal static partial class Program
             ("Marketplace conflicting rows never establish stock", TestMarketplaceConflictingRowsAsync),
             ("UGC depletion requires consistent verified inventory observations", TestVerifiedStockDepletionAsync),
             ("UGC historic price anchors survive pruning and restart", TestPermanentPriceAnchorsAsync),
+            ("UGC category search rotation stays bounded and covers every keyword", TestUgcCategoryKeywordRotationAsync),
             ("Marketplace HTTP 429 prevents fresh-ID request fanout", TestMarketplaceRateLimitCooldownAsync),
             ("UGC active listings expire rather than retaining stale stock", TestActiveUgcStockFreshnessAsync),
             ("UGC discovery keeps only fresh Marketplace-verified creator inventory", TestUgcDiscoveryRejectsUnverifiedOrResaleOnlyAsync),

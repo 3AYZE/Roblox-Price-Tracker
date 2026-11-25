@@ -137,23 +137,16 @@ public sealed class RobloxUgcDiscoveryService
             Weight: 0.50d,
             ReserveRecent: true,
             ReserveEmotes: true),
-        // Keyword routes for hair and hats have succeeded on the public Category=1
-        // surface. They diversify discovery without increasing hydration's 120-ID cap.
-        new(
-            "accessory-hair",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Keyword=Hair&Limit=30"),
-            null,
-            MaxPages: 1,
-            Budget: 30,
-            Weight: 0.65d),
-        new(
-            "accessory-hat",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Keyword=Hat&Limit=30"),
-            null,
-            MaxPages: 1,
-            Budget: 30,
-            Weight: 0.65d)
     ];
+
+    private static IReadOnlyList<DiscoveryFeed> BuildDiscoveryFeeds(long rotation) =>
+        DiscoveryFeeds.Concat(UgcDiscoverySelectionPolicy.CategoryKeywordsForScan(rotation)
+            .Select(keyword => new DiscoveryFeed(
+                "category-" + keyword.ToLowerInvariant().Replace(' ', '-'),
+                new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Keyword=" +
+                    Uri.EscapeDataString(keyword) + "&Limit=30"),
+                null, MaxPages: 1, Budget: 30, Weight: 0.65d,
+                ReserveEmotes: keyword == "Emote"))).ToArray();
 
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
@@ -175,6 +168,7 @@ public sealed class RobloxUgcDiscoveryService
     private readonly bool _expandDiscovery;
     private readonly SemaphoreSlim _discoveryGate = new(1, 1);
     private DiscoveryIdSet? _cachedDiscovery;
+    private long _categoryRotation;
     private DateTimeOffset _cachedDiscoveryExpiresAtUtc;
     private string? _anonymousCsrfToken;
 
@@ -382,7 +376,7 @@ public sealed class RobloxUgcDiscoveryService
             if (_cachedDiscovery is { } insideCached && _cachedDiscoveryExpiresAtUtc > now)
                 return insideCached with { FromCache = true };
 
-            var refreshed = await DiscoverIdsFromFeedsAsync(DiscoveryFeeds, cancellationToken).ConfigureAwait(false);
+            var refreshed = await DiscoverIdsFromFeedsAsync(BuildDiscoveryFeeds(_categoryRotation++), cancellationToken).ConfigureAwait(false);
             if (!refreshed.IsPartial)
             {
                 _cachedDiscovery = refreshed with { FromCache = false };
