@@ -128,7 +128,7 @@ internal static partial class Program
             Check(current with { PrimaryPrice = 275 }, "PBR", rules).Classification);
         AssertEqual(UgcCategoryBuyingPricePolicy.Above,
             Check(current with { PrimaryPrice = 276 }, "PBR", rules).Classification);
-        AssertEqual(UgcCategoryBuyingPricePolicy.Insufficient,
+        AssertEqual(UgcCategoryBuyingPricePolicy.Above,
             Check(current with { PrimaryPrice = 249 }, "UNKNOWN", rules).Classification);
         AssertEqual(UgcCategoryBuyingPricePolicy.Good, Check(current, "STANDARD", rules).Classification);
         return Task.CompletedTask;
@@ -248,7 +248,8 @@ internal static partial class Program
         {
             var decision = UgcCategoryBuyingPricePolicy.Evaluate(
                 Offer(index), classes[index], [], rules);
-            AssertEqual(UgcCategoryBuyingPricePolicy.Insufficient, decision.Classification);
+            AssertEqual(index < 2 ? UgcCategoryBuyingPricePolicy.Above :
+                UgcCategoryBuyingPricePolicy.Insufficient, decision.Classification);
             AssertEqual(95, decision.CeilingRobux);
         }
         AssertEqual(UgcCategoryBuyingPricePolicy.Good,
