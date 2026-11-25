@@ -88,6 +88,7 @@ internal static partial class Program
             ("Official and UGC tabs refresh only their own discovery sources", TestLimitedSourceSpecificRefreshAsync),
             ("UGC original-stock verification rejects resale-only, mismatched and unknown inventory", TestActiveUgcOriginalStockProofAsync),
             ("Marketplace empty batch recovers only independently returned stock", TestMarketplaceEmptyBatchRecoveryAsync),
+            ("Marketplace malformed rows preserve valid stock and negative counters stay unknown", TestMarketplaceMalformedRowsAsync),
             ("Marketplace HTTP 429 prevents fresh-ID request fanout", TestMarketplaceRateLimitCooldownAsync),
             ("UGC active listings expire rather than retaining stale stock", TestActiveUgcStockFreshnessAsync),
             ("UGC discovery keeps only fresh Marketplace-verified creator inventory", TestUgcDiscoveryRejectsUnverifiedOrResaleOnlyAsync),

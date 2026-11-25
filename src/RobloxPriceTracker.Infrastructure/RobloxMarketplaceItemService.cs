@@ -276,6 +276,8 @@ public static class RobloxMarketplaceItemParser
         var result = new List<RobloxMarketplaceItemData>();
         foreach (var row in root.EnumerateArray())
         {
+            // A malformed row must not discard valid stock from the rest of the batch.
+            if (row.ValueKind != JsonValueKind.Object) continue;
             var collectibleId = GetString(row, "collectibleItemId");
             if (string.IsNullOrWhiteSpace(collectibleId)) continue;
 
@@ -285,8 +287,8 @@ public static class RobloxMarketplaceItemParser
                 : null;
             var available = assetId > 0 && string.IsNullOrWhiteSpace(errorCode);
             var price = TryGetInt32(row, "price", out var parsedPrice) ? parsedPrice : (int?)null;
-            var sales = TryGetInt64(row, "sales", out var parsedSales) ? Math.Max(0, parsedSales) : (long?)null;
-            var units = TryGetInt64(row, "unitsAvailableForConsumption", out var parsedUnits) ? Math.Max(0, parsedUnits) : (long?)null;
+            var sales = TryGetInt64(row, "sales", out var parsedSales) && parsedSales >= 0 ? parsedSales : (long?)null;
+            var units = TryGetInt64(row, "unitsAvailableForConsumption", out var parsedUnits) && parsedUnits >= 0 ? parsedUnits : (long?)null;
             var stock = TryGetInt64(row, "assetStock", out var parsedStock) && parsedStock > 0 ? parsedStock : (long?)null;
             var floor = TryGetInt64(row, "lowestResalePrice", out var parsedFloor) && parsedFloor > 0 ? parsedFloor : (long?)null;
             var hasResellers = TryGetBoolean(row, "hasResellers", out var parsedHasResellers) && parsedHasResellers;
