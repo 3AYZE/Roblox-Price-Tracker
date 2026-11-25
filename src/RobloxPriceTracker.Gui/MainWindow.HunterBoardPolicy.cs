@@ -39,11 +39,15 @@ public partial class MainWindow
         if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price) ||
             row.UnitsAvailable is not > 0)
             return false;
-        // Older UI price anchors may include unverified catalog quotes. They
-        // are informational only; hard investment exclusion is controlled by
-        // the new evidence-verified policy, never this legacy 1.75x heuristic.
-        if (mode != 3 && (row.IsExcludedPriceDistortion || !row.IsGoodBuyingPrice))
+        // Every Hunter mode uses the same strict scanner gate. Researching an
+        // individual asset in Analyzer does not grant it a live scanner slot.
+        if (!UgcActiveStockPolicy.IsActiveSnapshot(row.PrimaryMarketVerified,
+                row.UnitsAvailable, row.Price, row.ObservedAtUtc, DateTimeOffset.UtcNow) ||
+            !UgcCategoryBuyingPricePolicy.IsLiveScannerListing(row.BuyingPriceClassification,
+                row.Price, row.BuyingPriceCeiling, row.IsExcludedPriceDistortion,
+                row.EarlierLowerVerifiedOriginalPrice, row.AssetType, row.MaterialClass))
             return false;
+        if (mode != 3 && !row.IsGoodBuyingPrice) return false;
         return mode switch
         {
             0 => row.IsQualifiedOpportunity,

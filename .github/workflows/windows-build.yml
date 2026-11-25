@@ -34,3 +34,10 @@ jobs:
       - name: Build, test and smoke-test EXE
         shell: powershell
         run: ./tools/Build-Windows-Lite.ps1
+      - name: Upload verified Windows Lite EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: RobloxPriceTracker-Windows-Lite-${{ github.run_number }}
+          path: dist/RobloxPriceTracker.exe
+          if-no-files-found: error
+          retention-days: 14
