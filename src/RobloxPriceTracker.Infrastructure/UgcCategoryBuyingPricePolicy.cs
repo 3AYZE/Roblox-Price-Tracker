@@ -143,6 +143,9 @@ public static class UgcCategoryBuyingPricePolicy
             return new(Insufficient, null,
                 $"No trusted {materialClass.ToLowerInvariant()} buying benchmark for category {current.AssetType}; research only.");
 
+        if (materialClass == UgcCategoryPrimaryPricePolicy.Unknown && current.PrimaryPrice > ceiling.Value)
+            return new(Above, ceiling,
+                $"Above conservative category limit: {current.PrimaryPrice:N0} R$ vs {ceiling:N0} R$. Material is unverified.");
         if (materialClass == UgcCategoryPrimaryPricePolicy.Unknown)
             return new(Insufficient, ceiling,
                 $"Material unverified. Standard category research limit: {ceiling:N0} R$ ({rules.ReferencePeriod}); not a qualified buying price.");
@@ -157,10 +160,29 @@ public static class UgcCategoryBuyingPricePolicy
 
     // The normal affordable scanner is not the qualified investment shortlist.
     // Unknown material below a conservative reference can be researched, never
-    // recommended for purchase. Repriced and excluded listings are opt-in only.
+    // recommended for purchase. Repriced and excluded listings never enter the live scanner.
     public static bool IsAffordableListing(string classification, int price, int? ceiling, bool excluded) =>
         !excluded && price > 0 && ceiling is > 0 && price <= ceiling.Value &&
         classification is (Good or Insufficient);
+
+    // Defense in depth: cached or misclassified rows must not bypass the
+    // historic price anchor or the standard category reference. Special materials
+    // use only their explicitly evidenced buying ceiling.
+    public static bool IsLiveScannerListing(string classification, int price, int? ceiling,
+        bool excluded, int? earlierVerifiedPrice, int assetType, string materialClass)
+    {
+        if (!IsAffordableListing(classification, price, ceiling, excluded) ||
+            (earlierVerifiedPrice is > 0 && price > earlierVerifiedPrice.Value))
+            return false;
+        if (materialClass is UgcCategoryPrimaryPricePolicy.Standard or UgcCategoryPrimaryPricePolicy.Unknown)
+        {
+            var reference = UgcCategoryPrimaryPricePolicy.October2026TypicalOriginalReference(
+                assetType, UgcCategoryPrimaryPricePolicy.Standard);
+            return reference is > 0 && price <= reference.Value;
+        }
+        return materialClass is UgcCategoryPrimaryPricePolicy.Emissive or UgcCategoryPrimaryPricePolicy.Pbr &&
+            classification == Good;
+    }
 
     public static long AffordableStockOrder(bool affordable, long? remaining) =>
         affordable && remaining is > 0 ? remaining.Value : long.MaxValue;

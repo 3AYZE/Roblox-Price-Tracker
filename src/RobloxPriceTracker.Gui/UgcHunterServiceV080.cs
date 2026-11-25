@@ -207,7 +207,7 @@ public sealed class UgcHunterService
 
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
-            PriceIntegrityPolicyVersion = 5,
+            PriceIntegrityPolicyVersion = 6,
             IsPartial = discovered.IsPartial
         };
     }

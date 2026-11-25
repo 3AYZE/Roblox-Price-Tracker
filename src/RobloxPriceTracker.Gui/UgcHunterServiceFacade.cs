@@ -150,7 +150,7 @@ public sealed class UgcHunterServiceFacade : IDisposable
     }
 
     private static bool SnapshotMatchesEntryPricePolicy(UgcHunterMarketSnapshot snapshot) =>
-        snapshot.PriceIntegrityPolicyVersion >= 5 &&
+        snapshot.PriceIntegrityPolicyVersion >= 6 &&
         snapshot.Items.All(item =>
             UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price) &&
             item.BuyingPriceClassification is

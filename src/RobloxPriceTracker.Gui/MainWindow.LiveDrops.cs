@@ -50,8 +50,9 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public int ScoreRank { get; init; }
     public int OpportunityRank => IsOpportunity ? 1 : 0;
     public bool IsAffordableListing => Ugc is { } item &&
-        UgcCategoryBuyingPricePolicy.IsAffordableListing(item.BuyingPriceClassification,
-            item.Price, item.BuyingPriceCeiling, item.IsExcludedPriceDistortion);
+        UgcCategoryBuyingPricePolicy.IsLiveScannerListing(item.BuyingPriceClassification,
+            item.Price, item.BuyingPriceCeiling, item.IsExcludedPriceDistortion,
+            item.EarlierLowerVerifiedOriginalPrice, item.AssetType, item.MaterialClass);
     public long AffordableStockOrder => UgcCategoryBuyingPricePolicy.AffordableStockOrder(
         IsAffordableListing, OriginalUnitsLeft);
     public UgcHunterItem? Ugc { get; init; }
@@ -158,7 +159,7 @@ public partial class MainWindow
             _liveDropTypeFilter.Items.Clear();
             var options = scope == "Official"
                 ? new[] { "All Official", "Below RAP", "High liquidity", "Price drops" }
-                : new[] { "All UGC", "Accessories", "Emotes", "Animation Packs", "Emissive / PBR", "All verified (research)" };
+                : new[] { "All UGC", "Accessories", "Emotes", "Animation Packs", "Emissive / PBR" };
             foreach (var item in options) _liveDropTypeFilter.Items.Add(item);
             _liveDropTypeFilter.SelectedIndex = 0;
         }
@@ -322,7 +323,7 @@ public partial class MainWindow
         {
             Width = 140, Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
-            ToolTip = "Maximum verified creator price. To inspect above-reference items, choose All verified (research). Default: 500 R$."
+            ToolTip = "Maximum verified creator price. Category limits and historical price protection always apply."
         };
         foreach (var option in new[]
         {
@@ -745,12 +746,10 @@ public partial class MainWindow
         };
         if (row.OriginalUnitsLeft is not > 0 ||
             row.OriginalUnitsLeft > maximumLeft) return false;
-        // A price ceiling selector never disables the affordability screen.
-        // Overpriced or repriced items require an explicit research view.
-        // Bundles remain research-only; their dedicated filter is preserved.
-        if (filter != "All verified (research)" && row.Ugc is not null &&
-            !row.IsAffordableListing)
-            return false;
+        // No search, sort or maximum-price setting may bypass buying protection.
+        // Unpriced animation bundles remain in their dedicated research filter.
+        if (row.Ugc is not null && !row.IsAffordableListing) return false;
+        if (row.IsBundle && filter != "Animation Packs") return false;
 
         return filter switch
         {

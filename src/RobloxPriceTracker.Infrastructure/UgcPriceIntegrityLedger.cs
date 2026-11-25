@@ -121,7 +121,8 @@ public sealed class UgcPriceIntegrityLedger
             records.Add(point);
             var cutoff = point.ObservedAtUtc.AddDays(-Configuration.MaxHistoryAgeDays);
             records.RemoveAll(x => x.ObservedAtUtc < cutoff);
-            if (records.Count > 36) records.RemoveRange(0, records.Count - 36);
+            // Reserve two slots for the durable first/minimum anchors.
+            if (records.Count > 34) records.RemoveRange(0, records.Count - 34);
             if (markDirty) _dirty = true;
         }
     }
