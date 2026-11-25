@@ -114,24 +114,28 @@ public sealed class RobloxMarketplaceItemService
                 var receivedAt = DateTimeOffset.UtcNow;
                 fetched = RobloxMarketplaceItemParser.Parse(document.RootElement)
                     .Select(x => x with { VerifiedAtUtc = receivedAt }).ToArray();
-                if (fetched.Count == 0)
+                var returnedIds = fetched.Select(x => x.CollectibleItemId)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var omitted = stillMissing.Where(id => !returnedIds.Contains(id)).ToArray();
+                if (omitted.Length > 0)
                 {
-                    // Roblox occasionally acknowledges a batch with HTTP 200 but
-                    // returns no rows. Recover in smaller requests once; empty
-                    // responses are never proof of available creator inventory.
-                    _logger.Info($"MarketplaceItemService.GetManyAsync: empty batch response for " +
-                        $"{stillMissing.Count} collectible IDs; retrying once in smaller batches. " +
-                        "No stock will be accepted without a matching Marketplace row.");
-                    var recovered = new List<RobloxMarketplaceItemData>();
-                    var batchSize = Math.Max(1, (stillMissing.Count + 1) / 2);
-                    foreach (var chunk in stillMissing.Chunk(batchSize))
+                    // An HTTP 200 response may omit some or all requested IDs.
+                    // Retry only omitted IDs, in at most two smaller requests.
+                    // Preserve successful rows and their original timestamps.
+                    _logger.Info($"MarketplaceItemService.GetManyAsync: response omitted " +
+                        $"{omitted.Length}/{stillMissing.Count} collectible IDs; retrying omitted IDs once.");
+                    var recovered = new List<RobloxMarketplaceItemData>(fetched);
+                    var batchSize = Math.Max(1, (omitted.Length + 1) / 2);
+                    foreach (var chunk in omitted.Chunk(batchSize))
                     {
                         await Task.Delay(TimeSpan.FromMilliseconds(650), cancellationToken).ConfigureAwait(false);
                         try
                         {
                             using var retry = await FetchAsync(chunk, cancellationToken).ConfigureAwait(false);
                             var retryReceivedAt = DateTimeOffset.UtcNow;
+                            var requestedChunk = chunk.ToHashSet(StringComparer.OrdinalIgnoreCase);
                             recovered.AddRange(RobloxMarketplaceItemParser.Parse(retry.RootElement)
+                                .Where(x => requestedChunk.Contains(x.CollectibleItemId))
                                 .Select(x => x with { VerifiedAtUtc = retryReceivedAt }));
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -152,8 +156,8 @@ public sealed class RobloxMarketplaceItemService
                     }
 
                     fetched = recovered;
-                    _logger.Info($"MarketplaceItemService.GetManyAsync: empty batch recovery returned " +
-                        $"{recovered.Count}/{stillMissing.Count} rows; missing IDs remain unavailable.");
+                    _logger.Info($"MarketplaceItemService.GetManyAsync: batch recovery returned " +
+                        $"{recovered.Select(x => x.CollectibleItemId).Distinct(StringComparer.OrdinalIgnoreCase).Count()}/{stillMissing.Count} rows; missing IDs remain unavailable.");
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
