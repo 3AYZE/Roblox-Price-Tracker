@@ -60,6 +60,7 @@ public sealed record RobloxUgcDiscoveryResult(
     int HydratedCount)
 {
     public bool IsPartial { get; init; }
+    public IReadOnlyList<long> InvalidatedAssetIds { get; init; } = Array.Empty<long>();
 }
 
 /// <summary>
@@ -239,6 +240,7 @@ public sealed class RobloxUgcDiscoveryService
         var invalidOriginalStock = 0;
         var rejectedCandidates = new List<RobloxUgcCatalogCandidate>();
         var rejectionReasons = new Dictionary<string, int>(StringComparer.Ordinal);
+        var invalidatedAssetIds = new HashSet<long>();
         foreach (var candidate in catalogCandidates)
         {
             // Catalog-only data is discovery evidence, not an active stock quote.
@@ -265,6 +267,8 @@ public sealed class RobloxUgcDiscoveryService
                 rejectedUnavailable++;
                 rejectedCandidates.Add(candidate);
                 rejectionReasons[reason] = rejectionReasons.GetValueOrDefault(reason) + 1;
+                // A returned but invalid Marketplace quote must not revive a prior live row.
+                invalidatedAssetIds.Add(candidate.AssetId);
                 continue;
             }
 
@@ -302,7 +306,7 @@ public sealed class RobloxUgcDiscoveryService
             missingMarketplaceQuote > 0 || rejectionReasons.Keys.Any(reason =>
                 reason != "sold out original inventory" && reason != "not purchasable in Shop");
         return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows)
-        { IsPartial = isPartial };
+        { IsPartial = isPartial, InvalidatedAssetIds = invalidatedAssetIds.ToArray() };
     }
 
     private async Task<HydrationResult> HydrateBatchResilientAsync(long[] batch, CancellationToken cancellationToken)

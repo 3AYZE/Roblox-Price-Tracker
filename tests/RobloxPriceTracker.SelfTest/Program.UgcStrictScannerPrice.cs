@@ -11,6 +11,11 @@ internal static partial class Program
             int type = 8, string material = "STANDARD", bool excluded = false) =>
             UgcCategoryBuyingPricePolicy.IsLiveScannerListing(status, price, ceiling,
                 excluded, historicalLow, type, material);
+        AssertTrue(!Show(good, 150, 500, material: "UNKNOWN")); // screenshot: above standard hat ceiling
+        AssertTrue(!Show(good, 135, 500, historicalLow: 95, material: "UNKNOWN"));
+        AssertTrue(!Show(review, 150, 150, material: "UNKNOWN"));
+        AssertTrue(!Show(good, 150, 200, historicalLow: 95, material: "PBR"));
+        AssertTrue(Show(good, 95, 95, historicalLow: 95));
         AssertTrue(!Show(good, 295, 500)); // stale or over-permissive cached classification
         AssertTrue(!Show(good, 266, 500));
         AssertTrue(!Show(review, 295, 500, material: "UNKNOWN"));

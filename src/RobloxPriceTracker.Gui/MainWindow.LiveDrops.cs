@@ -589,13 +589,18 @@ public partial class MainWindow
             .Concat(_officialRows.Select(FromOfficial))
             .Concat(_liveBundles.Select(FromBundle))
             .ToArray();
-        _liveDropRows.Clear();
-        foreach (var row in all) _liveDropRows.Add(row);
+        // Preserve the bound collection and unchanged rows; replacing the entire
+        // grid on every scan also clears selection and restarts thumbnail layout.
+        KeyedSnapshotReconciler.Apply(_liveDropRows, all, x => (x.Kind, x.Id),
+            (old, next) => ReferenceEquals(old.Ugc, next.Ugc) &&
+                           ReferenceEquals(old.Official, next.Official) &&
+                           ReferenceEquals(old.Bundle, next.Bundle) &&
+                           old.ThumbnailUrl == next.ThumbnailUrl);
         UpdateLiveDropVisibleRows();
         if (_liveDropGrid is not null)
         {
             if (prior is not null)
-                _liveDropGrid.SelectedItem = all.FirstOrDefault(x => x.Id == prior.Id && x.Kind == prior.Kind);
+                _liveDropGrid.SelectedItem = _liveDropView?.Cast<LiveDropRow>().FirstOrDefault(x => x.Id == prior.Id && x.Kind == prior.Kind);
             if (_liveDropGrid.SelectedItem is null)
                 _liveDropGrid.SelectedItem = _liveDropView?.Cast<object>().FirstOrDefault();
         }

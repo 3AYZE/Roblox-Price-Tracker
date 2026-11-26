@@ -208,7 +208,8 @@ public sealed class UgcHunterService
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
             PriceIntegrityPolicyVersion = 6,
-            IsPartial = discovered.IsPartial
+            IsPartial = discovered.IsPartial,
+            InvalidatedAssetIds = discovered.InvalidatedAssetIds
         };
     }
 
@@ -371,7 +372,7 @@ public sealed class UgcHunterService
         return baseline.Select(x => byId.TryGetValue(x.AssetId, out var replacement) ? replacement : x).ToArray();
     }
 
-    private async Task<(List<UgcRawCatalogItem> Items, bool IsPartial)> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
+    private async Task<(List<UgcRawCatalogItem> Items, bool IsPartial, IReadOnlyList<long> InvalidatedAssetIds)> FetchCandidatesAsync(DateTimeOffset observedAtUtc, CancellationToken cancellationToken)
     {
         // Roblox search is discovery-only: current Collectible rows can contain placeholder
         // price/sales fields. Hydrate IDs through batch details before filtering/scoring.
@@ -401,7 +402,7 @@ public sealed class UgcHunterService
             item.HasResellers,
             item.PrimaryMarketVerified,
             item.IsEmissive,
-            item.IsPbr)).ToList(), discovery.IsPartial);
+            item.IsPbr)).ToList(), discovery.IsPartial, discovery.InvalidatedAssetIds);
     }
     private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync(string url, CancellationToken cancellationToken)
     {
@@ -926,6 +927,7 @@ public sealed record UgcHunterMarketSnapshot(
     // historical BUY labels or numeric scores as if they were screened.
     public int PriceIntegrityPolicyVersion { get; init; }
     public bool IsPartial { get; init; }
+    public IReadOnlyList<long> InvalidatedAssetIds { get; init; } = Array.Empty<long>();
 }
 
 public sealed record UgcMarketState(

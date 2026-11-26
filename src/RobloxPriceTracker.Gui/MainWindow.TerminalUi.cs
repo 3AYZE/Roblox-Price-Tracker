@@ -702,8 +702,16 @@ public partial class MainWindow : Window
             if (_hunterLastRefreshUtc != snapshot.ObservedAtUtc)
             {
                 _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
-                _hunterRows.Clear();
-                foreach (var item in snapshot.Items) _hunterRows.Add(item);
+                // A bounded discovery window is not an exhaustive list of all active assets.
+                // Keep still-fresh prior observations not contradicted by a returned quote.
+                // Never advance their verification time; the normal stock freshness gate applies.
+                var now = DateTimeOffset.UtcNow;
+                var merged = KeyedSnapshotReconciler.MergeFresh(
+                    _hunterRows, snapshot.Items, x => x.AssetId,
+                    snapshot.InvalidatedAssetIds,
+                    x => UgcActiveStockPolicy.IsActiveSnapshot(x.PrimaryMarketVerified,
+                        x.UnitsAvailable, x.Price, x.ObservedAtUtc, now));
+                KeyedSnapshotReconciler.Apply(_hunterRows, merged, x => x.AssetId);
             }
             _hunterView?.Refresh();
             if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;
