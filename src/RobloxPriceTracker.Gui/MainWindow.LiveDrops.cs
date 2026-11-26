@@ -203,23 +203,31 @@ public partial class MainWindow
         }
         else
         {
-            var last = new[] { _hunterLastRefreshUtc, _liveBundleScanUtc }
-                .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty().Max();
+            var now = DateTimeOffset.UtcNow;
+            var packs = _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs";
+            if (packs)
+            {
+                var verifiedPacks = _liveBundles.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
+                    x.PrimaryMarketVerified, x.OriginalUnitsAvailable, x.VerifiedOriginalPrice,
+                    x.VerifiedAtUtc, now));
+                _liveDropStatus.Text = !string.IsNullOrWhiteSpace(_liveBundleScanError)
+                    ? $"Animation packs unavailable · {verifiedPacks:N0} still verified · retry later"
+                    : _liveBundleScanUtc is { } bundleLast
+                        ? $"Verified animation packs: {verifiedPacks:N0} · Last scan {bundleLast.ToLocalTime():h:mm tt}"
+                        : "Animation packs · Refresh to verify original stock";
+                return;
+            }
+
             var verified = _hunterRows.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
-                x.PrimaryMarketVerified, x.UnitsAvailable, x.Price,
-                x.ObservedAtUtc, DateTimeOffset.UtcNow));
-            var bundles = _liveBundles.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
-                x.PrimaryMarketVerified, x.OriginalUnitsAvailable, x.VerifiedOriginalPrice,
-                _liveBundleScanUtc, DateTimeOffset.UtcNow));
-            _liveDropStatus.Text = verified + bundles == 0
+                x.PrimaryMarketVerified, x.UnitsAvailable, x.Price, x.ObservedAtUtc, now));
+            _liveDropStatus.Text = verified == 0
                 ? (_hunterRefreshInProgress ? "Refreshing UGC original stock…" :
-                    _hunterRefreshFailed || _hunterScanPartial ? "Original-stock verification incomplete · retry when Roblox is available" :
-                    _hunterRows.Count > 0 || _liveBundles.Count > 0 ? "Previous stock verification expired · refresh to recheck availability" :
-                    "No verified in-stock UGC Limiteds found in this scan")
-                : $"Verified original-stock listings: {verified + bundles:N0} · " +
-                  (last == default ? "Refresh to scan" : $"Last scan {last.ToLocalTime():h:mm tt}") +
+                    _hunterRefreshFailed || _hunterScanPartial ? "UGC verification incomplete · retry later" :
+                    _hunterRows.Count > 0 ? "Previous stock verification expired · refreshing availability" :
+                    "No verified in-stock UGC Limiteds found")
+                : $"Verified original-stock listings: {verified:N0} · " +
+                  (_hunterLastRefreshUtc is { } last ? $"Last scan {last.ToLocalTime():h:mm tt}" : "Refresh to scan") +
                   " · Resale inventory excluded" +
-                  (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete") +
                   (_hunterScanPartial || _hunterRefreshFailed ? " · UGC verification incomplete" : "");
         }
     }
@@ -306,7 +314,13 @@ public partial class MainWindow
         };
         // Source-specific options are set by SetLiveDropScope. Official and UGC
         // products must never appear in the same result list.
-        _liveDropTypeFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
+        _liveDropTypeFilter.SelectionChanged += async (_, _) =>
+        {
+            UpdateLiveDropVisibleRows();
+            UpdateLiveDropScopeStatus();
+            if (_liveDropScope == "UGC" && _liveDropPage?.IsVisible == true)
+                await RefreshLiveDropsAsync(force: false);
+        };
         filterPanel.Children.Add(_liveDropTypeFilter);
         _liveDropSort = new ComboBox
         {
@@ -696,7 +710,7 @@ public partial class MainWindow
     private bool IsLiveDropOriginalStockCurrent(LiveDropRow row)
     {
         if (row.Official is not null) return true;
-        var verifiedTime = row.Ugc?.ObservedAtUtc ?? _liveBundleScanUtc;
+        var verifiedTime = row.Ugc?.ObservedAtUtc ?? row.Bundle?.VerifiedAtUtc;
         return UgcActiveStockPolicy.IsActiveSnapshot(
             row.PrimaryVerified, row.OriginalUnitsLeft, row.QuotedPrice,
             verifiedTime, DateTimeOffset.UtcNow);
@@ -841,8 +855,10 @@ public partial class MainWindow
         if (_liveDropCount is not null)
         {
             var visible = _liveDropView?.Cast<object>().Count() ?? 0;
+            var packs = _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs";
             var available = _liveDropRows.Count(x =>
                 LiveDropScopePolicy.Accepts(_liveDropScope, x.Kind) &&
+                (_liveDropScope != "UGC" || x.IsBundle == packs) &&
                 IsLiveDropOriginalStockCurrent(x));
             _liveDropCount.Text = $"{visible:N0} shown / {available:N0} total";
             if (_liveDropScope == "UGC" && visible == 0)
@@ -953,15 +969,16 @@ public partial class MainWindow
         }
         _liveDropBusy = true;
         var scope = _liveDropScope;
+        var packs = _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs";
         if (_liveDropStatus is not null)
             _liveDropStatus.Text = scope == "Official"
                 ? "Refreshing Roblox Official Limiteds…"
-                : "Refreshing UGC Limiteds and animation packs…";
+                : packs ? "Refreshing animation packs…" : "Refreshing UGC Limiteds…";
         var errors = new List<string>();
         try
         {
             var now = DateTimeOffset.UtcNow;
-            var plan = LiveDropScopePolicy.DueSources(scope, force, now,
+            var plan = LiveDropScopePolicy.DueVisibleSources(scope, packs, force, now,
                 _officialLastRefreshUtc, _hunterLastRefreshUtc, _liveBundleScanUtc);
             var scanUgc = plan.Ugc;
             var scanOfficial = plan.Official;
@@ -1003,17 +1020,15 @@ public partial class MainWindow
                 }
             }
 
-            if (scope == "UGC" && !string.IsNullOrWhiteSpace(_liveBundleScanError))
-                errors.Add("Animation packs unavailable (cached results retained)");
             if (scanUgc || scanOfficial || scanBundles) RebuildLiveDropRows();
-            if (scope == "UGC" && _liveDropScope == "UGC")
+            if (scanBundles && _liveDropScope == "UGC" &&
+                _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs")
                 await LoadLiveBundleImagesAsync();
             if (_liveDropScope == scope)
             {
                 UpdateLiveDropScopeStatus();
-                if (errors.Count > 0 && _liveDropStatus is not null)
-                    _liveDropStatus.Text = "PARTIAL · " + string.Join("; ", errors) +
-                        " · " + _liveDropStatus.Text;
+                if (scope == "Official" && errors.Count > 0 && _liveDropStatus is not null)
+                    _liveDropStatus.Text += " · Official refresh incomplete";
             }
         }
         catch (Exception ex)

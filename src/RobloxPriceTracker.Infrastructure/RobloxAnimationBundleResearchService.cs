@@ -19,6 +19,7 @@ public sealed record RobloxAnimationBundleOffer(
     public string? ThumbnailUrl { get; init; } // Visual-only; not part of resale evidence.
     public bool LimitedVerified { get; init; }
     public bool PrimaryMarketVerified { get; init; }
+    public DateTimeOffset? VerifiedAtUtc { get; init; }
     public int? VerifiedOriginalPrice { get; init; }
     public long? LowestResaleAsk { get; init; }
     public string VerificationStatus => !LimitedVerified
@@ -158,7 +159,8 @@ public sealed class RobloxAnimationBundleResearchService
                 VerifiedOriginalPrice = market.Price,
                 OriginalUnitsAvailable = market.UnitsAvailable,
                 LowestResaleAsk = market.LowestResalePrice,
-                PrimaryMarketVerified = true
+                PrimaryMarketVerified = true,
+                VerifiedAtUtc = market.VerifiedAtUtc
             };
         }).Where(x => x.LimitedVerified).ToArray();
     }

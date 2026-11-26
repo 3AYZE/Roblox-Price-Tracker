@@ -86,6 +86,7 @@ internal static partial class Program
             ("Animation bundle HTTP 429 keeps cached results and skips further calls", TestAnimationBundleRateLimitPreservesCacheContractAsync),
             ("Official and UGC tabs never mix assets, bundles or unknown sources", TestOfficialAndUgcSourcesAreSeparateAsync),
             ("Official and UGC tabs refresh only their own discovery sources", TestLimitedSourceSpecificRefreshAsync),
+            ("Animation pack discovery is isolated from normal UGC refresh", TestVisibleLimitedSourceIsolationAsync),
             ("UGC original-stock verification rejects resale-only, mismatched and unknown inventory", TestActiveUgcOriginalStockProofAsync),
             ("Marketplace empty batch recovers only independently returned stock", TestMarketplaceEmptyBatchRecoveryAsync),
             ("Marketplace malformed rows preserve valid stock and negative counters stay unknown", TestMarketplaceMalformedRowsAsync),

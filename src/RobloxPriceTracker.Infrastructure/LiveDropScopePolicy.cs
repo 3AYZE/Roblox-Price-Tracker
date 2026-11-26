@@ -24,6 +24,18 @@ public static class LiveDropScopePolicy
         return default;
     }
 
+    // Animation packs are research-only and visible in their dedicated filter.
+    // Do not consume accessory refresh budget or report bundle failures on other filters.
+    public static SourcePlan DueVisibleSources(string scope, bool animationPacksSelected, bool force,
+        DateTimeOffset now, DateTimeOffset? lastOfficial, DateTimeOffset? lastUgc,
+        DateTimeOffset? lastBundles)
+    {
+        var due = DueSources(scope, force, now, lastOfficial, lastUgc, lastBundles);
+        return scope != "UGC" ? due :
+            animationPacksSelected ? new SourcePlan(false, false, due.Bundles) :
+            new SourcePlan(false, due.Ugc, false);
+    }
+
     public static bool Accepts(string scope, string productKind) =>
         scope switch
         {
