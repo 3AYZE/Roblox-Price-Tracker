@@ -96,6 +96,7 @@ internal static partial class Program
             ("UGC historic price anchors survive pruning and restart", TestPermanentPriceAnchorsAsync),
             ("UGC category search rotation stays bounded and covers every keyword", TestUgcCategoryKeywordRotationAsync),
             ("UGC live scanner cannot show overpriced or repriced accessories", TestUgcStrictScannerPriceAsync),
+            ("UGC scanner requires half original supply sold and ignores age below one year", TestUgcSellThroughAndAgeAsync),
             ("UGC incremental refresh retains fresh rows and rejects invalidated stock", TestUgcRefreshReconcileAsync),
             ("Marketplace HTTP 429 prevents fresh-ID request fanout", TestMarketplaceRateLimitCooldownAsync),
             ("UGC active listings expire rather than retaining stale stock", TestActiveUgcStockFreshnessAsync),

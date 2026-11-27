@@ -69,6 +69,17 @@ public static class UgcActiveStockPolicy
             x.Total is > 0 && x.Remaining is >= 0 && x.Remaining <= x.Total;
     }
 
+    // A small edition alone is not scarcity. Require at least half the
+    // verified original supply to be gone; integer division handles odd totals.
+    public static bool HasMinimumSellThrough(bool verified, long? remaining, long? total) =>
+        verified && total is > 0 && remaining is > 0 && remaining <= total.Value / 2;
+
+    // Age is not a ranking factor within the first year. Unknown or invalid
+    // creation dates cannot establish that an asset is too old.
+    public static bool IsWithinScannerAge(DateTimeOffset? createdAtUtc, DateTimeOffset nowUtc) =>
+        createdAtUtc is not { } created || created == default || created > nowUtc ||
+        created > nowUtc.AddYears(-1);
+
     public static bool IsActiveSnapshot(
         bool marketplaceVerified,
         long? creatorUnitsLeft,

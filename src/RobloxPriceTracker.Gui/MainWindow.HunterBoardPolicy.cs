@@ -41,7 +41,8 @@ public partial class MainWindow
             return false;
         // Every Hunter mode uses the same strict scanner gate. Researching an
         // individual asset in Analyzer does not grant it a live scanner slot.
-        if (!UgcActiveStockPolicy.IsActiveSnapshot(row.PrimaryMarketVerified,
+        if (!row.MeetsScannerStockAndAge ||
+            !UgcActiveStockPolicy.IsActiveSnapshot(row.PrimaryMarketVerified,
                 row.UnitsAvailable, row.Price, row.ObservedAtUtc, DateTimeOffset.UtcNow) ||
             !UgcCategoryBuyingPricePolicy.IsLiveScannerListing(row.BuyingPriceClassification,
                 row.Price, row.BuyingPriceCeiling, row.IsExcludedPriceDistortion,

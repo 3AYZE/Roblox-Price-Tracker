@@ -20,7 +20,8 @@ public static class UgcResaleEnrichmentSelectionPolicy
         double EntryScore)
     {
         public bool IsBuyingCandidate =>
-            PrimaryMarketVerified && UnitsAvailable is > 0 && IsGoodBuyingPrice;
+            IsGoodBuyingPrice && UgcActiveStockPolicy.HasMinimumSellThrough(
+                PrimaryMarketVerified, UnitsAvailable, TotalSupply);
 
         public bool HasVerifiedScarcity =>
             PrimaryMarketVerified && TotalSupply is > 0 &&

@@ -52,6 +52,7 @@ public sealed record RobloxUgcCatalogCandidate(
     bool? IsPbr = null)
 {
     public DateTimeOffset? VerifiedAtUtc { get; init; }
+    public DateTimeOffset? CreatedAtUtc { get; init; }
 }
 
 public sealed record RobloxUgcDiscoveryResult(
@@ -885,10 +886,20 @@ public static class RobloxUgcCatalogDiscoveryParser
             favorites,
             GetString(row, "collectibleItemId"))
         {
+            CreatedAtUtc = ReadCreationDate(row),
             IsEmissive = TryGetBoolean(row, "isEmissive", out var emissive) ? emissive : null,
             IsPbr = ReadConsistentMaterialFlag(row, "isPbr", "isAdvancedMaterials")
         };
         return true;
+    }
+
+    private static DateTimeOffset? ReadCreationDate(JsonElement row)
+    {
+        foreach (var field in new[] { "created", "createdAt" })
+            if (row.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String &&
+                value.TryGetDateTimeOffset(out var date) && date != default && date <= DateTimeOffset.UtcNow)
+                return date.ToUniversalTime();
+        return null;
     }
 
     private static bool? ReadConsistentMaterialFlag(JsonElement row, string primaryName, string alternateName)

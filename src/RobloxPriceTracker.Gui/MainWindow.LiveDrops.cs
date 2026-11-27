@@ -35,7 +35,13 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public long? OriginalUnitsLeft =>
         Ugc is { PrimaryMarketVerified: true } ? Ugc.UnitsAvailable :
         Bundle is { PrimaryMarketVerified: true } ? Bundle.OriginalUnitsAvailable : null;
-    public string StockLeft => OriginalUnitsLeft is > 0 ? $"{OriginalUnitsLeft:N0} left" : "—";
+    public string StockLeft => OriginalUnitsLeft is > 0
+        ? Ugc?.TotalSupply is > 0
+            ? $"{OriginalUnitsLeft:N0}/{Ugc.TotalSupply:N0} left"
+            : $"{OriginalUnitsLeft:N0} left"
+        : "—";
+    public double RemainingStockRatio => Ugc?.TotalSupply is > 0 && OriginalUnitsLeft is > 0
+        ? (double)OriginalUnitsLeft.Value / Ugc.TotalSupply.Value : double.MaxValue;
     public long SortStockLow => OriginalUnitsLeft is > 0 ? OriginalUnitsLeft.Value : long.MaxValue;
     public long SortPriceLow => PriceNumber is > 0 ? PriceNumber.Value : long.MaxValue;
     public long SortPriceHigh => PriceNumber is > 0 ? -PriceNumber.Value : long.MaxValue;
@@ -767,7 +773,8 @@ public partial class MainWindow
             row.OriginalUnitsLeft > maximumLeft) return false;
         // No search, sort or maximum-price setting may bypass buying protection.
         // Unpriced animation bundles remain in their dedicated research filter.
-        if (row.Ugc is not null && !row.IsAffordableListing) return false;
+        if (row.Ugc is { } ugc && (!row.IsAffordableListing || !ugc.MeetsScannerStockAndAge))
+            return false;
         if (row.IsBundle && filter != "Animation Packs") return false;
 
         return filter switch
@@ -808,6 +815,8 @@ public partial class MainWindow
                     nameof(LiveDropRow.OpportunityRank), ListSortDirection.Descending));
                 if (_liveDropScope == "UGC")
                 {
+                    _liveDropView.SortDescriptions.Add(new SortDescription(
+                        nameof(LiveDropRow.RemainingStockRatio), ListSortDirection.Ascending));
                     _liveDropView.SortDescriptions.Add(new SortDescription(
                         nameof(LiveDropRow.AffordableStockOrder), ListSortDirection.Ascending));
                     _liveDropView.SortDescriptions.Add(new SortDescription(

@@ -207,7 +207,7 @@ public sealed class UgcHunterService
 
         return new UgcHunterMarketSnapshot(ranked, BuildMarketState(ranked), now)
         {
-            PriceIntegrityPolicyVersion = 6,
+            PriceIntegrityPolicyVersion = 7,
             IsPartial = discovered.IsPartial,
             InvalidatedAssetIds = discovered.InvalidatedAssetIds
         };
@@ -329,8 +329,9 @@ public sealed class UgcHunterService
                 item.ObservationCount, item.VelocityPerMinute,
                 item.ResalePotentialScore, item.EntryScore);
         }).ToArray();
+        var eligibleIds = baseline.Where(x => x.MeetsScannerStockAndAge).Select(x => x.AssetId).ToHashSet();
         var selectedCandidates = UgcResaleEnrichmentSelectionPolicy.Select(
-            selectionCandidates, ResaleEnrichmentLimit,
+            selectionCandidates.Where(x => eligibleIds.Contains(x.AssetId)), ResaleEnrichmentLimit,
             Interlocked.Increment(ref _resaleEnrichmentRotation) - 1);
         var itemsById = baseline.ToDictionary(x => x.AssetId);
         var selected = selectedCandidates.Select(x => itemsById[x.AssetId]).ToArray();
@@ -402,7 +403,8 @@ public sealed class UgcHunterService
             item.HasResellers,
             item.PrimaryMarketVerified,
             item.IsEmissive,
-            item.IsPbr)).ToList(), discovery.IsPartial, discovery.InvalidatedAssetIds);
+            item.IsPbr,
+            item.CreatedAtUtc)).ToList(), discovery.IsPartial, discovery.InvalidatedAssetIds);
     }
     private async Task<HttpResponseMessage> SendSearchRequestWithRetryAsync(string url, CancellationToken cancellationToken)
     {
@@ -708,7 +710,8 @@ public sealed class UgcHunterService
             ObservationCount = observationCount,
             AssetType = item.AssetType,
             IsEmissive = item.IsEmissive,
-            IsPbr = item.IsPbr
+            IsPbr = item.IsPbr,
+            CreatedAtUtc = item.CreatedAtUtc
         };
     }
 
@@ -900,7 +903,8 @@ public sealed class UgcHunterService
         bool HasResellers = false,
         bool PrimaryMarketVerified = false,
         bool? IsEmissive = null,
-        bool? IsPbr = null);
+        bool? IsPbr = null,
+        DateTimeOffset? CreatedAtUtc = null);
 }
 
 public readonly record struct UgcHunterObservation(
@@ -1009,7 +1013,11 @@ public sealed record UgcHunterItem(
     public double? VerifiedDailyAverageResaleMedian30d { get; init; }
     public int ResalePriceEvidenceDays { get; init; }
     public bool IsExcludedPriceDistortion => PriceIntegrityClassification == UgcPriceIntegrityPolicy.Excluded;
-    public bool IsQualifiedOpportunity => UgcQualifiedOpportunityPolicy.Evaluate(
+    public DateTimeOffset? CreatedAtUtc { get; init; }
+    public bool MeetsScannerStockAndAge => UgcActiveStockPolicy.HasMinimumSellThrough(
+        PrimaryMarketVerified, UnitsAvailable, TotalSupply) &&
+        UgcActiveStockPolicy.IsWithinScannerAge(CreatedAtUtc, DateTimeOffset.UtcNow);
+    public bool IsQualifiedOpportunity => MeetsScannerStockAndAge && UgcQualifiedOpportunityPolicy.Evaluate(
         new UgcQualifiedOpportunityPolicy.Evidence(
             PrimaryMarketVerified, ObservedAtUtc, Price, UnitsAvailable, TotalSupply,
             ObservationCount, VelocityPerMinute, HasRecentResaleVolume,
