@@ -12,7 +12,8 @@ public sealed record RobloxOfficialLimitedCatalogItem(
     long FavoriteCount,
     long? PurchaseCount,
     int AssetType,
-    int DiscoveryStrength);
+    int DiscoveryStrength,
+    string? CollectibleItemId = null);
 
 public sealed record RobloxOfficialLimitedMarketItem(
     long AssetId,
@@ -43,6 +44,7 @@ public sealed record RobloxOfficialLimitedMarketItem(
     string ReasonText)
 {
     public bool HasRecentSalesCoverage { get; init; }
+    public bool HasComplete30DaySalesCoverage { get; init; }
 }
 
 public sealed record RobloxOfficialLimitedScanResult(
@@ -50,7 +52,17 @@ public sealed record RobloxOfficialLimitedScanResult(
     int DiscoveredCount,
     int EnrichedCount,
     DateTimeOffset ObservedAtUtc,
-    string? Warning);
+    string? Warning)
+{
+    // A 200 response containing no matching items is different from failed discovery.
+    public bool DiscoveryComplete { get; init; } = true;
+}
+
+public static class OfficialLimitedRefreshPolicy
+{
+    public static bool ShouldReplaceRows(RobloxOfficialLimitedScanResult scan) =>
+        scan.Items.Count > 0 || scan.DiscoveryComplete;
+}
 
 /// <summary>
 /// Discovers Roblox-published Limiteds separately from UGC Hunter. Discovery is broad and cheap;
@@ -99,12 +111,14 @@ public sealed class RobloxOfficialLimitedMarketService
         _statePath = statePath;
     }
 
-    public Task<RobloxOfficialLimitedScanResult> ScanAsync(CancellationToken cancellationToken = default) =>
+    public Task<RobloxOfficialLimitedScanResult> ScanAsync(CancellationToken cancellationToken = default,
+        long? preferredAssetId = null) =>
         _scanDiagnostics is null
-            ? ScanCoreAsync(cancellationToken)
-            : _scanDiagnostics.MeasureAsync("official-full", ScanCoreAsync, cancellationToken);
+            ? ScanCoreAsync(cancellationToken, preferredAssetId)
+            : _scanDiagnostics.MeasureAsync("official-full",
+                token => ScanCoreAsync(token, preferredAssetId), cancellationToken);
 
-    private async Task<RobloxOfficialLimitedScanResult> ScanCoreAsync(CancellationToken cancellationToken)
+    private async Task<RobloxOfficialLimitedScanResult> ScanCoreAsync(CancellationToken cancellationToken, long? preferredAssetId)
     {
         await _scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -113,6 +127,7 @@ public sealed class RobloxOfficialLimitedMarketService
             var observedAt = DateTimeOffset.UtcNow;
             var discovered = new Dictionary<long, MutableCandidate>();
             string? warning = null;
+            var discoveryComplete = true;
 
             for (var feedIndex = 0; feedIndex < DiscoveryQueries.Length && discovered.Count < MaxDiscoveredItems; feedIndex++)
             {
@@ -138,6 +153,7 @@ public sealed class RobloxOfficialLimitedMarketService
                                 if (item.FloorPrice is > 0) existing.FloorPrice = item.FloorPrice;
                                 existing.FavoriteCount = Math.Max(existing.FavoriteCount, item.FavoriteCount);
                                 existing.PurchaseCount = MaxNullable(existing.PurchaseCount, item.PurchaseCount);
+                                existing.CollectibleItemId ??= item.CollectibleItemId;
                             }
                             else
                             {
@@ -156,6 +172,7 @@ public sealed class RobloxOfficialLimitedMarketService
                     }
                     catch (Exception ex)
                     {
+                        discoveryComplete = false;
                         warning ??= "Some official Limited discovery pages could not be refreshed.";
                         _logger.Info($"Official Limited discovery feed {feedIndex + 1} page {page + 1} stopped: {ex.Message}");
                         break;
@@ -177,20 +194,38 @@ public sealed class RobloxOfficialLimitedMarketService
                 warning = warning is null
                     ? "Roblox returned no official Limited rows. Try Refresh again in a moment."
                     : "Official Limited discovery is temporarily unavailable or rate-limited. Try Refresh again in a moment.";
+                // A failed search must not erase resale coverage or advance history.
+                if (!discoveryComplete)
+                    return new RobloxOfficialLimitedScanResult(
+                        Array.Empty<RobloxOfficialLimitedMarketItem>(), 0, 0, observedAt, warning)
+                    { DiscoveryComplete = false };
             }
 
             // Keep the 36-asset request budget per scan, but rotate through
             // untried and oldest-attempted Official items across refreshes.
+            // Reserve at most one existing request slot for a selected asset
+            // whose RAP or seven-day history is missing; preserve rotation.
+            long? preferred = null;
+            if (preferredAssetId is > 0 &&
+                (!_resaleAttemptedAt.TryGetValue(preferredAssetId.Value, out var attemptedAt) ||
+                 observedAt - attemptedAt >= TimeSpan.FromMinutes(5)) &&
+                (!_recentResale.TryGetValue(preferredAssetId.Value, out var selectedCache) ||
+                 selectedCache.Data.RecentAveragePrice is not > 0 ||
+                 OfficialResaleCoveragePolicy.CompletedDailyVolume(selectedCache.Data.VolumeDataPoints, 7, observedAt) is null))
+                preferred = preferredAssetId;
             var selectedIds = OfficialResaleCoveragePolicy.SelectNext(
                 catalogItems.Where(x => x.FloorPrice is > 0).Select(x => x.AssetId),
-                _resaleAttemptedAt, MaxEnrichedItems);
+                _resaleAttemptedAt, MaxEnrichedItems, preferred);
             IReadOnlyDictionary<long, RobloxResaleMarketData> resale =
                 new Dictionary<long, RobloxResaleMarketData>();
             if (selectedIds.Count > 0)
             {
                 try
                 {
-                    resale = await _resaleDataService.GetManyAsync(selectedIds, cancellationToken).ConfigureAwait(false);
+                    var catalogById = catalogItems.ToDictionary(x => x.AssetId);
+                    var requests = selectedIds.Select(id => (
+                        AssetId: id, CollectibleItemId: catalogById[id].CollectibleItemId));
+                    resale = await _resaleDataService.GetManyKnownCollectiblesAsync(requests, cancellationToken).ConfigureAwait(false);
                     var updatedAt = DateTimeOffset.UtcNow;
                     foreach (var id in selectedIds)
                     {
@@ -199,8 +234,9 @@ public sealed class RobloxOfficialLimitedMarketService
                             market.IsAvailable &&
                             !OfficialResaleCoveragePolicy.IsDemonstrablyStaleLegacy(market, updatedAt))
                             _recentResale[id] = (market, updatedAt);
-                        else
-                            _recentResale.Remove(id);
+                        // A transient unavailable or rate-limited response must not
+                        // discard still-valid, previously verified market evidence.
+                        // The normal 40-minute expiry below remains authoritative.
                     }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -247,13 +283,20 @@ public sealed class RobloxOfficialLimitedMarketService
                 }
             }
 
+            _logger.Info($"Official resale coverage: discovered={catalogItems.Length}, selected={selectedIds.Count}, " +
+                $"enrichmentAvailable={resale.Values.Count(x => x.IsAvailable)}, " +
+                $"RAP={result.Count(x => x.Rap is > 0)}, " +
+                $"current7d={result.Count(x => x.HasRecentSalesCoverage)}, " +
+                $"catalogIds={catalogItems.Count(x => !string.IsNullOrWhiteSpace(x.CollectibleItemId))}, " +
+                $"cached={_recentResale.Count}, unavailable={resale.Values.Count(x => !x.IsAvailable)}, " +
+                $"rateLimited={resale.Values.Count(x => x.RateLimited)}.");
             PersistHistory();
             return new RobloxOfficialLimitedScanResult(
                 result.OrderByDescending(x => x.HuntScore).ThenByDescending(x => x.EvidenceScore).ToArray(),
                 catalogItems.Length,
                 result.Count(x => x.IsEnriched),
                 observedAt,
-                warning);
+                warning) { DiscoveryComplete = discoveryComplete };
         }
         finally
         {
@@ -362,6 +405,7 @@ public sealed class RobloxOfficialLimitedMarketService
             PurchaseCount = item.PurchaseCount;
             AssetType = item.AssetType;
             DiscoveryStrength = item.DiscoveryStrength;
+            CollectibleItemId = item.CollectibleItemId;
         }
 
         public long AssetId { get; }
@@ -372,8 +416,9 @@ public sealed class RobloxOfficialLimitedMarketService
         public long? PurchaseCount { get; set; }
         public int AssetType { get; }
         public int DiscoveryStrength { get; set; }
+        public string? CollectibleItemId { get; set; }
 
-        public RobloxOfficialLimitedCatalogItem ToRecord() => new(AssetId, Name, FloorPrice, ListedPrice, FavoriteCount, PurchaseCount, AssetType, DiscoveryStrength);
+        public RobloxOfficialLimitedCatalogItem ToRecord() => new(AssetId, Name, FloorPrice, ListedPrice, FavoriteCount, PurchaseCount, AssetType, DiscoveryStrength, CollectibleItemId);
     }
 
     public sealed record FloorHistoryEntry(long AssetId, long LastFloor, long LowestFloor, DateTimeOffset FirstSeenUtc, DateTimeOffset LastSeenUtc);
@@ -410,7 +455,10 @@ public static class RobloxOfficialLimitedCatalogParser
             var favorites = TryInt64(node, "favoriteCount", out var favoriteValue) && favoriteValue > 0 ? favoriteValue : 0;
             long? purchases = TryInt64(node, "purchaseCount", out var purchaseValue) && purchaseValue >= 0 ? purchaseValue : null;
             var assetType = TryInt64(node, "assetType", out var assetTypeValue) ? (int)Math.Clamp(assetTypeValue, 0, int.MaxValue) : 0;
-            items.Add(new RobloxOfficialLimitedCatalogItem(id, ReadString(node, "name") ?? $"Asset {id}", floor, listed, favorites, purchases, assetType, 0));
+            var collectibleId = ReadString(node, "collectibleItemId");
+            if (!Guid.TryParse(collectibleId, out var parsedCollectibleId)) collectibleId = null;
+            else collectibleId = parsedCollectibleId.ToString("D");
+            items.Add(new RobloxOfficialLimitedCatalogItem(id, ReadString(node, "name") ?? $"Asset {id}", floor, listed, favorites, purchases, assetType, 0, collectibleId));
         }
 
         return new RobloxOfficialLimitedCatalogParseResult(items, ReadCursor(root));
@@ -465,13 +513,16 @@ public static class OfficialLimitedHuntScoring
                  x.Date >= now - TimeSpan.FromDays(30)).OrderBy(x => x.Date).ToArray() ?? []
             : Array.Empty<ResaleDataPoint>();
         var recentPrices = validPrices.Select(x => x.Value).ToArray();
-        var hasRecentSales = !staleLegacy &&
-            OfficialResaleCoveragePolicy.HasRecentVolume(market?.VolumeDataPoints, now);
+        var complete7 = !staleLegacy
+            ? OfficialResaleCoveragePolicy.CompletedDailyVolume(market?.VolumeDataPoints, 7, now) : null;
+        var complete30 = !staleLegacy
+            ? OfficialResaleCoveragePolicy.CompletedDailyVolume(market?.VolumeDataPoints, 30, now) : null;
+        var hasRecentSales = complete7.HasValue;
         var recentMedian = Median(recentPrices);
         var fair = ConservativeFairValue(rap, recentMedian);
         double? discount = floor is > 0 && fair is > 0 ? (fair.Value - floor.Value) / fair.Value : null;
-        var sales7 = hasRecentSales ? SumRecent(market?.VolumeDataPoints, 7.25, now) : 0d;
-        var sales30 = hasRecentSales ? SumRecent(market?.VolumeDataPoints, 30.25, now) : 0d;
+        var sales7 = complete7 ?? 0d;
+        var sales30 = complete30 ?? 0d;
         var evidence = EvidenceScore(market, rap, recentPrices.Length, hasRecentSales, now);
         var liquidity = LiquidityScore(sales7);
         var stability = StabilityScore(recentPrices);
@@ -493,7 +544,7 @@ public static class OfficialLimitedHuntScoring
         var evidenceText = $"RAP {(rap is > 0 ? "yes" : "unavailable")} · " +
             $"current price series {recentPrices.Length} pts · " +
             $"7d sales {(hasRecentSales ? sales7.ToString("0.#") : "unavailable")} · " +
-            $"30d sales {(hasRecentSales ? sales30.ToString("0.#") : "unavailable")}";
+            $"30d sales {(complete30.HasValue ? sales30.ToString("0.#") : "unavailable")} · completed UTC days";
         var reason = BuildReason(discount, hasRecentSales ? sales7 : null, stability, evidence, floorChange);
         var usable = rap is > 0 || recentPrices.Length > 0 || hasRecentSales;
 
@@ -502,7 +553,8 @@ public static class OfficialLimitedHuntScoring
             hunt, value, flip, stability, evidence, upside, risk, status, trend, isCandidate, isFresh, floorChange,
             item.FavoriteCount, item.PurchaseCount, item.AssetType, usable, evidenceText, reason)
         {
-            HasRecentSalesCoverage = hasRecentSales
+            HasRecentSalesCoverage = hasRecentSales,
+            HasComplete30DaySalesCoverage = complete30.HasValue
         };
     }
 
@@ -589,16 +641,6 @@ public static class OfficialLimitedHuntScoring
         if (prior <= 0) return "—";
         var change = (recent - prior) / prior;
         return change >= .05 ? "RISING" : change <= -.05 ? "FALLING" : "STABLE";
-    }
-
-    private static double SumRecent(IReadOnlyList<ResaleDataPoint>? points, double days,
-        DateTimeOffset nowUtc)
-    {
-        if (points is null || points.Count == 0) return 0;
-        var valid = points.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
-        if (valid.Length == 0) return 0;
-        return valid.Where(x => x.Date <= nowUtc &&
-            x.Date >= nowUtc - TimeSpan.FromDays(days)).Sum(x => x.Value);
     }
 
     private static double? Median(IEnumerable<double> values)

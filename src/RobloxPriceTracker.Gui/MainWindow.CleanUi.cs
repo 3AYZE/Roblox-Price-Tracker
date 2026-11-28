@@ -23,6 +23,7 @@ public partial class MainWindow
     private bool _cleanUiInitialized;
     private bool _cleanSyncingSidebar;
     private string _cleanCurrentPage = "Dashboard";
+    private int _cleanNavigationVersion;
     private Border? _cleanWorkspaceBar;
     private StackPanel? _cleanWorkspaceTabs;
     private StackPanel? _cleanWorkspaceActions;
@@ -284,6 +285,7 @@ public partial class MainWindow
             {
                 ("Overview", "Dashboard"),
                 ("Official Limiteds", "OfficialDrops"),
+                ("Official Hunt", "Hunt"),
                 ("UGC Limiteds", "UgcDrops")
             },
             "MyItems" => new (string, string)[]
@@ -322,7 +324,7 @@ public partial class MainWindow
         var button = new Button
         {
             Content = label,
-            Style = (Style)FindResource("LinkButtonStyle"),
+            Style = (Style)FindResource("CleanWorkspaceTabButtonStyle"),
             Foreground = active ? TerminalText : TerminalMuted,
             FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal,
             Height = 43,
@@ -349,6 +351,7 @@ public partial class MainWindow
 
     private async Task NavigateCleanAsync(string page)
     {
+        var navigationVersion = ++_cleanNavigationVersion;
         HideOfficialLimitedPages();
 
         switch (page)
@@ -370,11 +373,13 @@ public partial class MainWindow
             case "OfficialDrops":
                 SetLiveDropScope("Official");
                 ShowPage("OfficialDrops");
+                SyncCleanUi(page);
                 await RefreshLiveDropsAsync(force: false);
                 break;
             case "UgcDrops":
                 SetLiveDropScope("UGC");
                 ShowPage("UgcDrops");
+                SyncCleanUi(page);
                 await RefreshLiveDropsAsync(force: false);
                 break;
             case "Hunter":
@@ -395,7 +400,8 @@ public partial class MainWindow
                 break;
         }
 
-        SyncCleanUi(page);
+        if (navigationVersion == _cleanNavigationVersion)
+            SyncCleanUi(page);
     }
 
     private void ConfigureCleanPageObservers()
@@ -541,7 +547,7 @@ public partial class MainWindow
 
         if (_huntGrid is not null)
         {
-            _huntGrid.RowHeight = 58;
+            _huntGrid.RowHeight = 52;
             _huntGrid.Columns.Clear();
             _huntGrid.Columns.Add(CreateCleanOfficialAssetColumn());
             _huntGrid.Columns.Add(OfficialColumn("FLOOR", nameof(OfficialLimitedRow.FloorText), 0.82));
@@ -554,7 +560,7 @@ public partial class MainWindow
 
         if (_officialMarketGrid is not null)
         {
-            _officialMarketGrid.RowHeight = 58;
+            _officialMarketGrid.RowHeight = 52;
             _officialMarketGrid.Columns.Clear();
             _officialMarketGrid.Columns.Add(CreateCleanOfficialAssetColumn());
             _officialMarketGrid.Columns.Add(OfficialColumn("FLOOR", nameof(OfficialLimitedRow.FloorText), 0.86));

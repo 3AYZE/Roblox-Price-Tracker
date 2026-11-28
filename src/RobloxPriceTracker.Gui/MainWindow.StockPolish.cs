@@ -516,10 +516,7 @@ public partial class MainWindow
     }
 
     private static bool IsUgcBoardCandidate(UgcHunterItem item) =>
-        item.PrimaryMarketVerified && !item.IsExcludedPriceDistortion &&
-        (item.Recommendation is "HIGH RESALE" or "STRONG" ||
-         (item.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW") &&
-          item.ResalePotentialScore >= 72 && item.EntryScore >= 55 && item.RiskScore < 70));
+        item.IsQualifiedOpportunity;
 
     private static string OfficialStockSignal(OfficialLimitedRow row) => row.Status switch
     {
@@ -531,14 +528,22 @@ public partial class MainWindow
         _ => "WATCH"
     };
 
-    private static string UgcStockSignal(UgcHunterItem item) => item.Recommendation switch
+    private static string UgcStockSignal(UgcHunterItem item)
     {
-        "HIGH RESALE" => "STRONG",
-        "STRONG" => "BUY WATCH",
-        "SPECULATIVE" => "SPECULATIVE",
-        "AVOID" => "AVOID",
-        _ => item.ResalePotentialScore >= 78 && item.RiskScore < 55 ? "BUY WATCH" : "WATCH"
-    };
+        if (item.BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Above)
+            return "OVER PRICE";
+        if (!item.IsGoodBuyingPrice)
+            return "DATA REVIEW";
+
+        return item.Recommendation switch
+        {
+            "HIGH RESALE" => "STRONG",
+            "STRONG" => "BUY WATCH",
+            "SPECULATIVE" => "SPECULATIVE",
+            "AVOID" => "AVOID",
+            _ => item.ResalePotentialScore >= 78 && item.RiskScore < 55 ? "BUY WATCH" : "WATCH"
+        };
+    }
 
     private void InsertAnalyzerSignalStrip()
     {

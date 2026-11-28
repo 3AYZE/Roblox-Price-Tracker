@@ -5,11 +5,77 @@ using RobloxPriceTracker.Infrastructure;
 
 internal static partial class Program
 {
+    static async Task TestUgcDiscoverySuppressesUnsupportedRouteAsync()
+    {
+        var unsupportedCalls = 0;
+        var supportedCalls = 0;
+        using var handler = new DelegateHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                var query = request.RequestUri?.Query ?? string.Empty;
+                if (!query.Contains("Category=1", StringComparison.OrdinalIgnoreCase) ||
+                    !query.Contains("salesTypeFilter=2", StringComparison.OrdinalIgnoreCase))
+                {
+                    unsupportedCalls++;
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    { Content = new StringContent("Category subcategory selection not supported") });
+                }
+                supportedCalls++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent("{\"data\":[]}") });
+            }
+            throw new InvalidOperationException("Empty discovery should not request hydration.");
+        });
+        using var http = new HttpClient(handler);
+        var logger = new AppLogger(Path.Combine(Path.GetTempPath(), "rpt-selftest", Guid.NewGuid().ToString("N"), "app.log"));
+        var service = new RobloxUgcDiscoveryService(http, logger);
+        var result = await service.DiscoverAsync();
+        AssertEqual(0, unsupportedCalls);
+        AssertTrue(supportedCalls >= 4);
+        AssertEqual(0, result.DiscoveredCount);
+    }
+
+    static async Task TestUgcDiscoveryStopsOnRateLimitAsync()
+    {
+        var searchCalls = 0;
+        var detailCalls = 0;
+        var queries = new List<string>();
+        using var handler = new DelegateHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                searchCalls++;
+                queries.Add(request.RequestUri?.Query ?? "");
+                if (searchCalls > 1)
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                        {"data":[{"id":76001,"itemType":"Asset","assetType":8,
+                        "creatorTargetId":4321,"itemRestrictions":["Collectible"]}]}
+                        """)
+                });
+            }
+            detailCalls++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent("{\"data\":[]}") });
+        });
+        using var http = new HttpClient(handler);
+        var logger = new AppLogger(Path.Combine(Path.GetTempPath(), "rpt-selftest", Guid.NewGuid().ToString("N"), "app.log"));
+        var service = new RobloxUgcDiscoveryService(http, logger);
+        var result = await service.DiscoverAsync();
+        AssertEqual(2, searchCalls); // One successful page, one 429; no retry or later feed.
+        AssertTrue(queries.All(x => x.Contains("Category=1", StringComparison.OrdinalIgnoreCase)));
+        AssertEqual(1, detailCalls);
+        AssertEqual(1, result.DiscoveredCount);
+    }
+
     static async Task TestUgcDiscoveryFallsBackFromProtocolErrorAsync()
     {
         var searchCalls = 0;
         var detailCalls = 0;
-        var sawBroadFallback = false;
+        var sawAlternateSort = false;
 
         using var handler = new DelegateHandler(async (request, _) =>
         {
@@ -17,15 +83,16 @@ internal static partial class Program
             {
                 searchCalls++;
                 var query = request.RequestUri?.Query ?? string.Empty;
-                if (query.Contains("Category=2", StringComparison.OrdinalIgnoreCase))
+                if (query.Contains("SortType=2", StringComparison.OrdinalIgnoreCase))
                 {
                     return new HttpResponseMessage(HttpStatusCode.BadRequest)
                     {
-                        Content = new StringContent("{\"errors\":[{\"message\":\"unsupported category route\"}]}", Encoding.UTF8, "application/json")
+                        Content = new StringContent("{\"errors\":[{\"message\":\"unsupported sales sort\"}]}", Encoding.UTF8, "application/json")
                     };
                 }
 
-                sawBroadFallback |= query.Contains("Category=1", StringComparison.OrdinalIgnoreCase);
+                sawAlternateSort |= query.Contains("Category=1", StringComparison.OrdinalIgnoreCase) &&
+                    query.Contains("SortType=3", StringComparison.OrdinalIgnoreCase);
                 var json = JsonSerializer.Serialize(new
                 {
                     previousPageCursor = (string?)null,
@@ -82,7 +149,7 @@ internal static partial class Program
         var result = await service.DiscoverAsync();
 
         AssertEqual(2, searchCalls);
-        AssertTrue(sawBroadFallback);
+        AssertTrue(sawAlternateSort);
         AssertEqual(1, detailCalls);
         AssertEqual(30, result.HydratedCount);
         AssertEqual(0, result.Items.Count); // Fallback search does not prove purchasable stock.

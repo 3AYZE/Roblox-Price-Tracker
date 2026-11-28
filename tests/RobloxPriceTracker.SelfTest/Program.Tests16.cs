@@ -17,20 +17,27 @@ internal static partial class Program
             new UgcCategoryPrimaryPricePolicy.OriginalOffer(7, 41, 65, true, 20, false, false)
         };
         var lows = UgcCategoryPrimaryPricePolicy.FindLowestObservedOriginalPricesByMaterial(offers);
-        AssertEqual(5, lows.Count);
+        AssertEqual(4, lows.Count);
         AssertEqual(95, lows[new(8, UgcCategoryPrimaryPricePolicy.Standard)]);
-        AssertEqual(500, lows[new(8, UgcCategoryPrimaryPricePolicy.Emissive)]);
         AssertEqual(350, lows[new(8, UgcCategoryPrimaryPricePolicy.Unknown)]);
         AssertEqual(120, lows[new(8, UgcCategoryPrimaryPricePolicy.Pbr)]);
         AssertEqual(65, lows[new(41, UgcCategoryPrimaryPricePolicy.Standard)]);
         AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
             UgcCategoryPrimaryPricePolicy.MaterialClass(null, false));
-        AssertEqual(UgcCategoryPrimaryPricePolicy.Emissive,
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
             UgcCategoryPrimaryPricePolicy.MaterialClass(true, null));
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Emissive,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(true, false));
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(true, true));
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Standard,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(false, false));
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Pbr,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(false, true));
         AssertEqual(95, UgcCategoryPrimaryPricePolicy.October2026TypicalOriginalReference(8,
             UgcCategoryPrimaryPricePolicy.Standard));
-        AssertEqual(500, UgcCategoryPrimaryPricePolicy.October2026TypicalOriginalReference(8,
-            UgcCategoryPrimaryPricePolicy.Emissive));
+        AssertTrue(UgcCategoryPrimaryPricePolicy.October2026TypicalOriginalReference(8,
+            UgcCategoryPrimaryPricePolicy.Emissive) is null);
         AssertTrue(UgcCategoryPrimaryPricePolicy.October2026TypicalOriginalReference(8,
             UgcCategoryPrimaryPricePolicy.Unknown) is null);
         return Task.CompletedTask;
@@ -50,17 +57,61 @@ internal static partial class Program
              "isEmissive":true,"isAdvancedMaterials":true},
             {"id":603,"itemType":"Asset","name":"Neon Glow Unknown","creatorName":"Test",
              "creatorTargetId":123,"assetType":8,"price":500,"unitsAvailableForConsumption":10,
-             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"]}
+             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"]},
+            {"id":604,"itemType":"Asset","name":"Plain Emissive","creatorName":"Test",
+             "creatorTargetId":123,"assetType":8,"price":200,"unitsAvailableForConsumption":10,
+             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"],
+             "isEmissive":true,"isPbr":false},
+            {"id":605,"itemType":"Asset","name":"Plain PBR","creatorName":"Test",
+             "creatorTargetId":123,"assetType":8,"price":250,"unitsAvailableForConsumption":10,
+             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"],
+             "isEmissive":false,"isAdvancedMaterials":true},
+            {"id":606,"itemType":"Asset","name":"Plain Conflicting Alias","creatorName":"Test",
+             "creatorTargetId":123,"assetType":8,"price":250,"unitsAvailableForConsumption":10,
+             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"],
+             "isEmissive":false,"isPbr":false,"isAdvancedMaterials":true},
+            {"id":607,"itemType":"Asset","name":"Malformed PBR With Standard Alias","creatorName":"Test",
+             "creatorTargetId":123,"assetType":8,"price":250,"unitsAvailableForConsumption":10,
+             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"],
+             "isEmissive":false,"isPbr":"false","isAdvancedMaterials":false},
+            {"id":608,"itemType":"Asset","name":"Malformed Advanced Material Alias","creatorName":"Test",
+             "creatorTargetId":123,"assetType":8,"price":250,"unitsAvailableForConsumption":10,
+             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"],
+             "isEmissive":false,"isPbr":false,"isAdvancedMaterials":"false"},
+            {"id":609,"itemType":"Asset","name":"Malformed Emissive Flag","creatorName":"Test",
+             "creatorTargetId":123,"assetType":8,"price":250,"unitsAvailableForConsumption":10,
+             "saleLocationType":"ShopAndAllExperiences","itemRestrictions":["Limited"],
+             "isEmissive":"false","isPbr":false}
         ]}
         """;
         using var doc = JsonDocument.Parse(json);
         var items = RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(doc.RootElement);
-        AssertEqual(3, items.Count);
+        AssertEqual(9, items.Count);
         AssertEqual(false, items[0].IsEmissive);
         AssertEqual(true, items[1].IsEmissive);
         AssertTrue(items[2].IsEmissive is null);
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Standard,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[0].IsEmissive, items[0].IsPbr));
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[1].IsEmissive, items[1].IsPbr));
         AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
             UgcCategoryPrimaryPricePolicy.MaterialClass(items[2].IsEmissive, items[2].IsPbr));
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Emissive,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[3].IsEmissive, items[3].IsPbr));
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Pbr,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[4].IsEmissive, items[4].IsPbr));
+        AssertTrue(items[5].IsPbr is null);
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[5].IsEmissive, items[5].IsPbr));
+        AssertTrue(items[6].IsPbr is null);
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[6].IsEmissive, items[6].IsPbr));
+        AssertTrue(items[7].IsPbr is null);
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[7].IsEmissive, items[7].IsPbr));
+        AssertTrue(items[8].IsEmissive is null);
+        AssertEqual(UgcCategoryPrimaryPricePolicy.Unknown,
+            UgcCategoryPrimaryPricePolicy.MaterialClass(items[8].IsEmissive, items[8].IsPbr));
         return Task.CompletedTask;
     }
 

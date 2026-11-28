@@ -21,6 +21,10 @@ public sealed record RobloxMarketplaceItemData(
     string? CollectibleProductId,
     string? Error)
 {
+    // Set only when a Marketplace response is actually received. Cached reads
+    // retain this timestamp and never renew stock verification.
+    public DateTimeOffset? VerifiedAtUtc { get; init; }
+
     public bool IsPrimaryPurchasable =>
         IsAvailable &&
         Price is > 0 &&
@@ -46,6 +50,7 @@ public sealed class RobloxMarketplaceItemService
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string? _anonymousCsrfToken;
+    private long _cooldownUntilUtcTicks;
 
     public RobloxMarketplaceItemService(HttpClient httpClient, AppLogger logger)
     {
@@ -94,11 +99,66 @@ public sealed class RobloxMarketplaceItemService
 
             if (stillMissing.Count == 0) return result;
 
+            if (Interlocked.Read(ref _cooldownUntilUtcTicks) > DateTimeOffset.UtcNow.UtcTicks)
+            {
+                foreach (var id in stillMissing)
+                    result[id] = new RobloxMarketplaceItemData(0, id, false, null, null, null,
+                        null, null, false, null, null, null, "Marketplace HTTP 429 cooldown active.");
+                return result;
+            }
+
             IReadOnlyList<RobloxMarketplaceItemData> fetched;
             try
             {
                 using var document = await FetchAsync(stillMissing.ToArray(), cancellationToken).ConfigureAwait(false);
-                fetched = RobloxMarketplaceItemParser.Parse(document.RootElement);
+                var receivedAt = DateTimeOffset.UtcNow;
+                fetched = RobloxMarketplaceItemParser.Parse(document.RootElement)
+                    .Select(x => x with { VerifiedAtUtc = receivedAt }).ToArray();
+                var returnedIds = fetched.Select(x => x.CollectibleItemId)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var omitted = stillMissing.Where(id => !returnedIds.Contains(id)).ToArray();
+                if (omitted.Length > 0)
+                {
+                    // An HTTP 200 response may omit some or all requested IDs.
+                    // Retry only omitted IDs, in at most two smaller requests.
+                    // Preserve successful rows and their original timestamps.
+                    _logger.Info($"MarketplaceItemService.GetManyAsync: response omitted " +
+                        $"{omitted.Length}/{stillMissing.Count} collectible IDs; retrying omitted IDs once.");
+                    var recovered = new List<RobloxMarketplaceItemData>(fetched);
+                    var batchSize = Math.Max(1, (omitted.Length + 1) / 2);
+                    foreach (var chunk in omitted.Chunk(batchSize))
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(650), cancellationToken).ConfigureAwait(false);
+                        try
+                        {
+                            using var retry = await FetchAsync(chunk, cancellationToken).ConfigureAwait(false);
+                            var retryReceivedAt = DateTimeOffset.UtcNow;
+                            var requestedChunk = chunk.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                            recovered.AddRange(RobloxMarketplaceItemParser.Parse(retry.RootElement)
+                                .Where(x => requestedChunk.Contains(x.CollectibleItemId))
+                                .Select(x => x with { VerifiedAtUtc = retryReceivedAt }));
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+                        {
+                            _logger.Info("MarketplaceItemService.GetManyAsync: recovery stopped by HTTP 429; " +
+                                "unresolved IDs remain unverified. Check Roblox Retry-After before refreshing.");
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Info($"MarketplaceItemService.GetManyAsync: recovery chunk unavailable ({ex.Message}); " +
+                                "unresolved creator stock remains unverified.");
+                        }
+                    }
+
+                    fetched = recovered;
+                    _logger.Info($"MarketplaceItemService.GetManyAsync: batch recovery returned " +
+                        $"{recovered.Select(x => x.CollectibleItemId).Distinct(StringComparer.OrdinalIgnoreCase).Count()}/{stillMissing.Count} rows; missing IDs remain unavailable.");
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -114,7 +174,14 @@ public sealed class RobloxMarketplaceItemService
 
             var fetchedById = fetched
                 .Where(x => !string.IsNullOrWhiteSpace(x.CollectibleItemId))
-                .ToDictionary(x => x.CollectibleItemId, StringComparer.OrdinalIgnoreCase);
+                .GroupBy(x => x.CollectibleItemId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x.Key, x =>
+                {
+                    var rows = x.Distinct().ToArray();
+                    return rows.Length == 1 ? rows[0] :
+                        new RobloxMarketplaceItemData(0, x.Key, false, null, null, null, null,
+                            null, false, null, null, null, "Conflicting Marketplace rows.");
+                }, StringComparer.OrdinalIgnoreCase);
             foreach (var id in stillMissing)
             {
                 var data = fetchedById.TryGetValue(id, out var value)
@@ -141,16 +208,22 @@ public sealed class RobloxMarketplaceItemService
             var response = await SendWithCsrfHandshakeAsync(collectibleItemIds, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                var retry = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(3);
+                var retryHeader = response.Headers.RetryAfter;
+                var retry = retryHeader?.Delta ??
+                    (retryHeader?.Date is { } retryAt ? retryAt - DateTimeOffset.UtcNow : TimeSpan.FromSeconds(3));
+                retry = retry < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : retry;
                 response.Dispose();
-                if (attempt + 1 < MaxAttempts)
+                if (attempt + 1 < MaxAttempts && retry <= TimeSpan.FromSeconds(8))
                 {
-                    var delay = TimeSpan.FromMilliseconds(Math.Clamp(retry.TotalMilliseconds, 1000d, 8000d));
-                    _logger.Info($"Marketplace item details rate limited; retrying after {delay.TotalSeconds:0.#}s.");
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    _logger.Info($"Marketplace item details rate limited; retrying after {retry.TotalSeconds:0.#}s.");
+                    await Task.Delay(retry, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
+                var resumeAt = DateTimeOffset.UtcNow.Add(retry);
+                Interlocked.Exchange(ref _cooldownUntilUtcTicks, resumeAt.UtcTicks);
+                _logger.Info($"MarketplaceItemService.FetchAsync: HTTP 429 cooldown until {resumeAt:O}; " +
+                    "creator stock will remain unverified until then.");
                 throw new HttpRequestException("Roblox Marketplace Items returned HTTP 429.", null, HttpStatusCode.TooManyRequests);
             }
 
@@ -213,6 +286,8 @@ public static class RobloxMarketplaceItemParser
         var result = new List<RobloxMarketplaceItemData>();
         foreach (var row in root.EnumerateArray())
         {
+            // A malformed row must not discard valid stock from the rest of the batch.
+            if (row.ValueKind != JsonValueKind.Object) continue;
             var collectibleId = GetString(row, "collectibleItemId");
             if (string.IsNullOrWhiteSpace(collectibleId)) continue;
 
@@ -222,8 +297,8 @@ public static class RobloxMarketplaceItemParser
                 : null;
             var available = assetId > 0 && string.IsNullOrWhiteSpace(errorCode);
             var price = TryGetInt32(row, "price", out var parsedPrice) ? parsedPrice : (int?)null;
-            var sales = TryGetInt64(row, "sales", out var parsedSales) ? Math.Max(0, parsedSales) : (long?)null;
-            var units = TryGetInt64(row, "unitsAvailableForConsumption", out var parsedUnits) ? Math.Max(0, parsedUnits) : (long?)null;
+            var sales = TryGetInt64(row, "sales", out var parsedSales) && parsedSales >= 0 ? parsedSales : (long?)null;
+            var units = TryGetInt64(row, "unitsAvailableForConsumption", out var parsedUnits) && parsedUnits >= 0 ? parsedUnits : (long?)null;
             var stock = TryGetInt64(row, "assetStock", out var parsedStock) && parsedStock > 0 ? parsedStock : (long?)null;
             var floor = TryGetInt64(row, "lowestResalePrice", out var parsedFloor) && parsedFloor > 0 ? parsedFloor : (long?)null;
             var hasResellers = TryGetBoolean(row, "hasResellers", out var parsedHasResellers) && parsedHasResellers;

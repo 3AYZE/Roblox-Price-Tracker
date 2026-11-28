@@ -128,6 +128,24 @@
             <Setter Property="Cursor" Value="Hand" />
         </Style>
 
+        <Style x:Key="CleanWorkspaceTabButtonStyle" TargetType="Button" BasedOn="{StaticResource LinkButtonStyle}">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="TabSurface" Background="Transparent" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TabSurface" Property="Background" Value="#152333" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="TabSurface" Property="Background" Value="#1B3049" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.55" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="NavigationButtonStyle" TargetType="RadioButton">
             <Setter Property="Foreground" Value="#8D99A8" />
             <Setter Property="Background" Value="Transparent" />

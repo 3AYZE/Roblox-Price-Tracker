@@ -39,17 +39,19 @@ public partial class MainWindow
         if (!UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(row.Price) ||
             row.UnitsAvailable is not > 0)
             return false;
-        // Older UI price anchors may include unverified catalog quotes. They
-        // are informational only; hard investment exclusion is controlled by
-        // the new evidence-verified policy, never this legacy 1.75x heuristic.
-        if (mode != 3 && row.IsExcludedPriceDistortion)
+        // Every Hunter mode uses the same strict scanner gate. Researching an
+        // individual asset in Analyzer does not grant it a live scanner slot.
+        if (!row.MeetsScannerStockAndAge ||
+            !UgcActiveStockPolicy.IsActiveSnapshot(row.PrimaryMarketVerified,
+                row.UnitsAvailable, row.Price, row.ObservedAtUtc, DateTimeOffset.UtcNow) ||
+            !UgcCategoryBuyingPricePolicy.IsLiveScannerListing(row.BuyingPriceClassification,
+                row.Price, row.BuyingPriceCeiling, row.IsExcludedPriceDistortion,
+                row.EarlierLowerVerifiedOriginalPrice, row.AssetType, row.MaterialClass))
             return false;
+        if (mode != 3 && !row.IsGoodBuyingPrice) return false;
         return mode switch
         {
-            // During an upgrade, old validated cached rows remain visible but
-            // marked "NO COMPARISON" until a new scan supplies per-type prices.
-            0 => row.IsLowestObservedOriginalSale ||
-                 (row.AssetType == 0 && row.PrimaryMarketVerified),
+            0 => row.IsQualifiedOpportunity,
             1 => row.PrimaryMarketVerified,
             2 => true,
             3 => true,
@@ -175,9 +177,7 @@ public partial class MainWindow
             _hunterLiveCountText.Text = visible.Length.ToString("N0");
         if (_hunterStrongCountText is not null)
         {
-            var strong = visible.Count(x => !x.IsExcludedPriceDistortion &&
-                x.ResalePotentialScore >= 75 && x.EntryScore >= 55 &&
-                x.Recommendation is not ("AVOID" or "EXCLUDED" or "DATA REVIEW"));
+            var strong = visible.Count(x => x.IsQualifiedOpportunity);
             _hunterStrongCountText.Text = strong.ToString("N0");
         }
     }

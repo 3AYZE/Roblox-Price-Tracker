@@ -49,18 +49,25 @@ public sealed record RobloxUgcCatalogCandidate(
     bool HasResellers = false,
     bool PrimaryMarketVerified = false,
     bool? IsEmissive = null,
-    bool? IsPbr = null);
+    bool? IsPbr = null)
+{
+    public DateTimeOffset? VerifiedAtUtc { get; init; }
+    public DateTimeOffset? CreatedAtUtc { get; init; }
+}
 
 public sealed record RobloxUgcDiscoveryResult(
     IReadOnlyList<RobloxUgcCatalogCandidate> Items,
     int DiscoveredCount,
-    int HydratedCount);
+    int HydratedCount)
+{
+    public bool IsPartial { get; init; }
+    public IReadOnlyList<long> InvalidatedAssetIds { get; init; } = Array.Empty<long>();
+}
 
 /// <summary>
 /// UGC Limited discovery with bounded multi-window momentum scanning and defensive compatibility
-/// fallbacks. Roblox's legacy catalog V1 search surface is useful but not actively maintained, so
-/// Hunter never treats one fragile category route as mandatory. Collectibles (Category=2) is the
-/// primary V1 bucket, Category=1 is the protocol fallback, and CommunityCreations is supplemental.
+/// fallbacks. Verified Category=1 Limited feeds cover typed accessories and emotes.
+/// Unsupported category and subcategory routes are excluded from production scanning.
 /// Search rows only discover IDs; hydrated catalog and Marketplace Item data remain authoritative.
 /// </summary>
 public sealed class RobloxUgcDiscoveryService
@@ -97,69 +104,51 @@ public sealed class RobloxUgcDiscoveryService
         public double CompositeScore => Score + Math.Max(0, FeedHits - 1) * 18d;
     }
 
-    private sealed record DiscoveryIdSet(long[] Ids, int FeedsUsed, int PagesUsed, bool FromCache);
+    private sealed record DiscoveryIdSet(long[] Ids, int FeedsUsed, int PagesUsed, bool FromCache, bool IsPartial);
     private sealed record HydrationResult(IReadOnlyList<RobloxUgcCatalogCandidate> Items, int Rows, int Requests);
 
     private static readonly DiscoveryFeed[] DiscoveryFeeds =
     [
         new(
-            "collectibles-sales-day",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
+            "limited-sales-day",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=1&Limit=30"),
+            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30"),
             MaxPages: 2,
             Budget: 60,
             Weight: 1.35d),
         new(
-            "collectibles-sales-week",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
+            "limited-sales-week",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
+            null,
             MaxPages: 3,
             Budget: 90,
             Weight: 1.50d),
         new(
-            "collectibles-sales-month",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=2&SortAggregation=4&Limit=30"),
+            "limited-sales-month",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=2&SortAggregation=4&Limit=30"),
+            null,
             MaxPages: 2,
             Budget: 60,
             Weight: 1.05d),
         new(
-            "community-sales-week",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=2&SortAggregation=3&Limit=30"),
-            null,
-            MaxPages: 3,
-            Budget: 90,
-            Weight: 1.10d),
-        // Supplement popularity feeds with newly published community collectibles.
-        // One extra page every discovery-cache interval; Marketplace remains the
-        // only authority for active original stock.
-        new(
-            "recent-community",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=13&salesTypeFilter=2&SortType=3&Limit=30"),
-            null,
-            MaxPages: 1,
-            Budget: 30,
-            Weight: 0.25d,
-            ReserveRecent: true),
-        new(
-            "recent-collectibles",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=2&salesTypeFilter=2&SortType=3&Limit=30"),
+            "recent-limiteds",
             new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Limit=30"),
+            null,
             MaxPages: 1,
             Budget: 30,
-            Weight: 0.20d,
-            ReserveRecent: true),
-        // Dedicated single-page emote coverage, paced sequentially just like the
-        // existing feeds; do not expand the scanner's 120-ID cap.
-        new(
-            "recent-limited-emotes",
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=12&Subcategory=39&salesTypeFilter=2&SortType=3&Limit=30"),
-            new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&Subcategory=39&salesTypeFilter=2&SortType=3&Limit=30"),
-            MaxPages: 1,
-            Budget: 30,
-            Weight: 0.35d,
-            ReserveEmotes: true)
+            Weight: 0.50d,
+            ReserveRecent: true,
+            ReserveEmotes: true),
     ];
+
+    private static IReadOnlyList<DiscoveryFeed> BuildDiscoveryFeeds(long rotation) =>
+        DiscoveryFeeds.Concat(UgcDiscoverySelectionPolicy.CategoryKeywordsForScan(rotation)
+            .Select(keyword => new DiscoveryFeed(
+                "category-" + keyword.ToLowerInvariant().Replace(' ', '-'),
+                new Uri("https://catalog.roblox.com/v1/search/items/details?Category=1&salesTypeFilter=2&SortType=3&Keyword=" +
+                    Uri.EscapeDataString(keyword) + "&Limit=30"),
+                null, MaxPages: 1, Budget: 30, Weight: 0.65d,
+                ReserveEmotes: keyword == "Emote"))).ToArray();
 
     private static readonly Uri DetailsEndpoint = new("https://catalog.roblox.com/v1/catalog/items/details");
 
@@ -168,7 +157,7 @@ public sealed class RobloxUgcDiscoveryService
     private const int MaxDetailBatchSize = 40;
     private const int DetailIsolationChunkSize = 10;
     private const int MaxMarketplaceBatchSize = 40;
-    private const int MaxRateLimitAttempts = 2;
+    private const int MaxRateLimitAttempts = 1;
     private static readonly TimeSpan DiscoveryCacheDuration = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan InterPageDelay = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan InterFeedDelay = TimeSpan.FromMilliseconds(400);
@@ -181,6 +170,7 @@ public sealed class RobloxUgcDiscoveryService
     private readonly bool _expandDiscovery;
     private readonly SemaphoreSlim _discoveryGate = new(1, 1);
     private DiscoveryIdSet? _cachedDiscovery;
+    private long _categoryRotation;
     private DateTimeOffset _cachedDiscoveryExpiresAtUtc;
     private string? _anonymousCsrfToken;
 
@@ -198,7 +188,8 @@ public sealed class RobloxUgcDiscoveryService
         if (discovery.Ids.Length == 0)
         {
             _logger.Info("UGC Hunter discovery returned no UGC Collectible asset IDs.");
-            return new RobloxUgcDiscoveryResult(Array.Empty<RobloxUgcCatalogCandidate>(), 0, 0);
+            return new RobloxUgcDiscoveryResult(Array.Empty<RobloxUgcCatalogCandidate>(), 0, 0)
+            { IsPartial = discovery.IsPartial };
         }
 
         await Task.Delay(
@@ -208,6 +199,7 @@ public sealed class RobloxUgcDiscoveryService
         var catalogCandidates = new List<RobloxUgcCatalogCandidate>(discovery.Ids.Length);
         var hydratedRows = 0;
         var detailRequests = 0;
+        var isPartial = discovery.IsPartial;
 
         foreach (var batch in discovery.Ids.Chunk(MaxDetailBatchSize))
         {
@@ -220,6 +212,7 @@ public sealed class RobloxUgcDiscoveryService
             }
             catch (RobloxUgcDiscoveryException ex) when (catalogCandidates.Count > 0)
             {
+                isPartial = true;
                 _logger.Info($"UGC Hunter kept {catalogCandidates.Count} hydrated candidates after a later detail batch failed: {ex.Message}");
                 break;
             }
@@ -243,16 +236,40 @@ public sealed class RobloxUgcDiscoveryService
         var candidates = new List<RobloxUgcCatalogCandidate>(catalogCandidates.Count);
         var verified = 0;
         var rejectedUnavailable = 0;
+        var missingCollectibleId = 0;
+        var missingMarketplaceQuote = 0;
+        var invalidOriginalStock = 0;
+        var rejectedCandidates = new List<RobloxUgcCatalogCandidate>();
+        var rejectionReasons = new Dictionary<string, int>(StringComparer.Ordinal);
+        var invalidatedAssetIds = new HashSet<long>();
         foreach (var candidate in catalogCandidates)
         {
             // Catalog-only data is discovery evidence, not an active stock quote.
             // Never use its remaining count, seller book, or resale price as proof.
-            if (string.IsNullOrWhiteSpace(candidate.CollectibleItemId) ||
-                !marketplace.TryGetValue(candidate.CollectibleItemId, out var authoritative) ||
-                !UgcActiveStockPolicy.IsMarketplaceVerified(
-                    candidate.AssetId, candidate.CollectibleItemId, authoritative))
+            if (string.IsNullOrWhiteSpace(candidate.CollectibleItemId))
             {
+                missingCollectibleId++;
                 rejectedUnavailable++;
+                rejectedCandidates.Add(candidate);
+                continue;
+            }
+            if (!marketplace.TryGetValue(candidate.CollectibleItemId, out var authoritative))
+            {
+                missingMarketplaceQuote++;
+                rejectedUnavailable++;
+                rejectedCandidates.Add(candidate);
+                continue;
+            }
+            var reason = UgcActiveStockPolicy.MarketplaceRejectionReason(
+                candidate.AssetId, candidate.CollectibleItemId, authoritative);
+            if (reason is not null)
+            {
+                invalidOriginalStock++;
+                rejectedUnavailable++;
+                rejectedCandidates.Add(candidate);
+                rejectionReasons[reason] = rejectionReasons.GetValueOrDefault(reason) + 1;
+                // A returned but invalid Marketplace quote must not revive a prior live row.
+                invalidatedAssetIds.Add(candidate.AssetId);
                 continue;
             }
 
@@ -268,17 +285,29 @@ public sealed class RobloxUgcDiscoveryService
                 LowestResalePrice = authoritative.LowestResalePrice,
                 HasResellers = authoritative.HasResellers,
                 PrimaryMarketVerified = true,
+                VerifiedAtUtc = authoritative.VerifiedAtUtc,
                 CollectibleItemId = authoritative.CollectibleItemId
             });
         }
 
+        var rejectionSummary = string.Join(",", rejectionReasons.OrderBy(x => x.Key).Select(x => $"{x.Key}:{x.Value}"));
         _logger.Info(
             $"UGC Hunter resilient momentum discovery: {discovery.FeedsUsed} feed(s), {discovery.PagesUsed} page(s), " +
             $"{discovery.Ids.Length} selected IDs{(discovery.FromCache ? " (cached discovery)" : string.Empty)}, " +
             $"{detailRequests} detail request(s), {hydratedRows} catalog rows, {verified} marketplace-verified, " +
-            $"{rejectedUnavailable} unavailable rejected, {candidates.Count} active candidates.");
+            $"{rejectedUnavailable} unavailable rejected (missing ID={missingCollectibleId}, " +
+            $"missing Marketplace quote={missingMarketplaceQuote}, invalid original stock={invalidOriginalStock}, " +
+            $"reasons={rejectionSummary}), " +
+            $"{candidates.Count} active candidates. Hydrated types: {TypeCounts(catalogCandidates)}; " +
+            $"active types: {TypeCounts(candidates)}; rejected types: {TypeCounts(rejectedCandidates)}.");
 
-        return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows);
+        // An absent or ambiguous response is not proof of a sold-out market.
+        // Successful, explicitly sold-out or off-shop rows are not uncertainty.
+        isPartial |= hydratedRows < discovery.Ids.Length || missingCollectibleId > 0 ||
+            missingMarketplaceQuote > 0 || rejectionReasons.Keys.Any(reason =>
+                reason != "sold out original inventory" && reason != "not purchasable in Shop");
+        return new RobloxUgcDiscoveryResult(candidates, discovery.Ids.Length, hydratedRows)
+        { IsPartial = isPartial, InvalidatedAssetIds = invalidatedAssetIds.ToArray() };
     }
 
     private async Task<HydrationResult> HydrateBatchResilientAsync(long[] batch, CancellationToken cancellationToken)
@@ -352,9 +381,14 @@ public sealed class RobloxUgcDiscoveryService
             if (_cachedDiscovery is { } insideCached && _cachedDiscoveryExpiresAtUtc > now)
                 return insideCached with { FromCache = true };
 
-            var refreshed = await DiscoverIdsFromFeedsAsync(DiscoveryFeeds, cancellationToken).ConfigureAwait(false);
-            _cachedDiscovery = refreshed with { FromCache = false };
-            _cachedDiscoveryExpiresAtUtc = DateTimeOffset.UtcNow + DiscoveryCacheDuration;
+            var rotation = _categoryRotation++;
+            var refreshed = await DiscoverIdsFromFeedsAsync(BuildDiscoveryFeeds(rotation),
+                cancellationToken, rotation).ConfigureAwait(false);
+            if (!refreshed.IsPartial)
+            {
+                _cachedDiscovery = refreshed with { FromCache = false };
+                _cachedDiscoveryExpiresAtUtc = DateTimeOffset.UtcNow + DiscoveryCacheDuration;
+            }
             return refreshed;
         }
         finally
@@ -365,7 +399,7 @@ public sealed class RobloxUgcDiscoveryService
 
     private async Task<DiscoveryIdSet> DiscoverIdsFromFeedsAsync(
         IReadOnlyList<DiscoveryFeed> feeds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, long rotation = 0)
     {
         var signals = new Dictionary<long, DiscoverySignal>();
         var recentIds = new List<long>(RecentReserve * 2);
@@ -376,6 +410,8 @@ public sealed class RobloxUgcDiscoveryService
         var feedsUsed = 0;
         var pagesUsed = 0;
         RobloxUgcDiscoveryException? firstFailure = null;
+        var discoveryRateLimited = false;
+        var assetTypes = new Dictionary<long, int>();
 
         foreach (var feed in feeds)
         {
@@ -398,11 +434,10 @@ public sealed class RobloxUgcDiscoveryService
                     feed.FallbackEndpoint is not null &&
                     ex.Kind == RobloxUgcDiscoveryFailureKind.Protocol)
                 {
-                    firstFailure ??= ex;
                     activeEndpoint = feed.FallbackEndpoint;
                     cursor = null;
                     _logger.Info(
-                        $"UGC Hunter {feed.Name} primary route returned protocol error; retrying with broad Collectibles fallback. " +
+                        $"UGC Hunter {feed.Name} primary route returned protocol error; retrying with supported alternate sort. " +
                         ex.Message);
                     try
                     {
@@ -412,6 +447,8 @@ public sealed class RobloxUgcDiscoveryService
                     {
                         firstFailure ??= fallbackEx;
                         _logger.Info($"UGC Hunter skipped {feed.Name}: fallback failed: {fallbackEx.Message}");
+                        if (fallbackEx.Kind == RobloxUgcDiscoveryFailureKind.RateLimited)
+                            discoveryRateLimited = true;
                         break;
                     }
                 }
@@ -419,6 +456,8 @@ public sealed class RobloxUgcDiscoveryService
                 {
                     firstFailure ??= ex;
                     _logger.Info($"UGC Hunter discovery skipped {feed.Name} page {page + 1}: {ex.Message}");
+                    if (ex.Kind == RobloxUgcDiscoveryFailureKind.RateLimited)
+                        discoveryRateLimited = true;
                     break;
                 }
 
@@ -430,6 +469,8 @@ public sealed class RobloxUgcDiscoveryService
                     for (var rowIndex = 0; rowIndex < pageHits.Count && rowsConsidered < feed.Budget; rowIndex++)
                     {
                         var id = pageHits[rowIndex].Id;
+                        if (pageHits[rowIndex].AssetType > 0)
+                            assetTypes[id] = pageHits[rowIndex].AssetType;
                         rowsConsidered++;
                         var rank = page * 30 + rowIndex + 1;
                         if (!signals.TryGetValue(id, out var signal))
@@ -456,6 +497,12 @@ public sealed class RobloxUgcDiscoveryService
 
             if (producedPage) feedsUsed++;
             if (idsFromFeed.Count > 0) feedIdLists.Add(idsFromFeed);
+            // Retry-After applies to the entire scanner, not just one feed.
+            if (discoveryRateLimited)
+            {
+                _logger.Info($"UGC Hunter stopped remaining discovery feeds after HTTP 429; retaining {signals.Count} discovered IDs.");
+                break;
+            }
             await Task.Delay(InterFeedDelay, cancellationToken).ConfigureAwait(false);
         }
 
@@ -470,9 +517,14 @@ public sealed class RobloxUgcDiscoveryService
             .ToArray();
 
         var selected = UgcDiscoverySelectionPolicy.Select(
-            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds);
-        return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false);
+            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds, assetTypes, rotation);
+        return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false,
+            IsPartial: firstFailure is not null || discoveryRateLimited);
     }
+
+    private static string TypeCounts(IEnumerable<RobloxUgcCatalogCandidate> rows) =>
+        string.Join(",", rows.GroupBy(x => x.AssetType).OrderBy(x => x.Key)
+            .Select(group => $"{group.Key}:{group.Count()}"));
 
     private static Uri BuildPageUri(Uri endpoint, string? cursor)
     {
@@ -776,7 +828,11 @@ public static class RobloxUgcCatalogDiscoveryParser
     {
         candidate = default!;
         if (!TryGetInt64(row, "id", out var id) || id <= 0) return false;
-        if (!TryGetInt32(row, "price", out var price) || price <= 0) return false;
+        // Search and catalog hydration may omit/zero the original sale price.
+        // It is only a discovery hint: Marketplace Items must independently
+        // confirm a positive creator price and active original stock later.
+        var price = TryGetInt32(row, "price", out var catalogPrice) && catalogPrice > 0
+            ? catalogPrice : 0;
         if (!string.Equals(GetString(row, "itemType"), "Asset", StringComparison.OrdinalIgnoreCase)) return false;
         if (!HasLimitedRestriction(row)) return false;
 
@@ -795,7 +851,7 @@ public static class RobloxUgcCatalogDiscoveryParser
             return false;
 
         var saleLocationType = GetString(row, "saleLocationType");
-        if (string.IsNullOrWhiteSpace(saleLocationType) ||
+        if (!string.IsNullOrWhiteSpace(saleLocationType) &&
             !saleLocationType.StartsWith("Shop", StringComparison.OrdinalIgnoreCase))
             return false;
 
@@ -832,11 +888,34 @@ public static class RobloxUgcCatalogDiscoveryParser
             favorites,
             GetString(row, "collectibleItemId"))
         {
+            CreatedAtUtc = ReadCreationDate(row),
             IsEmissive = TryGetBoolean(row, "isEmissive", out var emissive) ? emissive : null,
-            IsPbr = TryGetBoolean(row, "isPbr", out var pbr) ||
-                    TryGetBoolean(row, "isAdvancedMaterials", out pbr) ? pbr : null
+            IsPbr = ReadConsistentMaterialFlag(row, "isPbr", "isAdvancedMaterials")
         };
         return true;
+    }
+
+    private static DateTimeOffset? ReadCreationDate(JsonElement row)
+    {
+        foreach (var field in new[] { "created", "createdAt" })
+            if (row.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String &&
+                value.TryGetDateTimeOffset(out var date) && date != default && date <= DateTimeOffset.UtcNow)
+                return date.ToUniversalTime();
+        return null;
+    }
+
+    private static bool? ReadConsistentMaterialFlag(JsonElement row, string primaryName, string alternateName)
+    {
+        var hasPrimaryProperty = row.TryGetProperty(primaryName, out _);
+        var hasAlternateProperty = row.TryGetProperty(alternateName, out _);
+        var hasPrimary = TryGetBoolean(row, primaryName, out var primary);
+        var hasAlternate = TryGetBoolean(row, alternateName, out var alternate);
+        // A present but malformed value is uncertainty, even when the alias
+        // contains a valid boolean. Never turn partial metadata into STANDARD.
+        if ((hasPrimaryProperty && !hasPrimary) || (hasAlternateProperty && !hasAlternate)) return null;
+        if (hasPrimary && hasAlternate && primary != alternate) return null;
+        if (hasPrimary) return primary;
+        return hasAlternate ? alternate : null;
     }
 
     public static bool IsSupportedUgcAssetType(int assetType) =>

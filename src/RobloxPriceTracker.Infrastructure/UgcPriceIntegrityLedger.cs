@@ -18,6 +18,9 @@ public sealed class UgcPriceIntegrityLedger
     private readonly string _configPath;
     private readonly AppLogger? _logger;
     private readonly Dictionary<long, List<UgcPriceIntegrityPolicy.PrimaryPriceObservation>> _timeline = new();
+    // Keep compact verified anchors per identity, independent of rolling retention.
+    private readonly Dictionary<(long Asset, long Creator, int Type),
+        (UgcPriceIntegrityPolicy.PrimaryPriceObservation First, UgcPriceIntegrityPolicy.PrimaryPriceObservation Low)> _anchors = new();
     private readonly object _timelineGate = new();
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private bool _initialized;
@@ -66,7 +69,13 @@ public sealed class UgcPriceIntegrityLedger
     public IReadOnlyList<UgcPriceIntegrityPolicy.PrimaryPriceObservation> History(long assetId)
     {
         lock (_timelineGate)
-            return _timeline.TryGetValue(assetId, out var data) ? data.ToArray() : [];
+        {
+            var rolling = _timeline.TryGetValue(assetId, out var data)
+                ? data : Enumerable.Empty<UgcPriceIntegrityPolicy.PrimaryPriceObservation>();
+            var anchors = _anchors.Where(x => x.Key.Asset == assetId)
+                .SelectMany(x => new[] { x.Value.First, x.Value.Low });
+            return rolling.Concat(anchors).Distinct().OrderBy(x => x.ObservedAtUtc).ToArray();
+        }
     }
 
     public void Observe(UgcPriceIntegrityPolicy.PrimaryPriceObservation observation) =>
@@ -74,9 +83,27 @@ public sealed class UgcPriceIntegrityLedger
 
     private void Observe(UgcPriceIntegrityPolicy.PrimaryPriceObservation point, bool markDirty)
     {
-        if (!UgcPriceIntegrityPolicy.IsVerifiedOriginal(point)) return;
+        if (!UgcPriceIntegrityPolicy.IsVerifiedOriginal(point) || point.ObservedAtUtc > DateTimeOffset.UtcNow) return;
         lock (_timelineGate)
         {
+            var key = (point.AssetId, point.CreatorId, point.AssetType);
+            if (!_anchors.TryGetValue(key, out var anchor))
+            {
+                _anchors[key] = (point, point);
+                if (markDirty) _dirty = true;
+            }
+            else
+            {
+                var first = point.ObservedAtUtc < anchor.First.ObservedAtUtc ? point : anchor.First;
+                var low = point.PrimaryPrice < anchor.Low.PrimaryPrice ||
+                    (point.PrimaryPrice == anchor.Low.PrimaryPrice && point.ObservedAtUtc < anchor.Low.ObservedAtUtc)
+                    ? point : anchor.Low;
+                if (first != anchor.First || low != anchor.Low)
+                {
+                    _anchors[key] = (first, low);
+                    if (markDirty) _dirty = true;
+                }
+            }
             if (!_timeline.TryGetValue(point.AssetId, out var records))
                 _timeline[point.AssetId] = records = [];
 
@@ -94,7 +121,8 @@ public sealed class UgcPriceIntegrityLedger
             records.Add(point);
             var cutoff = point.ObservedAtUtc.AddDays(-Configuration.MaxHistoryAgeDays);
             records.RemoveAll(x => x.ObservedAtUtc < cutoff);
-            if (records.Count > 36) records.RemoveRange(0, records.Count - 36);
+            // Reserve two slots for the durable first/minimum anchors.
+            if (records.Count > 34) records.RemoveRange(0, records.Count - 34);
             if (markDirty) _dirty = true;
         }
     }
@@ -113,6 +141,8 @@ public sealed class UgcPriceIntegrityLedger
                     .Where(x => x.ObservedAtUtc >= cutoff)
                     .OrderByDescending(x => x.ObservedAtUtc)
                     .Take(5000)
+                    .Concat(_anchors.Values.SelectMany(x => new[] { x.First, x.Low }))
+                    .Distinct()
                     .OrderBy(x => x.ObservedAtUtc)
                     .ToArray();
                 _dirty = false; // A concurrent new observation sets this back to true.

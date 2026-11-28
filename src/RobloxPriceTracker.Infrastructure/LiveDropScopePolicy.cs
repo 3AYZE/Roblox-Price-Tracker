@@ -19,9 +19,21 @@ public static class LiveDropScopePolicy
         if (scope == "UGC")
             return new SourcePlan(
                 false,
-                force || lastUgc is null || now - lastUgc > TimeSpan.FromSeconds(105),
+                force || lastUgc is null || now - lastUgc >= TimeSpan.FromSeconds(60),
                 force || lastBundles is null || now - lastBundles > TimeSpan.FromSeconds(105));
         return default;
+    }
+
+    // Animation packs are research-only and visible in their dedicated filter.
+    // Do not consume accessory refresh budget or report bundle failures on other filters.
+    public static SourcePlan DueVisibleSources(string scope, bool animationPacksSelected, bool force,
+        DateTimeOffset now, DateTimeOffset? lastOfficial, DateTimeOffset? lastUgc,
+        DateTimeOffset? lastBundles)
+    {
+        var due = DueSources(scope, force, now, lastOfficial, lastUgc, lastBundles);
+        return scope != "UGC" ? due :
+            animationPacksSelected ? new SourcePlan(false, false, due.Bundles) :
+            new SourcePlan(false, due.Ugc, false);
     }
 
     public static bool Accepts(string scope, string productKind) =>

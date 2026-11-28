@@ -25,6 +25,16 @@ internal static partial class Program
             good with { TotalStock = 5, UnitsAvailable = 12 }));
         AssertTrue(UgcActiveStockPolicy.IsMarketplaceVerified(111, "collectible-111",
             good with { TotalStock = null })); // Remaining count is verified; total need not exist.
+        AssertEqual("mismatched asset or collectible ID",
+            UgcActiveStockPolicy.MarketplaceRejectionReason(112, "collectible-111", good));
+        AssertEqual("sold out original inventory", UgcActiveStockPolicy.MarketplaceRejectionReason(
+            111, "collectible-111", good with { UnitsAvailable = 0 }));
+        AssertEqual("unknown original remaining", UgcActiveStockPolicy.MarketplaceRejectionReason(
+            111, "collectible-111", good with { UnitsAvailable = null }));
+        AssertEqual("unknown or zero primary price", UgcActiveStockPolicy.MarketplaceRejectionReason(
+            111, "collectible-111", good with { Price = 0 }));
+        AssertEqual("not purchasable in Shop", UgcActiveStockPolicy.MarketplaceRejectionReason(
+            111, "collectible-111", good with { SaleLocationType = "ExperiencesDevApiOnly" }));
         return Task.CompletedTask;
     }
 
@@ -50,7 +60,10 @@ internal static partial class Program
           {"id":1101,"itemType":"Asset","creatorTargetId":22,"assetType":8},
           {"id":1102,"itemType":"Asset","creatorTargetId":23,"assetType":8},
           {"id":1103,"itemType":"Asset","creatorTargetId":24,"assetType":8},
-          {"id":1104,"itemType":"Asset","creatorTargetId":25,"assetType":8}
+          {"id":1104,"itemType":"Asset","creatorTargetId":25,"assetType":8},
+          {"id":1105,"itemType":"Asset","creatorTargetId":26,"assetType":41},
+          {"id":1106,"itemType":"Asset","creatorTargetId":27,"assetType":46},
+          {"id":1107,"itemType":"Asset","creatorTargetId":28,"assetType":43}
         ]}
         """;
         const string detail = """
@@ -74,7 +87,17 @@ internal static partial class Program
            "assetType":8,"creatorName":"Creator","price":95,
            "unitsAvailableForConsumption":12,
            "saleLocationType":"ShopAndAllExperiences",
-           "collectibleItemId":"c1104","itemRestrictions":["Limited"]}
+           "collectibleItemId":"c1104","itemRestrictions":["Limited"]},
+          {"id":1105,"itemType":"Asset","name":"Zero catalog price hair","creatorTargetId":26,
+           "assetType":41,"creatorName":"Creator","price":0,
+           "unitsAvailableForConsumption":10,
+           "collectibleItemId":"c1105","itemRestrictions":["Limited"]},
+          {"id":1106,"itemType":"Asset","name":"Missing catalog location back","creatorTargetId":27,
+           "assetType":46,"creatorName":"Creator","price":95,
+           "collectibleItemId":"c1106","itemRestrictions":["Limited"]},
+          {"id":1107,"itemType":"Asset","name":"Missing original stock","creatorTargetId":28,
+           "assetType":43,"creatorName":"Creator","price":95,
+           "collectibleItemId":"c1107","itemRestrictions":["Limited"]}
         ]}
         """;
         const string marketplace = """
@@ -90,7 +113,16 @@ internal static partial class Program
            "saleLocationType":"ShopAndAllExperiences"},
           {"collectibleItemId":"c1104","itemTargetId":9999,"price":95,
            "unitsAvailableForConsumption":30,"assetStock":100,
-           "saleLocationType":"ShopAndAllExperiences"}
+           "saleLocationType":"ShopAndAllExperiences"},
+          {"collectibleItemId":"c1105","itemTargetId":1105,"price":65,
+           "unitsAvailableForConsumption":9,"assetStock":100,
+           "saleLocationType":"ShopAndAllExperiences"},
+          {"collectibleItemId":"c1106","itemTargetId":1106,"price":100,
+           "unitsAvailableForConsumption":20,"assetStock":200,
+           "saleLocationType":"ShopOnly"},
+          {"collectibleItemId":"c1107","itemTargetId":1107,"price":100,
+           "lowestResalePrice":140,"hasResellers":true,
+           "saleLocationType":"ShopOnly"}
         ]
         """;
         int requests = 0;
@@ -113,17 +145,90 @@ internal static partial class Program
             var service = new RobloxUgcDiscoveryService(
                 client, new AppLogger(Path.Combine(directory, "test.log")), expandDiscovery: false);
             var result = await service.DiscoverAsync();
-            AssertEqual(1, result.Items.Count);
-            var item = result.Items.Single();
+            AssertEqual(3, result.Items.Count);
+            AssertTrue(result.IsPartial);
+            var item = result.Items.Single(x => x.AssetId == 1101);
             AssertEqual(1101L, item.AssetId);
             AssertTrue(item.PrimaryMarketVerified);
             AssertEqual(7L, item.UnitsAvailable);
             AssertEqual(95, item.Price);
+            var hair = result.Items.Single(x => x.AssetId == 1105);
+            AssertEqual("Hair", hair.Category);
+            AssertEqual(65, hair.Price);
+            AssertEqual(9L, hair.UnitsAvailable!.Value);
+            AssertTrue(hair.PrimaryMarketVerified);
+            var back = result.Items.Single(x => x.AssetId == 1106);
+            AssertEqual("Back", back.Category);
+            AssertEqual(100, back.Price);
+            AssertTrue(result.Items.All(x => x.AssetId != 1107));
             AssertTrue(requests >= 3);
         }
         finally
         {
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+    static async Task TestMarketplaceEmptyBatchRecoveryAsync()
+    {
+        var calls = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            var index = Interlocked.Increment(ref calls);
+            var body = index == 2 ? """
+                [{"collectibleItemId":"c901","itemTargetId":901,"price":65,
+                  "unitsAvailableForConsumption":12,"assetStock":60,
+                  "saleLocationType":"ShopAndAllExperiences"}]
+                """ : "[]";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(body) });
+        }));
+        var dir = Path.Combine(Path.GetTempPath(), "rpt-empty-marketplace", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxMarketplaceItemService(client, new AppLogger(Path.Combine(dir, "test.log")));
+            var rows = await service.GetManyAsync(["c901", "c902"]);
+            AssertEqual(3, calls); // Initial empty batch, then two bounded recovery chunks.
+            AssertTrue(UgcActiveStockPolicy.IsMarketplaceVerified(901, "c901", rows["c901"]));
+            AssertTrue(!UgcActiveStockPolicy.IsMarketplaceVerified(902, "c902", rows["c902"]));
+            AssertEqual(12L, rows["c901"].UnitsAvailable!.Value);
+            AssertTrue(rows["c902"].UnitsAvailable is null);
+            AssertTrue(rows["c901"].VerifiedAtUtc is not null);
+            var cached = await service.GetManyAsync(["c901", "c902", "c901"]);
+            AssertEqual(rows["c901"].VerifiedAtUtc, cached["c901"].VerifiedAtUtc);
+            AssertTrue(!UgcActiveStockPolicy.IsActiveSnapshot(true, 12, 65,
+                cached["c901"].VerifiedAtUtc, DateTimeOffset.UtcNow.AddSeconds(121)));
+            AssertEqual(3, calls); // Cached valid and missing rows; duplicate ID does not refetch.
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    static async Task TestMarketplaceRateLimitCooldownAsync()
+    {
+        var calls = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(5));
+            return Task.FromResult(response);
+        }));
+        var dir = Path.Combine(Path.GetTempPath(), "rpt-marketplace-429", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var service = new RobloxMarketplaceItemService(client, new AppLogger(Path.Combine(dir, "test.log")));
+            var first = await service.GetManyAsync(["c991"]);
+            var second = await service.GetManyAsync(["c992"]);
+            AssertEqual(1, calls); // Retry-After blocks fanout, including previously unseen IDs.
+            AssertTrue(!UgcActiveStockPolicy.IsMarketplaceVerified(991, "c991", first["c991"]));
+            AssertTrue(!UgcActiveStockPolicy.IsMarketplaceVerified(992, "c992", second["c992"]));
+            AssertTrue(second["c992"].Error?.Contains("cooldown", StringComparison.Ordinal) == true);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         }
     }
 }

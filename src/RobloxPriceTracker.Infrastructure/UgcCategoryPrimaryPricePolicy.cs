@@ -35,9 +35,15 @@ public static class UgcCategoryPrimaryPricePolicy
     public readonly record struct MaterialCategory(int AssetType, string MaterialClass);
 
     public static string MaterialClass(bool? isEmissive, bool? isPbr) =>
-        isEmissive == true ? Emissive :
-        isPbr == true ? Pbr :
-        isEmissive == false && isPbr == false ? Standard : Unknown;
+        (isEmissive, isPbr) switch
+        {
+            (true, false) => Emissive,
+            (false, true) => Pbr,
+            (false, false) => Standard,
+            // A missing flag or two premium flags is ambiguous metadata. Keep
+            // the item researchable, but never infer a priced material class.
+            _ => Unknown
+        };
 
     public static IReadOnlyDictionary<MaterialCategory, int> FindLowestObservedOriginalPricesByMaterial(
         IEnumerable<OriginalOffer> offers) =>
@@ -52,14 +58,11 @@ public static class UgcCategoryPrimaryPricePolicy
     public static int? October2026TypicalOriginalReference(int assetType, string materialClass) =>
         (assetType, materialClass) switch
         {
-            (8 or 42, Standard) => 95,
-            (41 or 47, Standard) => 65,
-            (43 or 44 or 45, Standard) => 55,
+            (8, Standard) => 95,
+            (41, Standard) => 65,
+            (42 or 43 or 44, Standard) => 55,
             (46, Standard) => 140,
             (61, Standard) => 50,
-            (8 or 42 or 46, Emissive) => 500,
-            (41, Emissive) => 350,
-            (44, Emissive) => 300,
             _ => null
         };
 

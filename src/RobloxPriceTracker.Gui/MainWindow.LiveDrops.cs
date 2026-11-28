@@ -35,7 +35,13 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public long? OriginalUnitsLeft =>
         Ugc is { PrimaryMarketVerified: true } ? Ugc.UnitsAvailable :
         Bundle is { PrimaryMarketVerified: true } ? Bundle.OriginalUnitsAvailable : null;
-    public string StockLeft => OriginalUnitsLeft is > 0 ? $"{OriginalUnitsLeft:N0} left" : "—";
+    public string StockLeft => OriginalUnitsLeft is > 0
+        ? Ugc?.TotalSupply is > 0
+            ? $"{OriginalUnitsLeft:N0}/{Ugc.TotalSupply:N0} left"
+            : $"{OriginalUnitsLeft:N0} left"
+        : "—";
+    public double RemainingStockRatio => Ugc?.TotalSupply is > 0 && OriginalUnitsLeft is > 0
+        ? (double)OriginalUnitsLeft.Value / Ugc.TotalSupply.Value : double.MaxValue;
     public long SortStockLow => OriginalUnitsLeft is > 0 ? OriginalUnitsLeft.Value : long.MaxValue;
     public long SortPriceLow => PriceNumber is > 0 ? PriceNumber.Value : long.MaxValue;
     public long SortPriceHigh => PriceNumber is > 0 ? -PriceNumber.Value : long.MaxValue;
@@ -49,6 +55,12 @@ public sealed class LiveDropRow : INotifyPropertyChanged
     public bool IsVerifiedSpecialMaterial { get; init; }
     public int ScoreRank { get; init; }
     public int OpportunityRank => IsOpportunity ? 1 : 0;
+    public bool IsAffordableListing => Ugc is { } item &&
+        UgcCategoryBuyingPricePolicy.IsLiveScannerListing(item.BuyingPriceClassification,
+            item.Price, item.BuyingPriceCeiling, item.IsExcludedPriceDistortion,
+            item.EarlierLowerVerifiedOriginalPrice, item.AssetType, item.MaterialClass);
+    public long AffordableStockOrder => UgcCategoryBuyingPricePolicy.AffordableStockOrder(
+        IsAffordableListing, OriginalUnitsLeft);
     public UgcHunterItem? Ugc { get; init; }
     public OfficialLimitedRow? Official { get; init; }
     public RobloxAnimationBundleOffer? Bundle { get; init; }
@@ -89,6 +101,10 @@ public partial class MainWindow
     private bool _liveDropRebuildQueued;
     private bool _liveDropSwitchPending;
     private string _liveDropScope = "UGC";
+    private bool _liveDropScopeInitialized;
+    private bool _restoringLiveDropFilters;
+    private sealed record LiveDropFilters(string Search, int Category, int Sort, bool Opportunities);
+    private readonly Dictionary<string, LiveDropFilters> _liveDropFilters = new();
     private TextBlock? _liveDropHeading;
     private string? _liveBundleScanError;
 
@@ -130,11 +146,27 @@ public partial class MainWindow
     private void SetLiveDropScope(string scope)
     {
         if (scope is not ("UGC" or "Official")) return;
+        if (_liveDropScopeInitialized && _liveDropScope == scope)
+        {
+            UpdateLiveDropVisibleRows();
+            UpdateLiveDropScopeStatus();
+            return;
+        }
+        if (_liveDropScopeInitialized)
+            _liveDropFilters[_liveDropScope] = new LiveDropFilters(
+                _liveDropSearch?.Text ?? "", _liveDropTypeFilter?.SelectedIndex ?? 0,
+                _liveDropSort?.SelectedIndex ?? 0, _liveDropOnlyOpportunities?.IsChecked == true);
+        _liveDropScopeInitialized = true;
+        _restoringLiveDropFilters = true;
         _liveDropScope = scope;
+        var saved = _liveDropFilters.TryGetValue(scope, out var previousFilters)
+            ? previousFilters : new LiveDropFilters("", 0, 0, false);
         if (_liveDropHeading is not null)
             _liveDropHeading.Text = scope == "Official" ? "OFFICIAL LIMITEDS" : "UGC LIMITEDS";
         if (_liveDropOnlyOpportunities is not null)
-            _liveDropOnlyOpportunities.IsChecked = false;
+            _liveDropOnlyOpportunities.IsChecked = saved.Opportunities;
+        if (_liveDropSort is not null)
+            _liveDropSort.SelectedIndex = Math.Clamp(saved.Sort, 0, _liveDropSort.Items.Count - 1);
         if (_ugcMaximumPrice is not null)
             _ugcMaximumPrice.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
         if (_ugcStockFilter is not null)
@@ -142,7 +174,7 @@ public partial class MainWindow
 
         if (_liveDropSearch is not null)
         {
-            _liveDropSearch.Text = "";
+            _liveDropSearch.Text = saved.Search;
             _liveDropSearch.ToolTip = scope == "Official"
                 ? "Search Roblox-published Limited name or asset ID"
                 : "Search UGC item, creator, asset or bundle ID";
@@ -154,7 +186,7 @@ public partial class MainWindow
                 ? new[] { "All Official", "Below RAP", "High liquidity", "Price drops" }
                 : new[] { "All UGC", "Accessories", "Emotes", "Animation Packs", "Emissive / PBR" };
             foreach (var item in options) _liveDropTypeFilter.Items.Add(item);
-            _liveDropTypeFilter.SelectedIndex = 0;
+            _liveDropTypeFilter.SelectedIndex = Math.Clamp(saved.Category, 0, options.Length - 1);
         }
         if (_liveDropGrid is not null)
         {
@@ -174,6 +206,8 @@ public partial class MainWindow
 
             _liveDropGrid.SelectedItem = null;
         }
+        _restoringLiveDropFilters = false;
+        ApplyLiveDropSort();
         UpdateLiveDropVisibleRows();
         if (_liveDropGrid is not null)
             _liveDropGrid.SelectedItem = _liveDropView?.Cast<object>().FirstOrDefault();
@@ -195,20 +229,32 @@ public partial class MainWindow
         }
         else
         {
-            var last = new[] { _hunterLastRefreshUtc, _liveBundleScanUtc }
-                .Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty().Max();
+            var now = DateTimeOffset.UtcNow;
+            var packs = _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs";
+            if (packs)
+            {
+                var verifiedPacks = _liveBundles.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
+                    x.PrimaryMarketVerified, x.OriginalUnitsAvailable, x.VerifiedOriginalPrice,
+                    x.VerifiedAtUtc, now));
+                _liveDropStatus.Text = !string.IsNullOrWhiteSpace(_liveBundleScanError)
+                    ? $"Animation packs unavailable · {verifiedPacks:N0} still verified · retry later"
+                    : _liveBundleScanUtc is { } bundleLast
+                        ? $"Verified animation packs: {verifiedPacks:N0} · Last scan {bundleLast.ToLocalTime():h:mm tt}"
+                        : "Animation packs · Refresh to verify original stock";
+                return;
+            }
+
             var verified = _hunterRows.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
-                x.PrimaryMarketVerified, x.UnitsAvailable, x.Price,
-                _hunterLastRefreshUtc, DateTimeOffset.UtcNow));
-            var bundles = _liveBundles.Count(x => UgcActiveStockPolicy.IsActiveSnapshot(
-                x.PrimaryMarketVerified, x.OriginalUnitsAvailable, x.VerifiedOriginalPrice,
-                _liveBundleScanUtc, DateTimeOffset.UtcNow));
-            _liveDropStatus.Text = verified + bundles == 0
-                ? "No verified in-stock UGC Limiteds found. Sold-out, unknown or expired stock is excluded."
-                : $"Verified original-stock listings: {verified + bundles:N0} · " +
-                  (last == default ? "Refresh to scan" : $"Last scan {last.ToLocalTime():h:mm tt}") +
+                x.PrimaryMarketVerified, x.UnitsAvailable, x.Price, x.ObservedAtUtc, now));
+            _liveDropStatus.Text = verified == 0
+                ? (_hunterRefreshInProgress ? "Refreshing UGC original stock…" :
+                    _hunterRefreshFailed || _hunterScanPartial ? "UGC verification incomplete · retry later" :
+                    _hunterRows.Count > 0 ? "Previous stock verification expired · refreshing availability" :
+                    "No verified in-stock UGC Limiteds found")
+                : $"Verified original-stock listings: {verified:N0} · " +
+                  (_hunterLastRefreshUtc is { } last ? $"Last scan {last.ToLocalTime():h:mm tt}" : "Refresh to scan") +
                   " · Resale inventory excluded" +
-                  (string.IsNullOrWhiteSpace(_liveBundleScanError) ? "" : " · Animation scan incomplete");
+                  (_hunterScanPartial || _hunterRefreshFailed ? " · UGC verification incomplete" : "");
         }
     }
 
@@ -294,7 +340,14 @@ public partial class MainWindow
         };
         // Source-specific options are set by SetLiveDropScope. Official and UGC
         // products must never appear in the same result list.
-        _liveDropTypeFilter.SelectionChanged += (_, _) => UpdateLiveDropVisibleRows();
+        _liveDropTypeFilter.SelectionChanged += async (_, _) =>
+        {
+            if (_restoringLiveDropFilters) return;
+            UpdateLiveDropVisibleRows();
+            UpdateLiveDropScopeStatus();
+            if (_liveDropScope == "UGC" && _liveDropPage?.IsVisible == true)
+                await RefreshLiveDropsAsync(force: false);
+        };
         filterPanel.Children.Add(_liveDropTypeFilter);
         _liveDropSort = new ComboBox
         {
@@ -311,7 +364,7 @@ public partial class MainWindow
         {
             Width = 140, Height = 30,
             Margin = new Thickness(8, 0, 0, 0),
-            ToolTip = "Maximum verified original creator price. Default: 500 R$. Higher prices remain available through the filter."
+            ToolTip = "Maximum verified creator price. Category limits and historical price protection always apply."
         };
         foreach (var option in new[]
         {
@@ -340,6 +393,7 @@ public partial class MainWindow
         _liveDropOnlyOpportunities = new CheckBox
         {
             Content = "Opportunities only",
+            IsChecked = false,
             Foreground = TerminalText,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 0, 0),
@@ -576,13 +630,18 @@ public partial class MainWindow
             .Concat(_officialRows.Select(FromOfficial))
             .Concat(_liveBundles.Select(FromBundle))
             .ToArray();
-        _liveDropRows.Clear();
-        foreach (var row in all) _liveDropRows.Add(row);
+        // Preserve the bound collection and unchanged rows; replacing the entire
+        // grid on every scan also clears selection and restarts thumbnail layout.
+        KeyedSnapshotReconciler.Apply(_liveDropRows, all, x => (x.Kind, x.Id),
+            (old, next) => ReferenceEquals(old.Ugc, next.Ugc) &&
+                           ReferenceEquals(old.Official, next.Official) &&
+                           ReferenceEquals(old.Bundle, next.Bundle) &&
+                           old.ThumbnailUrl == next.ThumbnailUrl);
         UpdateLiveDropVisibleRows();
         if (_liveDropGrid is not null)
         {
             if (prior is not null)
-                _liveDropGrid.SelectedItem = all.FirstOrDefault(x => x.Id == prior.Id && x.Kind == prior.Kind);
+                _liveDropGrid.SelectedItem = _liveDropView?.Cast<LiveDropRow>().FirstOrDefault(x => x.Id == prior.Id && x.Kind == prior.Kind);
             if (_liveDropGrid.SelectedItem is null)
                 _liveDropGrid.SelectedItem = _liveDropView?.Cast<object>().FirstOrDefault();
         }
@@ -599,11 +658,12 @@ public partial class MainWindow
             Id = item.AssetId, Name = item.Name, Creator = item.CreatorName,
             Kind = "UGC",
             Category = item.AssetType == 61 ? "Emote"
-                : item.IsEmissive == true ? "Emissive"
-                : item.IsPbr == true ? "PBR"
+                : item.MaterialClass == UgcCategoryPrimaryPricePolicy.Emissive ? "Emissive"
+                : item.MaterialClass == UgcCategoryPrimaryPricePolicy.Pbr ? "PBR"
                 : item.Category,
             IsEmote = item.AssetType == 61,
-            IsVerifiedSpecialMaterial = item.IsEmissive == true || item.IsPbr == true,
+            IsVerifiedSpecialMaterial = item.MaterialClass is
+                UgcCategoryPrimaryPricePolicy.Emissive or UgcCategoryPrimaryPricePolicy.Pbr,
             ThumbnailUrl = item.ThumbnailUrl,
             OriginalPrice = item.PrimaryMarketVerified ? $"{item.Price:N0} R$" : "—",
             CatalogQuote = item.PrimaryMarketVerified ? "—" : $"{item.Price:N0} R$",
@@ -613,15 +673,18 @@ public partial class MainWindow
             QuotedPrice = item.Price, PrimaryVerified = item.PrimaryMarketVerified,
             ResaleAsk = item.CurrentResaleFloor is > 0 ? item.CurrentResaleText : "Unavailable",
             Score = item.PrimaryMarketVerified && item.Recommendation != "DATA REVIEW" &&
-                    !item.IsExcludedPriceDistortion ? item.ResalePotentialText : "—",
+                    !item.IsExcludedPriceDistortion && item.IsGoodBuyingPrice ? item.ResalePotentialText : "—",
             Status = item.IsExcludedPriceDistortion ? "EXCLUDED"
                 : !item.PrimaryMarketVerified ? "CATALOG ONLY"
+                : item.BuyingPriceClassification == UgcCategoryBuyingPricePolicy.Above ? item.BuyingPriceText
+                : !item.IsGoodBuyingPrice ? "DATA REVIEW"
                 : eligible ? "OPPORTUNITY"
                 : item.Recommendation,
             Evidence = item.PrimaryMarketVerified
                 ? $"Purchasable original stock verified · {item.MaterialText}"
                 : "Catalog price is only a quote; original stock not verified and no buy recommendation",
-            Explanation = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}\n" +
+            Explanation = $"PRICE INTEGRITY {item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}\n" +
+                $"{item.BuyingPriceText}\n{item.BuyingPriceExplanation}\n" +
                 string.Join("\n", item.Reasons.Take(2)),
             RobloxUrl = $"https://www.roblox.com/catalog/{item.AssetId}",
             Ugc = item, IsOpportunity = eligible,
@@ -674,7 +737,7 @@ public partial class MainWindow
     private bool IsLiveDropOriginalStockCurrent(LiveDropRow row)
     {
         if (row.Official is not null) return true;
-        var verifiedTime = row.Ugc is not null ? _hunterLastRefreshUtc : _liveBundleScanUtc;
+        var verifiedTime = row.Ugc?.ObservedAtUtc ?? row.Bundle?.VerifiedAtUtc;
         return UgcActiveStockPolicy.IsActiveSnapshot(
             row.PrimaryVerified, row.OriginalUnitsLeft, row.QuotedPrice,
             verifiedTime, DateTimeOffset.UtcNow);
@@ -729,10 +792,11 @@ public partial class MainWindow
         };
         if (row.OriginalUnitsLeft is not > 0 ||
             row.OriginalUnitsLeft > maximumLeft) return false;
-        // Price-distortion exclusions aren't normal shopping results.
-        // Research-only Any price mode permits manual inspection.
-        if (max is not null && row.Ugc?.IsExcludedPriceDistortion == true)
+        // No search, sort or maximum-price setting may bypass buying protection.
+        // Unpriced animation bundles remain in their dedicated research filter.
+        if (row.Ugc is { } ugc && (!row.IsAffordableListing || !ugc.MeetsScannerStockAndAge))
             return false;
+        if (row.IsBundle && filter != "Animation Packs") return false;
 
         return filter switch
         {
@@ -746,7 +810,7 @@ public partial class MainWindow
 
     private void ApplyLiveDropSort()
     {
-        if (_liveDropView is null) return;
+        if (_restoringLiveDropFilters || _liveDropView is null) return;
         var option = _liveDropSort?.SelectedItem?.ToString() ?? "Best matches";
         _liveDropView.SortDescriptions.Clear();
         switch (option)
@@ -770,6 +834,15 @@ public partial class MainWindow
             default:
                 _liveDropView.SortDescriptions.Add(new SortDescription(
                     nameof(LiveDropRow.OpportunityRank), ListSortDirection.Descending));
+                if (_liveDropScope == "UGC")
+                {
+                    _liveDropView.SortDescriptions.Add(new SortDescription(
+                        nameof(LiveDropRow.RemainingStockRatio), ListSortDirection.Ascending));
+                    _liveDropView.SortDescriptions.Add(new SortDescription(
+                        nameof(LiveDropRow.AffordableStockOrder), ListSortDirection.Ascending));
+                    _liveDropView.SortDescriptions.Add(new SortDescription(
+                        nameof(LiveDropRow.SortPriceLow), ListSortDirection.Ascending));
+                }
                 _liveDropView.SortDescriptions.Add(new SortDescription(
                     nameof(LiveDropRow.ScoreRank), ListSortDirection.Descending));
                 break;
@@ -800,6 +873,7 @@ public partial class MainWindow
 
     private void UpdateLiveDropVisibleRows()
     {
+        if (_restoringLiveDropFilters) return;
         _liveDropView?.Refresh();
         if (_liveDropGrid is not null && _liveDropView is not null)
         {
@@ -812,10 +886,16 @@ public partial class MainWindow
         if (_liveDropCount is not null)
         {
             var visible = _liveDropView?.Cast<object>().Count() ?? 0;
+            var packs = _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs";
             var available = _liveDropRows.Count(x =>
                 LiveDropScopePolicy.Accepts(_liveDropScope, x.Kind) &&
+                (_liveDropScope != "UGC" || x.IsBundle == packs) &&
                 IsLiveDropOriginalStockCurrent(x));
             _liveDropCount.Text = $"{visible:N0} shown / {available:N0} total";
+            if (_liveDropScope == "UGC" && visible == 0)
+                _liveDropCount.Text += available > 0
+                    ? (_liveDropOnlyOpportunities?.IsChecked == true ? " · No qualified matches" : " · No affordable/filter matches")
+                    : " · No current verified stock";
         }
     }
 
@@ -873,7 +953,7 @@ public partial class MainWindow
     {
         if (_liveDropGrid?.SelectedItem is not LiveDropRow row || !row.IsOpportunity ||
             row.Ugc is not { PrimaryMarketVerified: true } item ||
-            item.IsExcludedPriceDistortion || item.Recommendation == "DATA REVIEW" ||
+            (item.IsExcludedPriceDistortion || !item.IsGoodBuyingPrice) || item.Recommendation == "DATA REVIEW" ||
             !IsLiveDropOriginalStockCurrent(row) ||
             string.IsNullOrWhiteSpace(item.CollectibleItemId)) return;
         try
@@ -920,15 +1000,16 @@ public partial class MainWindow
         }
         _liveDropBusy = true;
         var scope = _liveDropScope;
+        var packs = _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs";
         if (_liveDropStatus is not null)
             _liveDropStatus.Text = scope == "Official"
                 ? "Refreshing Roblox Official Limiteds…"
-                : "Refreshing UGC Limiteds and animation packs…";
+                : packs ? "Refreshing animation packs…" : "Refreshing UGC Limiteds…";
         var errors = new List<string>();
         try
         {
             var now = DateTimeOffset.UtcNow;
-            var plan = LiveDropScopePolicy.DueSources(scope, force, now,
+            var plan = LiveDropScopePolicy.DueVisibleSources(scope, packs, force, now,
                 _officialLastRefreshUtc, _hunterLastRefreshUtc, _liveBundleScanUtc);
             var scanUgc = plan.Ugc;
             var scanOfficial = plan.Official;
@@ -938,7 +1019,9 @@ public partial class MainWindow
             {
                 var last = _hunterLastRefreshUtc;
                 await RefreshHunterAsync(silent: true);
-                if (last == _hunterLastRefreshUtc) errors.Add("UGC data may be stale");
+                if (_hunterRefreshFailed) errors.Add("UGC refresh failed; previous stock expires normally");
+                else if (_hunterScanPartial) errors.Add("UGC verification incomplete");
+                else if (last == _hunterLastRefreshUtc && _hunterRefreshInProgress) errors.Add("UGC refresh in progress");
             }
 
             if (scanOfficial)
@@ -968,17 +1051,15 @@ public partial class MainWindow
                 }
             }
 
-            if (scope == "UGC" && !string.IsNullOrWhiteSpace(_liveBundleScanError))
-                errors.Add("Animation packs unavailable (cached results retained)");
-            RebuildLiveDropRows();
-            if (scope == "UGC" && _liveDropScope == "UGC")
+            if (scanUgc || scanOfficial || scanBundles) RebuildLiveDropRows();
+            if (scanBundles && _liveDropScope == "UGC" &&
+                _liveDropTypeFilter?.SelectedItem?.ToString() == "Animation Packs")
                 await LoadLiveBundleImagesAsync();
             if (_liveDropScope == scope)
             {
                 UpdateLiveDropScopeStatus();
-                if (errors.Count > 0 && _liveDropStatus is not null)
-                    _liveDropStatus.Text = "PARTIAL · " + string.Join("; ", errors) +
-                        " · " + _liveDropStatus.Text;
+                if (scope == "Official" && errors.Count > 0 && _liveDropStatus is not null)
+                    _liveDropStatus.Text += " · Official refresh incomplete";
             }
         }
         catch (Exception ex)

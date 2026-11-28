@@ -315,8 +315,10 @@ public partial class MainWindow
     private static DataGrid CreateOfficialGrid() => new()
     {
         IsReadOnly = true,
-        RowHeight = 52,
-        ColumnHeaderHeight = 34,
+        RowHeight = 44,
+        ColumnHeaderHeight = 32,
+        EnableRowVirtualization = true,
+        EnableColumnVirtualization = true,
         BorderThickness = new Thickness(0, 1, 0, 0),
         SelectionMode = DataGridSelectionMode.Single,
         SelectionUnit = DataGridSelectionUnit.FullRow
@@ -460,22 +462,35 @@ public partial class MainWindow
 
         try
         {
-            var scan = await _officialLimitedService.ScanAsync(token);
-            var thumbnails = await _services.ThumbnailService.GetAssetThumbnailUrlsAsync(scan.Items.Select(x => x.AssetId), token);
+            var preferredAsset = _liveDropScope == "Official"
+                ? (_liveDropGrid?.SelectedItem as LiveDropRow)?.Official?.AssetId
+                : (_huntGrid?.SelectedItem as OfficialLimitedRow)?.AssetId;
+            var scan = await _officialLimitedService.ScanAsync(token, preferredAsset);
+            token.ThrowIfCancellationRequested();
+            if (!OfficialLimitedRefreshPolicy.ShouldReplaceRows(scan))
+            {
+                MarkOfficialRowsStale();
+                SetOfficialStatus("STALE", TerminalAmber);
+                SetOfficialWarning("Official Limited discovery failed. Previous rows retained; prices and Hunt rankings are stale.");
+                _services.Logger.Info($"Official Limited refresh retained {_officialRows.Count} stale rows after failed discovery.");
+                return;
+            }
+
             var selectedAsset = (_huntGrid?.SelectedItem as OfficialLimitedRow)?.AssetId;
             _officialRows.Clear();
             foreach (var item in scan.Items)
-            {
-                thumbnails.TryGetValue(item.AssetId, out var thumbnail);
-                _officialRows.Add(new OfficialLimitedRow(item, thumbnail));
-            }
+                _officialRows.Add(new OfficialLimitedRow(item, null));
 
-            _officialLastRefreshUtc = scan.ObservedAtUtc;
+            if (scan.DiscoveryComplete)
+                _officialLastRefreshUtc = scan.ObservedAtUtc;
             _officialMarketView?.Refresh();
             _officialHuntView?.Refresh();
             ApplyHuntSort();
             UpdateOfficialCounts(scan);
-            if (_huntUpdatedText is not null) _huntUpdatedText.Text = $"Updated {scan.ObservedAtUtc.ToLocalTime():h:mm tt}";
+            if (_huntUpdatedText is not null) _huntUpdatedText.Text =
+                scan.DiscoveryComplete
+                    ? $"Updated {scan.ObservedAtUtc.ToLocalTime():h:mm tt}"
+                    : $"Partial scan {scan.ObservedAtUtc.ToLocalTime():h:mm tt}";
             SetOfficialStatus(scan.Warning is null ? "LIVE" : "PARTIAL", scan.Warning is null ? TerminalGreen : TerminalAmber);
             SetOfficialWarning(scan.Warning);
 
@@ -485,6 +500,9 @@ public partial class MainWindow
                 if (_huntGrid.SelectedItem is null && _officialHuntView?.Cast<object>().FirstOrDefault() is OfficialLimitedRow first) _huntGrid.SelectedItem = first;
             }
             UpdateOfficialHuntInspector();
+            // Draw market data immediately. Thumbnail API delays and failures must not
+            // postpone prices, scores, or scan status.
+            _ = HydrateOfficialThumbnailsAsync(_officialRows.ToArray(), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -492,12 +510,56 @@ public partial class MainWindow
         catch (Exception ex)
         {
             _services.Logger.Error($"Official Limited scan failed: {ex}");
-            SetOfficialStatus("SCAN FAILED", TerminalRed);
-            SetOfficialWarning(ex.Message);
+            MarkOfficialRowsStale();
+            SetOfficialStatus("SCAN FAILED · STALE", TerminalRed);
+            SetOfficialWarning($"Official Limited refresh failed. Previously loaded rows are stale. {ex.Message}");
         }
         finally
         {
             _officialRefreshInProgress = false;
+        }
+    }
+
+    private void MarkOfficialRowsStale()
+    {
+        foreach (var row in _officialRows)
+            row.MarkStale();
+        _officialMarketView?.Refresh();
+        _officialHuntView?.Refresh();
+        UpdateOfficialHuntInspector();
+        if (_huntUpdatedText is not null)
+            _huntUpdatedText.Text = "Previous scan · stale";
+    }
+
+    private async Task HydrateOfficialThumbnailsAsync(OfficialLimitedRow[] rows, CancellationToken token)
+    {
+        try
+        {
+            var urls = await _services.ThumbnailService.GetAssetThumbnailUrlsAsync(rows.Select(x => x.AssetId), token);
+            if (token.IsCancellationRequested) return;
+            foreach (var row in rows)
+            {
+                if (token.IsCancellationRequested) return;
+                if (urls.TryGetValue(row.AssetId, out var url) && _officialRows.Contains(row))
+                {
+                    row.ThumbnailUrl = url;
+                    // The combined market board copies Official rows during its rebuild.
+                    // Keep its displayed thumbnail in sync when the async fetch finishes.
+                    foreach (var liveRow in _liveDropRows.Where(x => ReferenceEquals(x.Official, row)))
+                        liveRow.ThumbnailUrl = url;
+                }
+            }
+            if (_huntGrid?.SelectedItem is OfficialLimitedRow selected && rows.Contains(selected))
+                UpdateOfficialHuntInspector();
+            if (_liveDropGrid?.SelectedItem is LiveDropRow { Official: not null })
+                UpdateLiveDropInspector();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _services.Logger.Info($"Official Limited thumbnails unavailable: {ex.Message}");
         }
     }
 
@@ -604,8 +666,15 @@ public partial class MainWindow
     }
 }
 
-public sealed class OfficialLimitedRow
+public sealed class OfficialLimitedRow : INotifyPropertyChanged
 {
+    private string? _thumbnailUrl;
+    private bool _stale;
+    private readonly bool _isHuntCandidate;
+    private readonly bool _isFresh;
+    private readonly string _status;
+    public event PropertyChangedEventHandler? PropertyChanged;
+
     public OfficialLimitedRow(RobloxOfficialLimitedMarketItem item, string? thumbnailUrl)
     {
         AssetId = item.AssetId;
@@ -623,13 +692,14 @@ public sealed class OfficialLimitedRow
         EvidenceScore = item.EvidenceScore;
         UpsideScore = item.UpsideScore;
         RiskScore = item.RiskScore;
-        Status = item.Status;
+        _status = item.Status;
         Trend = item.Trend;
-        IsHuntCandidate = item.IsHuntCandidate;
-        IsFresh = item.IsFresh;
+        _isHuntCandidate = item.IsHuntCandidate;
+        _isFresh = item.IsFresh;
         FloorChangePct = item.FloorChangePct;
         IsEnriched = item.IsEnriched;
         HasRecentSalesCoverage = item.HasRecentSalesCoverage;
+        HasComplete30DaySalesCoverage = item.HasComplete30DaySalesCoverage;
         EvidenceText = item.EvidenceText;
         ReasonText = item.ReasonText;
         ThumbnailUrl = thumbnailUrl;
@@ -650,23 +720,41 @@ public sealed class OfficialLimitedRow
     public int EvidenceScore { get; }
     public int UpsideScore { get; }
     public int RiskScore { get; }
-    public string Status { get; }
+    public string Status => _stale ? "STALE" : _status;
     public string Trend { get; }
-    public bool IsHuntCandidate { get; }
-    public bool IsFresh { get; }
+    public bool IsHuntCandidate => !_stale && _isHuntCandidate;
+    public bool IsFresh => !_stale && _isFresh;
     public double? FloorChangePct { get; }
     public bool IsEnriched { get; }
     public bool HasRecentSalesCoverage { get; }
+    public bool HasComplete30DaySalesCoverage { get; }
     public string EvidenceText { get; }
     public string ReasonText { get; }
-    public string? ThumbnailUrl { get; }
+    public string? ThumbnailUrl
+    {
+        get => _thumbnailUrl;
+        internal set
+        {
+            if (string.Equals(_thumbnailUrl, value, StringComparison.Ordinal)) return;
+            _thumbnailUrl = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThumbnailUrl)));
+        }
+    }
     public string FloorText => FloorPrice is > 0 ? $"{FloorPrice.Value:N0} R$" : "—";
     public string RapText => Rap is > 0 ? $"{Rap.Value:N0} R$" : "—";
     public string FairValueText => FairValue is > 0 ? $"{FairValue.Value:N0} R$" : "—";
     public string BuyZoneText => FairValue is > 0 ? $"≤ {Math.Floor(FairValue.Value * .88):N0} R$" : "—";
     public string DiscountText => DiscountPct is { } value ? value.ToString("+0%;-0%;0%") : "—";
     public string Sales7dText => HasRecentSalesCoverage ? Sales7d.ToString("0.#") : "—";
-    public string Sales30dText => HasRecentSalesCoverage ? Sales30d.ToString("0.#") : "—";
-    public string HuntText => IsEnriched ? HuntScore.ToString() : "—";
-    public string EvidenceScoreText => IsEnriched ? EvidenceScore.ToString() : "PENDING";
+    public string Sales30dText => HasComplete30DaySalesCoverage ? Sales30d.ToString("0.#") : "—";
+    public string HuntText => !_stale && IsEnriched ? HuntScore.ToString() : "—";
+    public string EvidenceScoreText => _stale ? "STALE" : IsEnriched ? EvidenceScore.ToString() : "PENDING";
+
+    internal void MarkStale()
+    {
+        if (_stale) return;
+        _stale = true;
+        foreach (var name in new[] { nameof(Status), nameof(IsHuntCandidate), nameof(IsFresh), nameof(HuntText), nameof(EvidenceScoreText) })
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }

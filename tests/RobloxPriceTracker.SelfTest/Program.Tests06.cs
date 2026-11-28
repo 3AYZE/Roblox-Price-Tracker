@@ -64,7 +64,7 @@ internal static partial class Program
         return Task.CompletedTask;
     }
 
-    static Task TestUgcHydratedZeroPriceLimitedIsExcludedAsync()
+    static Task TestUgcHydratedZeroPriceLimitedNeedsMarketplaceProofAsync()
     {
         const string json = """
         {
@@ -88,7 +88,9 @@ internal static partial class Program
         """;
         using var doc = JsonDocument.Parse(json);
         var rows = RobloxUgcCatalogDiscoveryParser.ParseHydratedCandidates(doc.RootElement);
-        AssertEqual(0, rows.Count);
+        AssertEqual(1, rows.Count);
+        AssertEqual(0, rows[0].Price);
+        AssertTrue(!rows[0].PrimaryMarketVerified);
         return Task.CompletedTask;
     }
 

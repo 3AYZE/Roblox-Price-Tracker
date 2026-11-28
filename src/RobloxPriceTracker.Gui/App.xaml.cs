@@ -1,3 +1,6 @@
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
@@ -8,8 +11,19 @@ namespace RobloxPriceTracker.Gui;
 
 public partial class App : Application
 {
-    private const string MutexName = "Local\\RobloxPriceTracker.Gui";
-    private const string ShowEventName = "Local\\RobloxPriceTracker.Gui.Show";
+    private const string DefaultInstanceName = "Local\\RobloxPriceTracker.Gui";
+
+    private static string ResolveInstanceName()
+    {
+        var dataDirectory = Environment.GetEnvironmentVariable("RPT_DATA_DIR");
+        if (string.IsNullOrWhiteSpace(dataDirectory)) return DefaultInstanceName;
+
+        // Explicit profiles must not contend with the installed app's mutex.
+        // Hash the canonical path to keep the name short and stable across restarts.
+        var canonicalPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(dataDirectory)).ToUpperInvariant();
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonicalPath));
+        return $"{DefaultInstanceName}.Profile.{Convert.ToHexString(hash)[..16]}";
+    }
 
     private Mutex? _singleInstanceMutex;
     private EventWaitHandle? _showEvent;
@@ -20,12 +34,14 @@ public partial class App : Application
 
     private async void App_OnStartup(object sender, StartupEventArgs e)
     {
-        _singleInstanceMutex = new Mutex(true, MutexName, out var createdNew);
+        var instanceName = ResolveInstanceName();
+        var showEventName = instanceName + ".Show";
+        _singleInstanceMutex = new Mutex(true, instanceName, out var createdNew);
         if (!createdNew)
         {
             try
             {
-                using var showEvent = EventWaitHandle.OpenExisting(ShowEventName);
+                using var showEvent = EventWaitHandle.OpenExisting(showEventName);
                 showEvent.Set();
             }
             catch
@@ -53,16 +69,20 @@ public partial class App : Application
                 Source = new Uri("pack://application:,,,/RobloxPriceTracker;component/TooltipStyles.xaml", UriKind.Absolute),
             });
 
-            _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+            _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, showEventName);
             _services = await AppServices.CreateAsync();
 
-            try
+            // Disposable profiles must never mutate the machine's startup entry.
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("RPT_DATA_DIR")))
             {
-                WindowsStartupRegistration.Apply(_services.Settings);
-            }
-            catch (Exception startupEx)
-            {
-                _services.Logger.Error($"Windows startup registration sync failed: {startupEx}");
+                try
+                {
+                    WindowsStartupRegistration.Apply(_services.Settings);
+                }
+                catch (Exception startupEx)
+                {
+                    _services.Logger.Error($"Windows startup registration sync failed: {startupEx}");
+                }
             }
 
             var backgroundLaunch = e.Args.Any(arg => string.Equals(arg, "--background", StringComparison.OrdinalIgnoreCase));

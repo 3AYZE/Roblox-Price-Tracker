@@ -1,10 +1,9 @@
 namespace RobloxPriceTracker.Gui;
 
 /// <summary>
-/// Keeps UGC Hunter responsive by serving the last successful snapshot immediately while a
-/// single live refresh runs in the background. The snapshot is persisted with SafeJsonStore so
-/// reopening the app does not require the user to wait on a full Roblox discovery/enrichment pass
-/// before seeing the Hunter board.
+/// Coalesces UGC Hunter refreshes into one asynchronous scan. Callers await the
+/// completed result instead of receiving a stale snapshot while a detached scan runs.
+/// The last successful snapshot is persisted for recovery, not treated as live stock.
 /// </summary>
 public sealed class UgcHunterServiceFacade : IDisposable
 {
@@ -25,7 +24,7 @@ public sealed class UgcHunterServiceFacade : IDisposable
     private readonly object _stateGate = new();
 
     private UgcHunterMarketSnapshot? _cachedSnapshot;
-    private Task? _backgroundRefreshTask;
+    private Task<UgcHunterMarketSnapshot>? _refreshTask;
     private DateTimeOffset _lastLiveRefreshStartedUtc = DateTimeOffset.MinValue;
     private bool _initialized;
     private bool _disposed;
@@ -92,62 +91,43 @@ public sealed class UgcHunterServiceFacade : IDisposable
         }
     }
 
-    public async Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
+    public async Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default,
+        IProgress<UgcHunterMarketSnapshot>? progress = null)
     {
         ThrowIfDisposed();
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
 
-        UgcHunterMarketSnapshot? cached;
+        Task<UgcHunterMarketSnapshot> refresh;
         lock (_stateGate)
         {
-            cached = _cachedSnapshot;
-            if (cached is not null)
-                StartBackgroundRefreshLocked();
-        }
-
-        if (cached is not null)
-            return cached;
-
-        // First-ever run has no safe snapshot to show. Do one foreground refresh, persist it, and
-        // every later visit becomes stale-while-revalidate instead of blocking the Hunter UI.
-        return await RefreshLiveAndCacheAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private void StartBackgroundRefreshLocked()
-    {
-        if (_disposed) return;
-        if (_backgroundRefreshTask is { IsCompleted: false }) return;
-        if (DateTimeOffset.UtcNow - _lastLiveRefreshStartedUtc < MinimumLiveRefreshInterval) return;
-
-        _lastLiveRefreshStartedUtc = DateTimeOffset.UtcNow;
-        _backgroundRefreshTask = RefreshInBackgroundAsync();
-    }
-
-    private async Task RefreshInBackgroundAsync()
-    {
-        try
-        {
-            await RefreshLiveAndCacheAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"UGC Hunter background refresh failed; cached snapshot remains active: {ex}");
-        }
-        finally
-        {
-            lock (_stateGate)
+            if (_refreshTask is null ||
+                (_refreshTask.IsCompleted &&
+                 DateTimeOffset.UtcNow - _lastLiveRefreshStartedUtc >= MinimumLiveRefreshInterval))
             {
-                _backgroundRefreshTask = null;
+                _lastLiveRefreshStartedUtc = DateTimeOffset.UtcNow;
+                // One caller cancelling its wait must not cancel the scan shared
+                // by another view. Errors flow to every awaiting caller.
+                _refreshTask = RefreshLiveAndCacheAsync(CancellationToken.None, progress);
             }
+            refresh = _refreshTask;
         }
+        return await refresh.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<UgcHunterMarketSnapshot> RefreshLiveAndCacheAsync(CancellationToken cancellationToken)
+    private async Task<UgcHunterMarketSnapshot> RefreshLiveAndCacheAsync(CancellationToken cancellationToken,
+        IProgress<UgcHunterMarketSnapshot>? progress)
     {
-        var snapshot = await _inner.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await _inner.RefreshAsync(cancellationToken, progress).ConfigureAwait(false);
 
         lock (_stateGate)
         {
+            // Partial results are useful in the active UI, but must not
+            // replace the last complete recovery file with incomplete data.
+            if (snapshot.IsPartial)
+            {
+                _logger.Info($"UGC stock verification incomplete; retained recovery snapshot ({_cachedSnapshot?.Items.Count ?? 0} previous items).");
+                return snapshot;
+            }
             _cachedSnapshot = snapshot;
         }
 
@@ -172,9 +152,11 @@ public sealed class UgcHunterServiceFacade : IDisposable
     }
 
     private static bool SnapshotMatchesEntryPricePolicy(UgcHunterMarketSnapshot snapshot) =>
-        snapshot.PriceIntegrityPolicyVersion >= 2 &&
+        snapshot.PriceIntegrityPolicyVersion >= 7 &&
         snapshot.Items.All(item =>
             UgcHunterEntryPricePolicy.IsEligiblePrimaryPrice(item.Price) &&
+            item.BuyingPriceClassification is
+                (UgcCategoryBuyingPricePolicy.Good or UgcCategoryBuyingPricePolicy.Above or UgcCategoryBuyingPricePolicy.Insufficient) &&
             item.PriceIntegrityClassification is
                 (UgcPriceIntegrityPolicy.Passed or UgcPriceIntegrityPolicy.Insufficient or UgcPriceIntegrityPolicy.Excluded));
 

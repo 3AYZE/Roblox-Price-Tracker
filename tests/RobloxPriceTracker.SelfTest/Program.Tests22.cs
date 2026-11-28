@@ -16,7 +16,8 @@ internal static partial class Program
         var selected = UgcDiscoverySelectionPolicy.Select(ranked, feeds, recent, emotes, capacity: 120);
         AssertEqual(120, selected.Count);
         AssertEqual(120, selected.Distinct().Count());
-        AssertTrue(emotes.Take(10).All(id => selected.Contains(id)));
+        AssertTrue(emotes.Take(UgcDiscoverySelectionPolicy.EmoteReserve).All(id => selected.Contains(id)));
+        AssertTrue(emotes.Skip(UgcDiscoverySelectionPolicy.EmoteReserve).All(id => !selected.Contains(id)));
         AssertTrue(recent.Take(20).All(id => selected.Contains(id)));
         AssertTrue(feeds.All(feed => feed.Take(4).All(id => selected.Contains(id))));
         AssertTrue(selected.SequenceEqual(
@@ -30,6 +31,14 @@ internal static partial class Program
         AssertEqual(5, small.Count);
         AssertEqual(5, small.Distinct().Count());
         AssertEqual(0, UgcDiscoverySelectionPolicy.Select(ranked, feeds, recent, emotes, 0).Count);
+        // A verified asset-type hint reserves different accessory categories within the same 120-ID budget.
+        var typed = ranked.Take(24).ToDictionary(id => id, id => (int)(8 + (id - 1) / 4));
+        foreach (var id in emotes) typed[id] = 61;
+        var typedSelected = UgcDiscoverySelectionPolicy.Select(ranked, feeds, recent, emotes, 120, typed);
+        AssertTrue(Enumerable.Range(0, 6).All(group =>
+            ranked.Skip(group * 4).Take(4).All(id => typedSelected.Contains(id))));
+        AssertTrue(typedSelected.Count(id => typed.TryGetValue(id, out var type) && type == 61) <=
+            UgcDiscoverySelectionPolicy.MaximumEmotes);
         return Task.CompletedTask;
     }
 

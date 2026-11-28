@@ -56,6 +56,8 @@ public partial class MainWindow : Window
     private TextBlock? _portfolioStatusText;
     private DispatcherTimer? _hunterTimer;
     private bool _hunterRefreshInProgress;
+    private bool _hunterScanPartial;
+    private bool _hunterRefreshFailed;
     private bool _portfolioRefreshInProgress;
     private DateTimeOffset? _hunterLastRefreshUtc;
 
@@ -202,12 +204,12 @@ public partial class MainWindow : Window
         {
             Width = 172,
             Margin = new Thickness(7, 0, 0, 0),
-            ToolTip = "Observed lows compare Marketplace-verified ORIGINAL stock only within the same asset type and material class. Not an official Roblox floor.",
+            ToolTip = "Qualified: verified scarce original stock, sustained depletion, completed resales, net profit after fees and acceptable risk.",
             SelectedIndex = 0
         };
         foreach (var mode in new[]
         {
-            "Observed low (material + type)",
+            "Qualified opportunities",
             "All verified originals",
             "All original candidates",
             "All + excluded (research)"
@@ -653,8 +655,8 @@ public partial class MainWindow : Window
         {
             if (category == "Dance? (name)" && !row.PossibleDanceByName) return false;
             else if (category == "Emissive? (name)" && !row.PossibleEmissiveByName) return false;
-            else if (category == "Emissive (verified)" && row.IsEmissive != true) return false;
-            else if (category == "PBR (verified)" && row.IsPbr != true) return false;
+            else if (category == "Emissive (verified)" && row.MaterialClass != UgcCategoryPrimaryPricePolicy.Emissive) return false;
+            else if (category == "PBR (verified)" && row.MaterialClass != UgcCategoryPrimaryPricePolicy.Pbr) return false;
             else if (category is not ("Dance? (name)" or "Emissive? (name)" or "Emissive (verified)" or "PBR (verified)") &&
                      !row.Category.Equals(category, StringComparison.OrdinalIgnoreCase)) return false;
         }
@@ -691,14 +693,32 @@ public partial class MainWindow : Window
         _hunterRefreshInProgress = true;
         if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = "Scanning Roblox Marketplace…";
         if (_hunterErrorText is not null && !silent) _hunterErrorText.Visibility = Visibility.Collapsed;
+        var acceptPreview = true;
         try
         {
+            var progress = new Progress<UgcHunterMarketSnapshot>(preview =>
+            {
+                // Progress<T> posts to the WPF dispatcher. A late queued preview
+                // must not replace a completed or failed refresh.
+                if (!acceptPreview) return;
+                _hunterScanPartial = preview.IsPartial;
+                _hunterRefreshFailed = false;
+                ApplyHunterScanRows(preview);
+                if (_hunterUpdatedText is not null)
+                    _hunterUpdatedText.Text = "Stock verified · loading resale evidence";
+                UpdateLiveDropScopeStatus();
+            });
+            var snapshot = await _services.UgcHunterService.RefreshAsync(progress: progress);
+            acceptPreview = false;
             var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
-            var snapshot = await _services.UgcHunterService.RefreshAsync();
-            _hunterRows.Clear();
-            foreach (var item in snapshot.Items) _hunterRows.Add(item);
+            _hunterScanPartial = snapshot.IsPartial;
+            _hunterRefreshFailed = false;
+            if (_hunterLastRefreshUtc != snapshot.ObservedAtUtc)
+            {
+                _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
+                ApplyHunterScanRows(snapshot);
+            }
             _hunterView?.Refresh();
-            _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
             if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;
 
             if (_hunterRegimeText is not null)
@@ -715,7 +735,9 @@ public partial class MainWindow : Window
             if (_hunterRegimeDetailText is not null) _hunterRegimeDetailText.Text = snapshot.Market.Detail;
             if (_hunterLiveCountText is not null) _hunterLiveCountText.Text = snapshot.Market.LiveDrops.ToString("N0");
             if (_hunterStrongCountText is not null) _hunterStrongCountText.Text = snapshot.Market.StrongDrops.ToString("N0");
-            if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = $"Updated {snapshot.ObservedAtUtc.ToLocalTime():h:mm:ss tt}";
+            if (_hunterUpdatedText is not null) _hunterUpdatedText.Text =
+                snapshot.IsPartial ? "Partial scan · some original stock unverified" :
+                $"Updated {snapshot.ObservedAtUtc.ToLocalTime():h:mm:ss tt}";
 
             if (_hunterGrid is not null)
             {
@@ -727,6 +749,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            acceptPreview = false;
+            _hunterRefreshFailed = true;
             _services.Logger.Error($"UGC Hunter refresh failed: {ex}");
             var hasCachedRows = _hunterRows.Count > 0;
             if (_hunterUpdatedText is not null)
@@ -784,8 +808,30 @@ public partial class MainWindow : Window
         }
         finally
         {
+            acceptPreview = false;
             _hunterRefreshInProgress = false;
         }
+    }
+
+    private void ApplyHunterScanRows(UgcHunterMarketSnapshot snapshot)
+    {
+        var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
+        // Missing images are not deletions. Preserve a previous thumbnail for
+        // the same item while a new PNG request is pending or unavailable.
+        var thumbnails = _hunterRows.Where(x => !string.IsNullOrEmpty(x.ThumbnailUrl))
+            .GroupBy(x => x.AssetId).ToDictionary(x => x.Key, x => x.First().ThumbnailUrl);
+        var incoming = snapshot.Items.Select(x => string.IsNullOrEmpty(x.ThumbnailUrl) &&
+            thumbnails.TryGetValue(x.AssetId, out var url) ? x with { ThumbnailUrl = url } : x);
+        var now = DateTimeOffset.UtcNow;
+        var merged = KeyedSnapshotReconciler.MergeFresh(
+            _hunterRows, incoming, x => x.AssetId, snapshot.InvalidatedAssetIds,
+            x => UgcActiveStockPolicy.IsActiveSnapshot(x.PrimaryMarketVerified,
+                x.UnitsAvailable, x.Price, x.ObservedAtUtc, now));
+        KeyedSnapshotReconciler.Apply(_hunterRows, merged, x => x.AssetId);
+        _hunterView?.Refresh();
+        if (_hunterGrid is not null && selectedAssetId is { } id)
+            _hunterGrid.SelectedItem = _hunterRows.FirstOrDefault(x => x.AssetId == id);
+        UpdateHunterInspector();
     }
 
     private async Task RefreshPaperPortfolioAsync()
@@ -869,6 +915,7 @@ public partial class MainWindow : Window
     private static string FormatHunterPrimaryReference(UgcHunterItem item) =>
         $"{item.ObservedCategoryLowText} observed · {item.MaterialText} · {item.PrimaryPriceStatusText}\n" +
         $"Historical category reference: {item.HistoricalReferenceText}\n" +
+        $"Buying reference: {(item.BuyingPriceCeiling is { } ceiling ? $"{ceiling:N0} R$" : "INSUFFICIENT EVIDENCE")}\n" +
         "Live official category floor: UNVERIFIED";
 
     private void UpdateHunterInspector()
@@ -877,7 +924,8 @@ public partial class MainWindow : Window
         var enabled = item is not null;
         if (_hunterOpenRobloxButton is not null) _hunterOpenRobloxButton.IsEnabled = enabled;
         if (_hunterTrackButton is not null)
-            _hunterTrackButton.IsEnabled = enabled && item?.PrimaryMarketVerified == true && item.IsExcludedPriceDistortion != true && item.Recommendation != "DATA REVIEW";
+            _hunterTrackButton.IsEnabled = enabled && item?.PrimaryMarketVerified == true &&
+                item.IsGoodBuyingPrice && item.IsExcludedPriceDistortion != true && item.Recommendation != "DATA REVIEW";
         if (item is null) return;
 
         if (_hunterInspectorTitle is not null) _hunterInspectorTitle.Text = item.Name;
@@ -900,10 +948,13 @@ public partial class MainWindow : Window
             _hunterInspectorPrimaryReference.Text =
                 FormatHunterPrimaryReference(item);
         if (_hunterInspectorIntegrity is not null)
-            _hunterInspectorIntegrity.Text = $"{item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}";
+            _hunterInspectorIntegrity.Text = $"PRICE INTEGRITY {item.PriceIntegrityText}\n{item.PriceIntegrityExplanation}\n" +
+                $"{item.BuyingPriceText}\n{item.BuyingPriceExplanation}";
         if (_hunterInspectorForecast is not null) _hunterInspectorForecast.Text = $"FLOOR {item.CurrentResaleText} · RAP {item.RapText} · SELLERS {item.ResellersText}\nSALES {item.SalesText} · BREAK-EVEN {item.BreakEvenText}\nMODEL {item.ForecastText} · BASE {item.BaseValueText} · NET ROI {item.NetRoiText}";
         if (_hunterInspectorReasons is not null)
-            _hunterInspectorReasons.Text = item.IsExcludedPriceDistortion
+            _hunterInspectorReasons.Text = !item.IsGoodBuyingPrice
+                ? $"BUYING RECOMMENDATION BLOCKED. {item.BuyingPriceExplanation}"
+                : item.IsExcludedPriceDistortion
                 ? "INVESTMENT RECOMMENDATION BLOCKED. Creator listing price is not independent fair value."
                 : string.Join("\n", item.Reasons.Select(x => $"+ {x}"));
         if (_hunterInspectorRisks is not null)
@@ -931,15 +982,28 @@ public partial class MainWindow : Window
     private async Task TrackSelectedHunterAsync()
     {
         if (_hunterGrid?.SelectedItem is not UgcHunterItem item) return;
-        if (!item.PrimaryMarketVerified || item.Recommendation == "DATA REVIEW")
+        if (!item.PrimaryMarketVerified)
         {
             ShowBanner("Original-stock price not verified", "Marketplace primary-stock evidence is required before recording an entry.");
+            return;
+        }
+        if (item.Recommendation == "DATA REVIEW")
+        {
+            var explanation = item.PriceIntegrityClassification == UgcPriceIntegrityPolicy.Insufficient
+                ? item.PriceIntegrityExplanation
+                : item.BuyingPriceExplanation;
+            ShowBanner("Market evidence needs review", explanation);
             return;
         }
         if (item.IsExcludedPriceDistortion)
         {
             ShowBanner("Excluded from investment selections",
                 item.PriceIntegrityExplanation);
+            return;
+        }
+        if (!item.IsGoodBuyingPrice)
+        {
+            ShowBanner("Entry price not approved", item.BuyingPriceExplanation);
             return;
         }
         await _services.PaperPortfolioStore.AddAsync(item, 1);
