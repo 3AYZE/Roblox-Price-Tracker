@@ -18,7 +18,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
 
@@ -43,7 +43,7 @@ jobs:
           "metadata_only=$($metadataOnly.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           Write-Host "Release metadata-only: $metadataOnly"
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         if: steps.change_scope.outputs.metadata_only != 'true'
         with:
           dotnet-version: 9.0.x
