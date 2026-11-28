@@ -44,6 +44,7 @@ public sealed record RobloxOfficialLimitedMarketItem(
     string ReasonText)
 {
     public bool HasRecentSalesCoverage { get; init; }
+    public bool HasComplete30DaySalesCoverage { get; init; }
 }
 
 public sealed record RobloxOfficialLimitedScanResult(
@@ -110,12 +111,14 @@ public sealed class RobloxOfficialLimitedMarketService
         _statePath = statePath;
     }
 
-    public Task<RobloxOfficialLimitedScanResult> ScanAsync(CancellationToken cancellationToken = default) =>
+    public Task<RobloxOfficialLimitedScanResult> ScanAsync(CancellationToken cancellationToken = default,
+        long? preferredAssetId = null) =>
         _scanDiagnostics is null
-            ? ScanCoreAsync(cancellationToken)
-            : _scanDiagnostics.MeasureAsync("official-full", ScanCoreAsync, cancellationToken);
+            ? ScanCoreAsync(cancellationToken, preferredAssetId)
+            : _scanDiagnostics.MeasureAsync("official-full",
+                token => ScanCoreAsync(token, preferredAssetId), cancellationToken);
 
-    private async Task<RobloxOfficialLimitedScanResult> ScanCoreAsync(CancellationToken cancellationToken)
+    private async Task<RobloxOfficialLimitedScanResult> ScanCoreAsync(CancellationToken cancellationToken, long? preferredAssetId)
     {
         await _scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -200,9 +203,19 @@ public sealed class RobloxOfficialLimitedMarketService
 
             // Keep the 36-asset request budget per scan, but rotate through
             // untried and oldest-attempted Official items across refreshes.
+            // Reserve at most one existing request slot for a selected asset
+            // whose RAP or seven-day history is missing; preserve rotation.
+            long? preferred = null;
+            if (preferredAssetId is > 0 &&
+                (!_resaleAttemptedAt.TryGetValue(preferredAssetId.Value, out var attemptedAt) ||
+                 observedAt - attemptedAt >= TimeSpan.FromMinutes(5)) &&
+                (!_recentResale.TryGetValue(preferredAssetId.Value, out var selectedCache) ||
+                 selectedCache.Data.RecentAveragePrice is not > 0 ||
+                 OfficialResaleCoveragePolicy.CompletedDailyVolume(selectedCache.Data.VolumeDataPoints, 7, observedAt) is null))
+                preferred = preferredAssetId;
             var selectedIds = OfficialResaleCoveragePolicy.SelectNext(
                 catalogItems.Where(x => x.FloorPrice is > 0).Select(x => x.AssetId),
-                _resaleAttemptedAt, MaxEnrichedItems);
+                _resaleAttemptedAt, MaxEnrichedItems, preferred);
             IReadOnlyDictionary<long, RobloxResaleMarketData> resale =
                 new Dictionary<long, RobloxResaleMarketData>();
             if (selectedIds.Count > 0)
@@ -500,13 +513,16 @@ public static class OfficialLimitedHuntScoring
                  x.Date >= now - TimeSpan.FromDays(30)).OrderBy(x => x.Date).ToArray() ?? []
             : Array.Empty<ResaleDataPoint>();
         var recentPrices = validPrices.Select(x => x.Value).ToArray();
-        var hasRecentSales = !staleLegacy &&
-            OfficialResaleCoveragePolicy.HasRecentVolume(market?.VolumeDataPoints, now);
+        var complete7 = !staleLegacy
+            ? OfficialResaleCoveragePolicy.CompletedDailyVolume(market?.VolumeDataPoints, 7, now) : null;
+        var complete30 = !staleLegacy
+            ? OfficialResaleCoveragePolicy.CompletedDailyVolume(market?.VolumeDataPoints, 30, now) : null;
+        var hasRecentSales = complete7.HasValue;
         var recentMedian = Median(recentPrices);
         var fair = ConservativeFairValue(rap, recentMedian);
         double? discount = floor is > 0 && fair is > 0 ? (fair.Value - floor.Value) / fair.Value : null;
-        var sales7 = hasRecentSales ? SumRecent(market?.VolumeDataPoints, 7.25, now) : 0d;
-        var sales30 = hasRecentSales ? SumRecent(market?.VolumeDataPoints, 30.25, now) : 0d;
+        var sales7 = complete7 ?? 0d;
+        var sales30 = complete30 ?? 0d;
         var evidence = EvidenceScore(market, rap, recentPrices.Length, hasRecentSales, now);
         var liquidity = LiquidityScore(sales7);
         var stability = StabilityScore(recentPrices);
@@ -528,7 +544,7 @@ public static class OfficialLimitedHuntScoring
         var evidenceText = $"RAP {(rap is > 0 ? "yes" : "unavailable")} · " +
             $"current price series {recentPrices.Length} pts · " +
             $"7d sales {(hasRecentSales ? sales7.ToString("0.#") : "unavailable")} · " +
-            $"30d sales {(hasRecentSales ? sales30.ToString("0.#") : "unavailable")}";
+            $"30d sales {(complete30.HasValue ? sales30.ToString("0.#") : "unavailable")} · completed UTC days";
         var reason = BuildReason(discount, hasRecentSales ? sales7 : null, stability, evidence, floorChange);
         var usable = rap is > 0 || recentPrices.Length > 0 || hasRecentSales;
 
@@ -537,7 +553,8 @@ public static class OfficialLimitedHuntScoring
             hunt, value, flip, stability, evidence, upside, risk, status, trend, isCandidate, isFresh, floorChange,
             item.FavoriteCount, item.PurchaseCount, item.AssetType, usable, evidenceText, reason)
         {
-            HasRecentSalesCoverage = hasRecentSales
+            HasRecentSalesCoverage = hasRecentSales,
+            HasComplete30DaySalesCoverage = complete30.HasValue
         };
     }
 
@@ -624,16 +641,6 @@ public static class OfficialLimitedHuntScoring
         if (prior <= 0) return "—";
         var change = (recent - prior) / prior;
         return change >= .05 ? "RISING" : change <= -.05 ? "FALLING" : "STABLE";
-    }
-
-    private static double SumRecent(IReadOnlyList<ResaleDataPoint>? points, double days,
-        DateTimeOffset nowUtc)
-    {
-        if (points is null || points.Count == 0) return 0;
-        var valid = points.Where(x => x.Value >= 0).OrderByDescending(x => x.Date).ToArray();
-        if (valid.Length == 0) return 0;
-        return valid.Where(x => x.Date <= nowUtc &&
-            x.Date >= nowUtc - TimeSpan.FromDays(days)).Sum(x => x.Value);
     }
 
     private static double? Median(IEnumerable<double> values)

@@ -480,7 +480,11 @@ public sealed class RobloxResaleDataService
         var rap = modern.RecentAveragePrice is > 0 ? modern.RecentAveragePrice : fallback?.RecentAveragePrice;
         var prices = modern.PriceDataPoints.Any(p => p.Value > 0)
             ? modern.PriceDataPoints : fallback?.PriceDataPoints ?? [];
-        var volumes = modern.HasSalesCoverage(now) ? modern.VolumeDataPoints :
+        var volumes = OfficialResaleCoveragePolicy.CompletedDailyVolume(modern.VolumeDataPoints, 7, now).HasValue
+            ? modern.VolumeDataPoints :
+            OfficialResaleCoveragePolicy.CompletedDailyVolume(fallback?.VolumeDataPoints, 7, now).HasValue
+                ? fallback!.VolumeDataPoints :
+            modern.HasSalesCoverage(now) ? modern.VolumeDataPoints :
             fallback?.HasSalesCoverage(now) == true ? fallback.VolumeDataPoints :
             modern.VolumeDataPoints.Count > 0 ? modern.VolumeDataPoints : fallback?.VolumeDataPoints ?? [];
 

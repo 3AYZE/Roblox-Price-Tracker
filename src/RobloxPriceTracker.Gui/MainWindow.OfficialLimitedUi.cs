@@ -462,7 +462,10 @@ public partial class MainWindow
 
         try
         {
-            var scan = await _officialLimitedService.ScanAsync(token);
+            var preferredAsset = _liveDropScope == "Official"
+                ? (_liveDropGrid?.SelectedItem as LiveDropRow)?.Official?.AssetId
+                : (_huntGrid?.SelectedItem as OfficialLimitedRow)?.AssetId;
+            var scan = await _officialLimitedService.ScanAsync(token, preferredAsset);
             token.ThrowIfCancellationRequested();
             if (!OfficialLimitedRefreshPolicy.ShouldReplaceRows(scan))
             {
@@ -696,6 +699,7 @@ public sealed class OfficialLimitedRow : INotifyPropertyChanged
         FloorChangePct = item.FloorChangePct;
         IsEnriched = item.IsEnriched;
         HasRecentSalesCoverage = item.HasRecentSalesCoverage;
+        HasComplete30DaySalesCoverage = item.HasComplete30DaySalesCoverage;
         EvidenceText = item.EvidenceText;
         ReasonText = item.ReasonText;
         ThumbnailUrl = thumbnailUrl;
@@ -723,6 +727,7 @@ public sealed class OfficialLimitedRow : INotifyPropertyChanged
     public double? FloorChangePct { get; }
     public bool IsEnriched { get; }
     public bool HasRecentSalesCoverage { get; }
+    public bool HasComplete30DaySalesCoverage { get; }
     public string EvidenceText { get; }
     public string ReasonText { get; }
     public string? ThumbnailUrl
@@ -741,7 +746,7 @@ public sealed class OfficialLimitedRow : INotifyPropertyChanged
     public string BuyZoneText => FairValue is > 0 ? $"≤ {Math.Floor(FairValue.Value * .88):N0} R$" : "—";
     public string DiscountText => DiscountPct is { } value ? value.ToString("+0%;-0%;0%") : "—";
     public string Sales7dText => HasRecentSalesCoverage ? Sales7d.ToString("0.#") : "—";
-    public string Sales30dText => HasRecentSalesCoverage ? Sales30d.ToString("0.#") : "—";
+    public string Sales30dText => HasComplete30DaySalesCoverage ? Sales30d.ToString("0.#") : "—";
     public string HuntText => !_stale && IsEnriched ? HuntScore.ToString() : "—";
     public string EvidenceScoreText => _stale ? "STALE" : IsEnriched ? EvidenceScore.ToString() : "PENDING";
 

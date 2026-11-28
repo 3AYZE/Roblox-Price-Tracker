@@ -101,6 +101,10 @@ public partial class MainWindow
     private bool _liveDropRebuildQueued;
     private bool _liveDropSwitchPending;
     private string _liveDropScope = "UGC";
+    private bool _liveDropScopeInitialized;
+    private bool _restoringLiveDropFilters;
+    private sealed record LiveDropFilters(string Search, int Category, int Sort, bool Opportunities);
+    private readonly Dictionary<string, LiveDropFilters> _liveDropFilters = new();
     private TextBlock? _liveDropHeading;
     private string? _liveBundleScanError;
 
@@ -142,12 +146,27 @@ public partial class MainWindow
     private void SetLiveDropScope(string scope)
     {
         if (scope is not ("UGC" or "Official")) return;
-        var scopeChanged = _liveDropScope != scope;
+        if (_liveDropScopeInitialized && _liveDropScope == scope)
+        {
+            UpdateLiveDropVisibleRows();
+            UpdateLiveDropScopeStatus();
+            return;
+        }
+        if (_liveDropScopeInitialized)
+            _liveDropFilters[_liveDropScope] = new LiveDropFilters(
+                _liveDropSearch?.Text ?? "", _liveDropTypeFilter?.SelectedIndex ?? 0,
+                _liveDropSort?.SelectedIndex ?? 0, _liveDropOnlyOpportunities?.IsChecked == true);
+        _liveDropScopeInitialized = true;
+        _restoringLiveDropFilters = true;
         _liveDropScope = scope;
+        var saved = _liveDropFilters.TryGetValue(scope, out var previousFilters)
+            ? previousFilters : new LiveDropFilters("", 0, 0, false);
         if (_liveDropHeading is not null)
             _liveDropHeading.Text = scope == "Official" ? "OFFICIAL LIMITEDS" : "UGC LIMITEDS";
-        if (scopeChanged && _liveDropOnlyOpportunities is not null)
-            _liveDropOnlyOpportunities.IsChecked = false;
+        if (_liveDropOnlyOpportunities is not null)
+            _liveDropOnlyOpportunities.IsChecked = saved.Opportunities;
+        if (_liveDropSort is not null)
+            _liveDropSort.SelectedIndex = Math.Clamp(saved.Sort, 0, _liveDropSort.Items.Count - 1);
         if (_ugcMaximumPrice is not null)
             _ugcMaximumPrice.Visibility = scope == "UGC" ? Visibility.Visible : Visibility.Collapsed;
         if (_ugcStockFilter is not null)
@@ -155,7 +174,7 @@ public partial class MainWindow
 
         if (_liveDropSearch is not null)
         {
-            _liveDropSearch.Text = "";
+            _liveDropSearch.Text = saved.Search;
             _liveDropSearch.ToolTip = scope == "Official"
                 ? "Search Roblox-published Limited name or asset ID"
                 : "Search UGC item, creator, asset or bundle ID";
@@ -167,7 +186,7 @@ public partial class MainWindow
                 ? new[] { "All Official", "Below RAP", "High liquidity", "Price drops" }
                 : new[] { "All UGC", "Accessories", "Emotes", "Animation Packs", "Emissive / PBR" };
             foreach (var item in options) _liveDropTypeFilter.Items.Add(item);
-            _liveDropTypeFilter.SelectedIndex = 0;
+            _liveDropTypeFilter.SelectedIndex = Math.Clamp(saved.Category, 0, options.Length - 1);
         }
         if (_liveDropGrid is not null)
         {
@@ -187,6 +206,7 @@ public partial class MainWindow
 
             _liveDropGrid.SelectedItem = null;
         }
+        _restoringLiveDropFilters = false;
         ApplyLiveDropSort();
         UpdateLiveDropVisibleRows();
         if (_liveDropGrid is not null)
@@ -322,6 +342,7 @@ public partial class MainWindow
         // products must never appear in the same result list.
         _liveDropTypeFilter.SelectionChanged += async (_, _) =>
         {
+            if (_restoringLiveDropFilters) return;
             UpdateLiveDropVisibleRows();
             UpdateLiveDropScopeStatus();
             if (_liveDropScope == "UGC" && _liveDropPage?.IsVisible == true)
@@ -789,7 +810,7 @@ public partial class MainWindow
 
     private void ApplyLiveDropSort()
     {
-        if (_liveDropView is null) return;
+        if (_restoringLiveDropFilters || _liveDropView is null) return;
         var option = _liveDropSort?.SelectedItem?.ToString() ?? "Best matches";
         _liveDropView.SortDescriptions.Clear();
         switch (option)
@@ -852,6 +873,7 @@ public partial class MainWindow
 
     private void UpdateLiveDropVisibleRows()
     {
+        if (_restoringLiveDropFilters) return;
         _liveDropView?.Refresh();
         if (_liveDropGrid is not null && _liveDropView is not null)
         {

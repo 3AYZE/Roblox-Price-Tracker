@@ -161,6 +161,29 @@ internal static partial class Program
         AssertEqual(1L, OfficialResaleCoveragePolicy.SelectNext(ids, attempted, 36).First());
         AssertEqual(0, OfficialResaleCoveragePolicy.SelectNext(ids, attempted, 0).Count);
         AssertEqual(1, OfficialResaleCoveragePolicy.SelectNext([1, 1, 0], attempted, 36).Count);
+        var prioritized = OfficialResaleCoveragePolicy.SelectNext(ids, attempted, 36, 180);
+        AssertEqual(36, prioritized.Count);
+        AssertEqual(180L, prioritized[0]);
+        AssertEqual(1L, prioritized[1]);
+        return Task.CompletedTask;
+    }
+
+    static Task TestOfficialCompleteDailyVolumeAsync()
+    {
+        var now = new DateTimeOffset(2026, 11, 28, 12, 0, 0, TimeSpan.Zero);
+        var full = Enumerable.Range(1, 7)
+            .Select(i => new ResaleDataPoint(now.AddDays(-i), i)).ToArray();
+        AssertEqual(28d, OfficialResaleCoveragePolicy.CompletedDailyVolume(full, 7, now));
+        AssertTrue(OfficialResaleCoveragePolicy.CompletedDailyVolume(full, 30, now) is null);
+        AssertTrue(OfficialResaleCoveragePolicy.CompletedDailyVolume(full.Skip(1).ToArray(), 7, now) is null);
+        AssertEqual(28d, OfficialResaleCoveragePolicy.CompletedDailyVolume(
+            full.Concat([full[0], new ResaleDataPoint(now, 100)]).ToArray(), 7, now));
+        AssertTrue(OfficialResaleCoveragePolicy.CompletedDailyVolume(
+            full.Concat([full[0] with { Value = 99 }]).ToArray(), 7, now) is null);
+        AssertTrue(OfficialResaleCoveragePolicy.CompletedDailyVolume(
+            full.Select((p, i) => i == 0 ? p with { Value = double.NaN } : p).ToArray(), 7, now) is null);
+        AssertEqual(0d, OfficialResaleCoveragePolicy.CompletedDailyVolume(
+            full.Select(p => p with { Value = 0 }).ToArray(), 7, now));
         return Task.CompletedTask;
     }
 
@@ -192,7 +215,7 @@ internal static partial class Program
         AssertTrue(OfficialResaleCoveragePolicy.HasRecentVolume(freshZero.VolumeDataPoints, now));
         var fresh = OfficialLimitedHuntScoring.Evaluate(item, freshZero);
         AssertTrue(fresh.IsEnriched);
-        AssertTrue(fresh.HasRecentSalesCoverage);
+        AssertTrue(!fresh.HasRecentSalesCoverage); // one zero is not a seven-day total
         AssertEqual(0d, fresh.Sales7d);
         AssertTrue(!fresh.IsHuntCandidate);
         return Task.CompletedTask;

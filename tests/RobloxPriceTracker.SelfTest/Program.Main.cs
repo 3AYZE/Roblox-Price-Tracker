@@ -132,6 +132,7 @@ internal static partial class Program
             ("Official Hunt detects price drops", TestOfficialHuntDetectsPriceDropAsync),
             ("Official resale enrichment rotates across all discovered assets", TestOfficialResaleCoverageRotatesAsync),
             ("Official 7-day sales reject old volume weeks without invented zeros", TestOfficialResaleRejectsStaleWeeksAsync),
+            ("Official complete daily sales distinguish missing, duplicate and zero buckets", TestOfficialCompleteDailyVolumeAsync),
             ("Official migrated assets resolve live collectible resale data", TestOfficialResaleFallsBackForMigratedAssetAsync),
             ("Official known collectible IDs use one modern request and cache", TestOfficialKnownCollectibleUsesDirectModernResaleAsync),
             ("Official partial modern RAP uses direct legacy fallback without repeating modern", TestOfficialKnownCollectiblePartialRapFallbackAsync),
