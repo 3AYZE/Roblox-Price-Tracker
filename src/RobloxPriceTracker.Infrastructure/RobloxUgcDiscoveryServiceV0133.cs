@@ -381,7 +381,9 @@ public sealed class RobloxUgcDiscoveryService
             if (_cachedDiscovery is { } insideCached && _cachedDiscoveryExpiresAtUtc > now)
                 return insideCached with { FromCache = true };
 
-            var refreshed = await DiscoverIdsFromFeedsAsync(BuildDiscoveryFeeds(_categoryRotation++), cancellationToken).ConfigureAwait(false);
+            var rotation = _categoryRotation++;
+            var refreshed = await DiscoverIdsFromFeedsAsync(BuildDiscoveryFeeds(rotation),
+                cancellationToken, rotation).ConfigureAwait(false);
             if (!refreshed.IsPartial)
             {
                 _cachedDiscovery = refreshed with { FromCache = false };
@@ -397,7 +399,7 @@ public sealed class RobloxUgcDiscoveryService
 
     private async Task<DiscoveryIdSet> DiscoverIdsFromFeedsAsync(
         IReadOnlyList<DiscoveryFeed> feeds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, long rotation = 0)
     {
         var signals = new Dictionary<long, DiscoverySignal>();
         var recentIds = new List<long>(RecentReserve * 2);
@@ -515,7 +517,7 @@ public sealed class RobloxUgcDiscoveryService
             .ToArray();
 
         var selected = UgcDiscoverySelectionPolicy.Select(
-            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds, assetTypes);
+            ordered, feedIdLists, recentIds, emoteIds, MaxDiscoveryIds, assetTypes, rotation);
         return new DiscoveryIdSet(selected.ToArray(), feedsUsed, pagesUsed, FromCache: false,
             IsPartial: firstFailure is not null || discoveryRateLimited);
     }

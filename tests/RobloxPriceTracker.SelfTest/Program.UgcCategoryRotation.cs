@@ -19,4 +19,21 @@ internal static partial class Program
             .SequenceEqual(UgcDiscoverySelectionPolicy.CategoryKeywordsForScan(-1)));
         return Task.CompletedTask;
     }
+
+    static Task TestUgcDiscoveryMomentumRotationAsync()
+    {
+        var ranked = Enumerable.Range(1, 240).Select(x => (long)x).ToArray();
+        var first = UgcDiscoverySelectionPolicy.Select(ranked, [], [], [], 120);
+        var next = UgcDiscoverySelectionPolicy.Select(ranked, [], [], [], 120, rotation: 1);
+        AssertEqual(120, first.Count);
+        AssertEqual(120, next.Count);
+        AssertEqual(120, next.Distinct().Count());
+        AssertTrue(first.Take(32).SequenceEqual(next.Take(32)));
+        AssertTrue(next.Any(id => !first.Contains(id)));
+        var covered = new HashSet<long>();
+        for (var i = 0; i < 8; i++)
+            covered.UnionWith(UgcDiscoverySelectionPolicy.Select(ranked, [], [], [], 120, rotation: i));
+        AssertEqual(240, covered.Count);
+        return Task.CompletedTask;
+    }
 }

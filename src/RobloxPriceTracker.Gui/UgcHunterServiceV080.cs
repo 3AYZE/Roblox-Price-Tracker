@@ -85,12 +85,15 @@ public sealed class UgcHunterService
         }
     }
 
-    public Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default) =>
+    public Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default,
+        IProgress<UgcHunterMarketSnapshot>? progress = null) =>
         _scanDiagnostics is null
-            ? RefreshCoreAsync(cancellationToken)
-            : _scanDiagnostics.MeasureAsync("ugc-full", RefreshCoreAsync, cancellationToken);
+            ? RefreshCoreAsync(cancellationToken, progress)
+            : _scanDiagnostics.MeasureAsync("ugc-full",
+                token => RefreshCoreAsync(token, progress), cancellationToken);
 
-    private async Task<UgcHunterMarketSnapshot> RefreshCoreAsync(CancellationToken cancellationToken)
+    private async Task<UgcHunterMarketSnapshot> RefreshCoreAsync(CancellationToken cancellationToken,
+        IProgress<UgcHunterMarketSnapshot>? progress)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         var now = DateTimeOffset.UtcNow;
@@ -99,21 +102,6 @@ public sealed class UgcHunterService
             : await _scanDiagnostics.MeasureAsync("ugc-discovery-verify",
                 token => FetchCandidatesAsync(now, token), cancellationToken).ConfigureAwait(false);
         var raw = discovered.Items;
-
-        IReadOnlyDictionary<long, string> thumbnails;
-        try
-        {
-            thumbnails = _scanDiagnostics is null
-                ? await _thumbnailService.GetAssetThumbnailUrlsAsync(raw.Select(x => x.AssetId), cancellationToken).ConfigureAwait(false)
-                : await _scanDiagnostics.MeasureAsync("ugc-thumbnails",
-                    token => _thumbnailService.GetAssetThumbnailUrlsAsync(raw.Select(x => x.AssetId), token),
-                    cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"UGC Hunter thumbnails could not be loaded: {ex.Message}");
-            thumbnails = new Dictionary<long, string>();
-        }
 
         var baseline = new List<UgcHunterItem>(raw.Count);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -150,8 +138,7 @@ public sealed class UgcHunterService
                 observations.RemoveAll(x => now - x.ObservedAtUtc > TimeSpan.FromHours(24));
                 if (observations.Count > 360) observations.RemoveRange(0, observations.Count - 360);
 
-                thumbnails.TryGetValue(candidate.AssetId, out var thumbnail);
-                baseline.Add(Analyze(candidate, observations, thumbnail));
+                baseline.Add(Analyze(candidate, observations, null));
             }
 
             await PersistLockedAsync(cancellationToken).ConfigureAwait(false);
@@ -174,10 +161,39 @@ public sealed class UgcHunterService
             _gate.Release();
         }
 
-        var enriched = _scanDiagnostics is null
-            ? await EnrichResaleEvidenceAsync(baseline, now, cancellationToken).ConfigureAwait(false)
-            : await _scanDiagnostics.MeasureAsync("ugc-resale-analysis",
-                token => EnrichResaleEvidenceAsync(baseline, now, token), cancellationToken).ConfigureAwait(false);
+        // The stock/price screen has all necessary original-market evidence.
+        // Publish research rows before image or resale requests; never publish
+        // a provisional buy recommendation or paper-entry qualification.
+        var screened = baseline.Select(x => ApplyBuyingPrice(ApplyPriceIntegrity(x, now), now)).ToArray();
+        if (progress is not null)
+        {
+            var preview = screened.Select(x => x with
+            {
+                Recommendation = "DATA REVIEW",
+                HasRecentResaleVolume = false,
+                VerifiedCompletedResales30d = null,
+                ResaleVolumeEvidenceDays = 0
+            }).ToArray();
+            progress.Report(new UgcHunterMarketSnapshot(preview,
+                new UgcMarketState("SCANNING", preview.Length, 0, 0, "Loading resale evidence…"), now)
+            {
+                PriceIntegrityPolicyVersion = 7,
+                IsPartial = discovered.IsPartial,
+                InvalidatedAssetIds = discovered.InvalidatedAssetIds
+            });
+        }
+
+        // Existing bounded image and resale requests can proceed independently.
+        var thumbnailTask = LoadScanThumbnailsAsync(screened.Where(x => x.IsLiveScannerEligible)
+            .Select(x => x.AssetId), cancellationToken);
+        var resaleTask = _scanDiagnostics is null
+            ? EnrichResaleEvidenceAsync(baseline, screened, now, cancellationToken)
+            : _scanDiagnostics.MeasureAsync("ugc-resale-analysis",
+                token => EnrichResaleEvidenceAsync(baseline, screened, now, token), cancellationToken);
+        await Task.WhenAll(thumbnailTask, resaleTask).ConfigureAwait(false);
+        var thumbnails = await thumbnailTask.ConfigureAwait(false);
+        var enriched = (await resaleTask.ConfigureAwait(false)).Select(x =>
+            thumbnails.TryGetValue(x.AssetId, out var url) ? x with { ThumbnailUrl = url } : x).ToArray();
         // The observed primary low is scoped to this scan, per exact asset type.
         // Never substitute seller floor/RAP, or call it Roblox's official floor.
         var lowest = UgcCategoryPrimaryPricePolicy.FindLowestObservedOriginalPricesByMaterial(
@@ -213,6 +229,25 @@ public sealed class UgcHunterService
         };
     }
 
+    private async Task<IReadOnlyDictionary<long, string>> LoadScanThumbnailsAsync(
+        IEnumerable<long> assetIds, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return _scanDiagnostics is null
+                ? await _thumbnailService.GetAssetThumbnailUrlsAsync(assetIds, cancellationToken).ConfigureAwait(false)
+                : await _scanDiagnostics.MeasureAsync("ugc-thumbnails",
+                    token => _thumbnailService.GetAssetThumbnailUrlsAsync(assetIds, token),
+                    cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logger.Info($"UGC thumbnail request incomplete: {ex.Message}");
+            return new Dictionary<long, string>();
+        }
+    }
+
     private UgcHunterItem ApplyBuyingPrice(UgcHunterItem item, DateTimeOffset now)
     {
         var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
@@ -245,7 +280,7 @@ public sealed class UgcHunterService
     {
         var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
             item.AssetId, item.CreatorId, item.AssetType, item.Price,
-            item.UnitsAvailable, now, item.PrimaryMarketVerified,
+            item.UnitsAvailable, item.ObservedAtUtc, item.PrimaryMarketVerified,
             "RobloxMarketplacePrimary");
         var market = new UgcPriceIntegrityPolicy.ResaleEvidence(
             item.CurrentResaleFloor,
@@ -310,28 +345,21 @@ public sealed class UgcHunterService
 
     private async Task<IReadOnlyList<UgcHunterItem>> EnrichResaleEvidenceAsync(
         IReadOnlyList<UgcHunterItem> baseline,
+        IReadOnlyList<UgcHunterItem> screened,
         DateTimeOffset observedAtUtc,
         CancellationToken cancellationToken)
     {
         if (baseline.Count == 0) return baseline;
-
-        var selectionCandidates = baseline.Select(item =>
-        {
-            var current = new UgcPriceIntegrityPolicy.PrimaryPriceObservation(
-                item.AssetId, item.CreatorId, item.AssetType, item.Price,
-                item.UnitsAvailable, item.ObservedAtUtc, item.PrimaryMarketVerified,
-                "RobloxMarketplacePrimary");
-            var buyingPrice = UgcCategoryBuyingPricePolicy.Evaluate(
-                current, item.MaterialClass, _integrityLedger.History(item.AssetId), _buyingPriceRules);
-            return new UgcResaleEnrichmentSelectionPolicy.Candidate(
+        // The exact same strict price, freshness, supply and age requirements
+        // used by the live scanner also bound resale requests.
+        var selectionCandidates = screened.Where(x => x.IsLiveScannerEligible)
+            .Select(item => new UgcResaleEnrichmentSelectionPolicy.Candidate(
                 item.AssetId, item.AssetType, item.PrimaryMarketVerified,
-                buyingPrice.IsGoodBuyingPrice, item.UnitsAvailable, item.TotalSupply,
+                item.IsGoodBuyingPrice, item.UnitsAvailable, item.TotalSupply,
                 item.ObservationCount, item.VelocityPerMinute,
-                item.ResalePotentialScore, item.EntryScore);
-        }).ToArray();
-        var eligibleIds = baseline.Where(x => x.MeetsScannerStockAndAge).Select(x => x.AssetId).ToHashSet();
+                item.ResalePotentialScore, item.EntryScore)).ToArray();
         var selectedCandidates = UgcResaleEnrichmentSelectionPolicy.Select(
-            selectionCandidates.Where(x => eligibleIds.Contains(x.AssetId)), ResaleEnrichmentLimit,
+            selectionCandidates, ResaleEnrichmentLimit,
             Interlocked.Increment(ref _resaleEnrichmentRotation) - 1);
         var itemsById = baseline.ToDictionary(x => x.AssetId);
         var selected = selectedCandidates.Select(x => itemsById[x.AssetId]).ToArray();
@@ -780,7 +808,7 @@ public sealed class UgcHunterService
         if (items.Count == 0)
             return new UgcMarketState("QUIET", 0, 0, 0, "No qualifying paid catalog-buyable UGC Limiteds found in the current scan.");
 
-        var eligible = items.Where(x => x.IsGoodBuyingPrice && !x.IsExcludedPriceDistortion).ToArray();
+        var eligible = items.Where(x => x.IsLiveScannerEligible && x.IsGoodBuyingPrice).ToArray();
         if (eligible.Length == 0)
             return new UgcMarketState("QUIET", 0, 0, 0,
                 "No items currently pass the category entry-price and price-integrity buying gates.");
@@ -1017,7 +1045,13 @@ public sealed record UgcHunterItem(
     public bool MeetsScannerStockAndAge => UgcActiveStockPolicy.HasMinimumSellThrough(
         PrimaryMarketVerified, UnitsAvailable, TotalSupply) &&
         UgcActiveStockPolicy.IsWithinScannerAge(CreatedAtUtc, DateTimeOffset.UtcNow);
-    public bool IsQualifiedOpportunity => MeetsScannerStockAndAge && UgcQualifiedOpportunityPolicy.Evaluate(
+    public bool IsLiveScannerEligible => MeetsScannerStockAndAge &&
+        UgcActiveStockPolicy.IsActiveSnapshot(PrimaryMarketVerified, UnitsAvailable, Price,
+            ObservedAtUtc, DateTimeOffset.UtcNow) &&
+        UgcCategoryBuyingPricePolicy.IsLiveScannerListing(BuyingPriceClassification, Price,
+            BuyingPriceCeiling, IsExcludedPriceDistortion, EarlierLowerVerifiedOriginalPrice,
+            AssetType, MaterialClass);
+    public bool IsQualifiedOpportunity => IsLiveScannerEligible && UgcQualifiedOpportunityPolicy.Evaluate(
         new UgcQualifiedOpportunityPolicy.Evidence(
             PrimaryMarketVerified, ObservedAtUtc, Price, UnitsAvailable, TotalSupply,
             ObservationCount, VelocityPerMinute, HasRecentResaleVolume,

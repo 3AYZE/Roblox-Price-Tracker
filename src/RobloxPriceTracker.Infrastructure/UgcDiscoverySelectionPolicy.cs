@@ -34,7 +34,7 @@ public static class UgcDiscoverySelectionPolicy
         IReadOnlyList<long> recentIds,
         IReadOnlyList<long> emoteIds,
         int capacity,
-        IReadOnlyDictionary<long, int>? assetTypes = null)
+        IReadOnlyDictionary<long, int>? assetTypes = null, long rotation = 0)
     {
         if (capacity <= 0) return Array.Empty<long>();
 
@@ -54,6 +54,11 @@ public static class UgcDiscoverySelectionPolicy
             if (type > 0) typeCounts[type] = typeCounts.GetValueOrDefault(type) + 1;
             return true;
         }
+
+        // Keep the strongest 32 discovery IDs and rotate the remaining
+        // momentum tail on new scans; otherwise a popular but overpriced item
+        // can occupy the same hydration slot indefinitely. No new requests.
+        var momentumOrder = RotateMomentumTail(rankedMomentumIds, rotation);
 
         // Give distinct known accessory types first access to the same ID budget.
         // Search type is a discovery hint; hydration and Marketplace still verify stock.
@@ -93,7 +98,7 @@ public static class UgcDiscoverySelectionPolicy
                 break;
         }
 
-        foreach (var id in rankedMomentumIds)
+        foreach (var id in momentumOrder)
         {
             if (selected.Count >= momentumCapacity) break;
             TryAdd(id, momentumCapacity);
@@ -107,7 +112,7 @@ public static class UgcDiscoverySelectionPolicy
         }
 
         // Backfill any unused reserve from scored candidates, then each feed.
-        foreach (var id in rankedMomentumIds)
+        foreach (var id in momentumOrder)
         {
             if (selected.Count >= capacity) break;
             TryAdd(id, capacity);
@@ -124,5 +129,16 @@ public static class UgcDiscoverySelectionPolicy
         }
 
         return selected;
+    }
+
+    private static IReadOnlyList<long> RotateMomentumTail(IReadOnlyList<long> ranked, long rotation)
+    {
+        const int stablePrefix = 32;
+        if (rotation == 0 || ranked.Count <= stablePrefix) return ranked;
+        var tail = ranked.Skip(stablePrefix).ToArray();
+        var offset = (int)(((rotation % tail.Length) * 32L) % tail.Length);
+        if (offset < 0) offset += tail.Length;
+        return ranked.Take(stablePrefix).Concat(tail.Skip(offset))
+            .Concat(tail.Take(offset)).ToArray();
     }
 }

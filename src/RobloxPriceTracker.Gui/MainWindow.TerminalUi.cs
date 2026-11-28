@@ -693,25 +693,30 @@ public partial class MainWindow : Window
         _hunterRefreshInProgress = true;
         if (_hunterUpdatedText is not null) _hunterUpdatedText.Text = "Scanning Roblox Marketplace…";
         if (_hunterErrorText is not null && !silent) _hunterErrorText.Visibility = Visibility.Collapsed;
+        var acceptPreview = true;
         try
         {
+            var progress = new Progress<UgcHunterMarketSnapshot>(preview =>
+            {
+                // Progress<T> posts to the WPF dispatcher. A late queued preview
+                // must not replace a completed or failed refresh.
+                if (!acceptPreview) return;
+                _hunterScanPartial = preview.IsPartial;
+                _hunterRefreshFailed = false;
+                ApplyHunterScanRows(preview);
+                if (_hunterUpdatedText is not null)
+                    _hunterUpdatedText.Text = "Stock verified · loading resale evidence";
+                UpdateLiveDropScopeStatus();
+            });
+            var snapshot = await _services.UgcHunterService.RefreshAsync(progress: progress);
+            acceptPreview = false;
             var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
-            var snapshot = await _services.UgcHunterService.RefreshAsync();
             _hunterScanPartial = snapshot.IsPartial;
             _hunterRefreshFailed = false;
             if (_hunterLastRefreshUtc != snapshot.ObservedAtUtc)
             {
                 _hunterLastRefreshUtc = snapshot.ObservedAtUtc;
-                // A bounded discovery window is not an exhaustive list of all active assets.
-                // Keep still-fresh prior observations not contradicted by a returned quote.
-                // Never advance their verification time; the normal stock freshness gate applies.
-                var now = DateTimeOffset.UtcNow;
-                var merged = KeyedSnapshotReconciler.MergeFresh(
-                    _hunterRows, snapshot.Items, x => x.AssetId,
-                    snapshot.InvalidatedAssetIds,
-                    x => UgcActiveStockPolicy.IsActiveSnapshot(x.PrimaryMarketVerified,
-                        x.UnitsAvailable, x.Price, x.ObservedAtUtc, now));
-                KeyedSnapshotReconciler.Apply(_hunterRows, merged, x => x.AssetId);
+                ApplyHunterScanRows(snapshot);
             }
             _hunterView?.Refresh();
             if (_hunterErrorText is not null) _hunterErrorText.Visibility = Visibility.Collapsed;
@@ -744,6 +749,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            acceptPreview = false;
             _hunterRefreshFailed = true;
             _services.Logger.Error($"UGC Hunter refresh failed: {ex}");
             var hasCachedRows = _hunterRows.Count > 0;
@@ -802,8 +808,30 @@ public partial class MainWindow : Window
         }
         finally
         {
+            acceptPreview = false;
             _hunterRefreshInProgress = false;
         }
+    }
+
+    private void ApplyHunterScanRows(UgcHunterMarketSnapshot snapshot)
+    {
+        var selectedAssetId = (_hunterGrid?.SelectedItem as UgcHunterItem)?.AssetId;
+        // Missing images are not deletions. Preserve a previous thumbnail for
+        // the same item while a new PNG request is pending or unavailable.
+        var thumbnails = _hunterRows.Where(x => !string.IsNullOrEmpty(x.ThumbnailUrl))
+            .GroupBy(x => x.AssetId).ToDictionary(x => x.Key, x => x.First().ThumbnailUrl);
+        var incoming = snapshot.Items.Select(x => string.IsNullOrEmpty(x.ThumbnailUrl) &&
+            thumbnails.TryGetValue(x.AssetId, out var url) ? x with { ThumbnailUrl = url } : x);
+        var now = DateTimeOffset.UtcNow;
+        var merged = KeyedSnapshotReconciler.MergeFresh(
+            _hunterRows, incoming, x => x.AssetId, snapshot.InvalidatedAssetIds,
+            x => UgcActiveStockPolicy.IsActiveSnapshot(x.PrimaryMarketVerified,
+                x.UnitsAvailable, x.Price, x.ObservedAtUtc, now));
+        KeyedSnapshotReconciler.Apply(_hunterRows, merged, x => x.AssetId);
+        _hunterView?.Refresh();
+        if (_hunterGrid is not null && selectedAssetId is { } id)
+            _hunterGrid.SelectedItem = _hunterRows.FirstOrDefault(x => x.AssetId == id);
+        UpdateHunterInspector();
     }
 
     private async Task RefreshPaperPortfolioAsync()

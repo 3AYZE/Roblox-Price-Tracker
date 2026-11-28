@@ -95,6 +95,7 @@ internal static partial class Program
             ("UGC depletion requires consistent verified inventory observations", TestVerifiedStockDepletionAsync),
             ("UGC historic price anchors survive pruning and restart", TestPermanentPriceAnchorsAsync),
             ("UGC category search rotation stays bounded and covers every keyword", TestUgcCategoryKeywordRotationAsync),
+            ("UGC bounded discovery rotates beyond the fixed popular candidates", TestUgcDiscoveryMomentumRotationAsync),
             ("UGC live scanner cannot show overpriced or repriced accessories", TestUgcStrictScannerPriceAsync),
             ("UGC scanner requires half original supply sold and ignores age below one year", TestUgcSellThroughAndAgeAsync),
             ("UGC incremental refresh retains fresh rows and rejects invalidated stock", TestUgcRefreshReconcileAsync),

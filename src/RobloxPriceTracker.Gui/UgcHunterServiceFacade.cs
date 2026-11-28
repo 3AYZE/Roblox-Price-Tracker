@@ -91,7 +91,8 @@ public sealed class UgcHunterServiceFacade : IDisposable
         }
     }
 
-    public async Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default)
+    public async Task<UgcHunterMarketSnapshot> RefreshAsync(CancellationToken cancellationToken = default,
+        IProgress<UgcHunterMarketSnapshot>? progress = null)
     {
         ThrowIfDisposed();
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -106,16 +107,17 @@ public sealed class UgcHunterServiceFacade : IDisposable
                 _lastLiveRefreshStartedUtc = DateTimeOffset.UtcNow;
                 // One caller cancelling its wait must not cancel the scan shared
                 // by another view. Errors flow to every awaiting caller.
-                _refreshTask = RefreshLiveAndCacheAsync(CancellationToken.None);
+                _refreshTask = RefreshLiveAndCacheAsync(CancellationToken.None, progress);
             }
             refresh = _refreshTask;
         }
         return await refresh.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<UgcHunterMarketSnapshot> RefreshLiveAndCacheAsync(CancellationToken cancellationToken)
+    private async Task<UgcHunterMarketSnapshot> RefreshLiveAndCacheAsync(CancellationToken cancellationToken,
+        IProgress<UgcHunterMarketSnapshot>? progress)
     {
-        var snapshot = await _inner.RefreshAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = await _inner.RefreshAsync(cancellationToken, progress).ConfigureAwait(false);
 
         lock (_stateGate)
         {
